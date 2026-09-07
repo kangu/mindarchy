@@ -7,6 +7,7 @@
 #include <QTextDocument>
 #include <QTextCursor>
 #include <QtTest>
+#include <cmath>
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
@@ -73,6 +74,34 @@ class EngineTest : public QObject {
         QCOMPARE(preview.width(),160.); QVERIFY(preview.height()>42);
         QVERIFY(e.applyNodeStyle({{"width",0}})); QVERIFY(e.nodes().value(2).rect.width()>160);
     }
+    void manualBranchesMirrorAndPersist() {
+        Engine e; e.loadFixture(45); e.setManual(true);
+        const int branch=e.nodes().value(1).children.first();
+        const int child=e.nodes().value(branch).children.first();
+        e.moveManual(child,20,12);
+        const auto before=e.nodes();
+        const QPointF delta(e.nodes().value(1).rect.center().x()-e.nodes().value(branch).rect.center().x()-150,25);
+        const auto preview=e.manualGeometry(branch,delta);
+        QCOMPARE(e.nodes().value(branch).rect,before.value(branch).rect);
+        QVERIFY(preview.value(child).center().x()<preview.value(branch).center().x());
+        QCOMPARE(preview.value(child).center().x()-preview.value(branch).center().x(),
+                 -(before.value(child).rect.center().x()-before.value(branch).rect.center().x()));
+        e.moveManual(branch,delta.x(),delta.y());
+        for(int id:e.visibleIds()) QCOMPARE(e.nodes().value(id).rect,preview.value(id));
+        const auto mirrored=e.nodes();
+        e.undo(); for(int id:e.visibleIds()) QCOMPARE(e.nodes().value(id).rect,before.value(id).rect);
+        e.redo(); QCOMPARE(e.nodes().value(child).rect,mirrored.value(child).rect);
+        const QPointF childBefore=e.nodes().value(child).rect.center();
+        e.moveManual(child,30,15); QCOMPARE(e.nodes().value(child).rect.center(),childBefore+QPointF(30,15));
+        e.undo();
+        QTemporaryDir dir; const auto path=dir.filePath("mirrored.json"); QVERIFY(e.save(path));
+        Engine loaded; QVERIFY(loaded.open(path));
+        for(int id:e.visibleIds()) QCOMPARE(loaded.nodes().value(id).rect,e.nodes().value(id).rect);
+        e.select(branch); e.toggleFold(); e.toggleFold();
+        QCOMPARE(e.nodes().value(child).rect,mirrored.value(child).rect);
+        e.moveManual(branch,-delta.x(),-delta.y());
+        for(int id:e.visibleIds()) QCOMPARE(e.nodes().value(id).rect,before.value(id).rect);
+    }
     void seed() {
         Engine e;
         QVERIFY(e.nodeCount() >= 12);
@@ -80,12 +109,45 @@ class EngineTest : public QObject {
         QVERIFY(e.selectedText().contains("Mindmap"));
         QCOMPARE(e.nodeCount(), e.visibleCount());
     }
+    void researchThemeRecipesAreAtomicAndReadable() {
+        auto luminance=[](QColor c) {
+            auto linear=[](double v) { return v<=.04045 ? v/12.92 : std::pow((v+.055)/1.055,2.4); };
+            return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
+        };
+        for(const auto &id:QStringList{"canopy","atlas","studio","nocturne"}) {
+            Engine e; e.select(2); e.applyNodeStyle({{"fill",QString("#abcdef")}});
+            e.setManual(true); const auto original=e.nodes(); const auto oldTheme=e.themeId();
+            QSignalSpy changes(&e,&Engine::changed);
+            QVERIFY(e.applyThemeRecipe(id)); QCOMPARE(changes.count(),1);
+            QCOMPARE(e.themeId(),id); QVERIFY(!e.manual());
+            QCOMPARE(e.layout(),Themes::layoutRecipe(id)["layout"].toString());
+            for(auto it=original.begin();it!=original.end();++it) {
+                QCOMPARE(e.nodes().value(it.key()).text,it->text);
+                QCOMPARE(e.nodes().value(it.key()).children,it->children);
+                QCOMPARE(e.nodes().value(it.key()).style,it->style);
+            }
+            e.undo(); QCOMPARE(e.themeId(),oldTheme); QVERIFY(e.manual());
+            e.redo(); QCOMPARE(e.themeId(),id);
+            QTemporaryDir dir; const auto file=dir.filePath("recipe.json"); QVERIFY(e.save(file));
+            Engine loaded; QVERIFY(loaded.open(file)); QCOMPARE(loaded.themeId(),id); QCOMPARE(loaded.layout(),e.layout());
+            const QString example=QFINDTESTDATA(qPrintable("../examples/research-templates/"+id+".json"));
+            QVERIFY(!example.isEmpty()); Engine starter; QVERIFY(starter.open(example));
+            QCOMPARE(starter.themeId(),id); QCOMPARE(starter.nodeCount(),13);
+            for(int depth=0;depth<5;++depth) for(int branch=0;branch<6;++branch) {
+                const auto a=Themes::appearance(id,depth,branch);
+                const double fg=luminance(a.text),bg=luminance(a.fill.alpha()?a.fill:Themes::get(id).canvas);
+                QVERIFY2((std::max(fg,bg)+.05)/(std::min(fg,bg)+.05)>=4.5,qPrintable(id));
+            }
+        }
+        Engine invalid; const auto old=invalid.themeId(); QVERIFY(!invalid.applyThemeRecipe("missing"));
+        QCOMPARE(invalid.themeId(),old); QCOMPARE(Themes::get("missing").id,QString("lab"));
+    }
     void themeCatalogAndAppearance() {
         Engine e;
         QCOMPARE(e.themeId(), QString("lab"));
         const QVariantList themes = e.themes();
-        QCOMPARE(themes.size(), 5);
-        const QStringList expectedIds{"beach-day", "holographic", "retro", "arcade", "lab"};
+        QVERIFY(themes.size() >= 5);
+        const QStringList expectedIds{"beach-day", "holographic", "retro", "arcade", "lab", "canopy", "atlas", "studio", "nocturne"};
         for (int i = 0; i < expectedIds.size(); ++i) {
             const QVariantMap entry = themes[i].toMap();
             QCOMPARE(entry.value("id").toString(), expectedIds[i]);

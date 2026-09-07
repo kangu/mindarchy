@@ -1,0 +1,184 @@
+{
+  "format": "mindmap-lab",
+  "version": 1,
+  "themeId": "atlas",
+  "layout": "Vertical",
+  "spacing": "Wide",
+  "branchStyle": "Angular",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "children": [
+        2,
+        6,
+        10
+      ],
+      "text": "Project architecture",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "children": [
+        3,
+        4,
+        5
+      ],
+      "text": "Experience",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "children": [],
+      "text": "Canvas",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "children": [],
+      "text": "Editing",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 5,
+      "parent": 2,
+      "children": [],
+      "text": "Accessibility",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 6,
+      "parent": 1,
+      "children": [
+        7,
+        8,
+        9
+      ],
+      "text": "Platform",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 7,
+      "parent": 6,
+      "children": [],
+      "text": "Document model",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 8,
+      "parent": 6,
+      "children": [],
+      "text": "Layout engine",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 9,
+      "parent": 6,
+      "children": [],
+      "text": "Rendering",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 10,
+      "parent": 1,
+      "children": [
+        11,
+        12,
+        13
+      ],
+      "text": "Delivery",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 11,
+      "parent": 10,
+      "children": [],
+      "text": "Testing",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 12,
+      "parent": 10,
+      "children": [],
+      "text": "Packaging",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 13,
+      "parent": 10,
+      "children": [],
+      "text": "Release",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

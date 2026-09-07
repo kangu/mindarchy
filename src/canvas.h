@@ -35,6 +35,7 @@ class MindCanvas : public QQuickItem {
     bool editing() const { return m_editingId >= 0; }
     int editingId() const { return m_editingId; }
     QRectF editingRect() const;
+    QRectF nodeRect(int id) const { return displayRect(id); }
     QString interactionHint() const { return m_hint; }
     void setEditing(bool value);
     QPointF mapToWorld(QPointF p) const { return (p - m_pan) / m_zoom; }
@@ -81,7 +82,7 @@ class MindCanvas : public QQuickItem {
         QRectF rect;
         QColor color;
         NodeAppearance appearance;
-        bool selected, folded, task, checked;
+        bool selected, folded, task, checked, expandsLeft;
     };
     struct Label {
         int id;
@@ -128,7 +129,7 @@ class MindCanvas : public QQuickItem {
     std::atomic<double> m_sceneMs{0};
     QTimer m_metricsTimer, m_animationTimer;
     QElapsedTimer m_animationClock;
-    QHash<int, QRectF> m_previous, m_target;
+    QHash<int, QRectF> m_previous, m_target, m_manualPreview;
     bool m_animating = false;
     int m_hovered = -1, m_pressedId = -1, m_dropParent = -1, m_before = -1, m_editingId = -1;
     bool m_dragging = false, m_panning = false, m_marquee = false, m_space = false,

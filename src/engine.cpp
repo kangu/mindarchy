@@ -270,11 +270,16 @@ void Engine::rebuild() {
                 }
         }
     }
+    m_layoutRects.clear();
+    for(int id:m_visible) m_layoutRects.insert(id,m_nodes[id].rect);
+    const auto mirrored = m_manual && m_layout == "Horizontal" ? manualGeometry() : QHash<int,QRectF>();
     QHash<int, QPointF> accumulatedOffsets;
     m_bounds = QRectF();
     for (int id : m_visible) {
         auto &n = m_nodes[id];
-        if (m_manual) {
+        if (!mirrored.isEmpty()) {
+            n.rect = mirrored.value(id);
+        } else if (m_manual) {
             QPointF offset = n.manualOffset + accumulatedOffsets.value(n.parent);
             accumulatedOffsets.insert(id, offset);
             n.rect.translate(offset);
@@ -623,6 +628,12 @@ void Engine::moveNode(int id, int parent, int beforeId) {
     rebuild();
 }
 void Engine::moveManual(int id, double dx, double dy) {
+    // Offsets belong to the parent's local growth direction. Pointer movement
+    // stays in world coordinates, including inside an already mirrored branch.
+    if(m_layout=="Horizontal" && m_nodes.contains(id)) {
+        const int parent=m_nodes.value(id).parent;
+        if(parent>1 && m_nodes.value(parent).rect.center().x()<m_nodes.value(1).rect.center().x()) dx=-dx;
+    }
     if (!m_manual || !m_nodes.contains(id) || !std::isfinite(dx) || !std::isfinite(dy) ||
         std::abs(dx) > 1e6 || std::abs(dy) > 1e6)
         return;
@@ -938,4 +949,49 @@ void Engine::resetBranchWidth() {
     bool changed=false; for(int id:m_selection) changed |= m_nodes[id].style.contains("branchWidth");
     if(!changed) return;
     checkpoint(); for(int id:m_selection) m_nodes[id].style.remove("branchWidth"); rebuild();
+}
+
+QHash<int,QRectF> Engine::manualGeometry(int movingId, QPointF delta) const {
+    QHash<int,QRectF> result;
+    result.reserve(m_visible.size());
+    const int movingParent=m_nodes.value(movingId).parent;
+    if(movingId>=0 && movingParent>1 &&
+       m_nodes.value(movingParent).rect.center().x()<m_nodes.value(1).rect.center().x())
+        delta.setX(-delta.x());
+    if(movingId>=0) {
+        const auto next=m_nodes.value(movingId).manualOffset+delta;
+        if(!std::isfinite(delta.x()) || !std::isfinite(delta.y()) ||
+           std::abs(delta.x())>1e6 || std::abs(delta.y())>1e6 ||
+           std::abs(next.x())>1e6 || std::abs(next.y())>1e6) return manualGeometry();
+    }
+    for(int id:m_visible) {
+        const auto &n=m_nodes[id];
+        QRectF rect=m_layoutRects.value(id);
+        QPointF offset=n.manualOffset+(id==movingId ? delta : QPointF());
+        if(n.parent<0) rect.translate(offset);
+        else {
+            const auto parent=result.value(n.parent);
+            const qreal direction=n.parent!=1 && parent.center().x()<result.value(1).center().x() ? -1. : 1.;
+            QPointF relative=rect.center()-m_layoutRects.value(n.parent).center()+offset;
+            relative.setX(relative.x()*direction);
+            rect.moveCenter(parent.center()+relative);
+        }
+        result.insert(id,rect);
+    }
+    return result;
+}
+
+bool Engine::applyThemeRecipe(QString id) {
+    const auto recipe=Themes::layoutRecipe(id);
+    if(recipe.isEmpty()) return fail("This theme has no layout recipe.");
+    const QString layout=recipe["layout"].toString(), spacing=recipe["spacing"].toString(),
+                  branch=recipe["branchStyle"].toString();
+    if(!Themes::contains(id) || !validLayout(layout) || !validSpacing(spacing) || !validBranch(branch))
+        return fail("Invalid theme layout recipe.");
+    if(m_themeId==id && m_layout==layout && m_spacing==spacing && m_branchStyle==branch && !m_manual)
+        return true;
+    checkpoint();
+    m_themeId=id; m_layout=layout; m_spacing=spacing; m_branchStyle=branch; m_manual=false;
+    rebuild();
+    return true;
 }

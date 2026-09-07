@@ -197,6 +197,7 @@ void MindCanvas::setEngine(Engine *e) {
 }
 QRectF MindCanvas::displayRect(int id) const {
     if (id == m_editingId && !m_editPreview.isEmpty()) return m_editPreview;
+    if(m_dragging && m_manualPreview.contains(id)) return m_manualPreview.value(id);
     QRectF r = m_target.value(id, m_engine ? m_engine->nodes().value(id).rect : QRectF());
     if (m_animating && m_previous.contains(id)) {
         double t = std::clamp(m_animationClock.elapsed() / 180., 0., 1.);
@@ -283,8 +284,9 @@ void MindCanvas::refresh() {
                 a = {parent.left() + 12, parent.bottom()};
                 b = {r.left(), r.center().y()};
             } else {
-                a = {parent.right(), parent.center().y()};
-                b = {r.left(), r.center().y()};
+                const bool left=m_engine->manual() && r.center().x()<parent.center().x();
+                a = {left ? parent.left() : parent.right(), parent.center().y()};
+                b = {left ? r.right() : r.left(), r.center().y()};
             }
             if (!vertical) {
                 if (appearance.shape == NodeShape::Underline) b.setY(r.bottom());
@@ -297,7 +299,8 @@ void MindCanvas::refresh() {
         }
         if (!r.intersects(viewport))
             continue;
-        m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, n.task, n.checked});
+        m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, n.task, n.checked,
+            m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x()});
         if (m_zoom < .28 || editingId() == id)
             continue;
         auto it = m_cache.find(id);
@@ -450,7 +453,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                     n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,1);
         }
         if (n.folded)
-            box(vertices, QRectF(n.rect.right() + 4, n.rect.center().y() - 4, 8, 8), n.color, 4);
+            box(vertices, QRectF(n.expandsLeft ? n.rect.left()-12 : n.rect.right()+4, n.rect.center().y() - 4, 8, 8), n.color, 4);
     }
     if (m_dragging && m_dropParent >= 0 && m_target.contains(m_dropParent)) {
         QRectF r = displayRect(m_dropParent).adjusted(-6, -6, 6, 6);
@@ -658,6 +661,7 @@ void MindCanvas::mousePressEvent(QMouseEvent *e) {
     m_panning = e->button() == Qt::MiddleButton || m_space || e->button() == Qt::RightButton;
     m_marquee = false;
     m_dragging = false;
+    m_manualPreview.clear();
     m_dragDelta = {};
     m_dropParent = -1;
     m_before = -1;
@@ -721,6 +725,8 @@ void MindCanvas::mouseMoveEvent(QMouseEvent *e) {
         }
         if (m_dragging) {
             m_dragDelta = (p - m_press) / m_zoom;
+            if(m_engine->manual() && m_engine->layout()=="Horizontal")
+                m_manualPreview=m_engine->manualGeometry(m_pressedId,m_dragDelta);
             updateDrop(p);
             refresh();
         }
@@ -738,6 +744,10 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     if (m_dragging) {
         int id = m_pressedId, parent = m_dropParent, before = m_before;
         QPointF delta = m_dragDelta;
+        // Adopt the rendered preview before notifying the document, avoiding
+        // an animation from the pre-drag positions after a successful drop.
+        if(!m_manualPreview.isEmpty()) { m_target=m_manualPreview; m_previous=m_target; }
+        m_manualPreview.clear();
         m_dragging = false;
         m_dragDelta = {};
         m_dragIds.clear();

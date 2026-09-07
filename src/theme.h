@@ -26,5 +26,6 @@ namespace Themes {
 const MapTheme &get(const QString &id);
 bool contains(const QString &id);
 QVariantList catalog();
+QVariantMap layoutRecipe(const QString &id);
 NodeAppearance appearance(const QString &themeId, int depth, int branchIndex);
 } // namespace Themes

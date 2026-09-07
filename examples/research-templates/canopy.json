@@ -1,0 +1,184 @@
+{
+  "format": "mindmap-lab",
+  "version": 1,
+  "themeId": "canopy",
+  "layout": "Horizontal",
+  "spacing": "Wide",
+  "branchStyle": "Rounded",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "children": [
+        2,
+        6,
+        10
+      ],
+      "text": "Product discovery",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "children": [
+        3,
+        4,
+        5
+      ],
+      "text": "People",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "children": [],
+      "text": "Users",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "children": [],
+      "text": "Needs",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 5,
+      "parent": 2,
+      "children": [],
+      "text": "Context",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 6,
+      "parent": 1,
+      "children": [
+        7,
+        8,
+        9
+      ],
+      "text": "Problems",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 7,
+      "parent": 6,
+      "children": [],
+      "text": "Friction",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 8,
+      "parent": 6,
+      "children": [],
+      "text": "Evidence",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 9,
+      "parent": 6,
+      "children": [],
+      "text": "Constraints",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 10,
+      "parent": 1,
+      "children": [
+        11,
+        12,
+        13
+      ],
+      "text": "Opportunities",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 11,
+      "parent": 10,
+      "children": [],
+      "text": "Experiments",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 12,
+      "parent": 10,
+      "children": [],
+      "text": "Success measures",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 13,
+      "parent": 10,
+      "children": [],
+      "text": "Next questions",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

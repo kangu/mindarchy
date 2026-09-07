@@ -5,7 +5,8 @@ Button {
     id: card
     required property var theme
     objectName: "theme-" + theme.id
-    implicitHeight: 152
+    readonly property bool hasRecipe: !!theme.recipe.layout
+    implicitHeight: hasRecipe ? 183 : 152
     checkable: false
     focusPolicy: Qt.StrongFocus
     Accessible.name: theme.name + (checked ? ", current theme" : ", apply theme")
@@ -21,9 +22,60 @@ Button {
             anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
             anchors.margins: 5; height: 104
             onWidthChanged: requestPaint()
+            function drawRecipe(c,w,h) {
+                var t=card.theme, layout=t.recipe.layout
+                function drawNode(x,y,ww,hh,style,label) {
+                    c.fillStyle=style.fill; c.strokeStyle=style.border; c.lineWidth=Math.max(.7,style.borderWidth*.65)
+                    c.beginPath()
+                    if(style.shape===3) { c.strokeStyle=style.branch; c.moveTo(x,y+hh); c.lineTo(x+ww,y+hh); c.stroke() }
+                    else if(style.shape!==6) {
+                        if(style.shape===1) c.rect(x,y,ww,hh)
+                        else c.roundedRect(x,y,ww,hh,style.shape===2?hh/2:4,style.shape===2?hh/2:4)
+                        c.fill(); if(style.borderWidth>0) c.stroke()
+                    }
+                    c.fillStyle=style.text; c.font="8px sans-serif"
+                    if(label) c.fillText(label,x+6,y+hh/2+3)
+                    else c.fillRect(x+6,y+hh/2,Math.max(6,ww-12),1)
+                }
+                function edge(x1,y1,x2,y2,color) {
+                    c.strokeStyle=color; c.lineWidth=1.2; c.beginPath(); c.moveTo(x1,y1)
+                    if(t.recipe.branchStyle==="Angular") {
+                        if(layout==="Vertical") { c.lineTo(x1,(y1+y2)/2); c.lineTo(x2,(y1+y2)/2) }
+                        else { c.lineTo((x1+x2)/2,y1); c.lineTo((x1+x2)/2,y2) }
+                        c.lineTo(x2,y2)
+                    } else c.bezierCurveTo((x1+x2)/2,y1,(x1+x2)/2,y2,x2,y2)
+                    c.stroke()
+                }
+                if(layout==="Vertical") {
+                    drawNode(w/2-22,6,44,18,t.previewRoot,"Ideas")
+                    for(var i=0;i<3;i++) {
+                        var x=10+i*(w-54)/2, b=t.previewBranches[i], leaf=t.previewLeaves[i]
+                        edge(w/2,24,x+17,49,b.branch); drawNode(x,49,34,16,b,"")
+                        edge(x+17,65,x+17,85,leaf.branch); drawNode(x+2,85,30,12,leaf,"")
+                    }
+                } else if(layout==="Compact") {
+                    drawNode(12,5,47,16,t.previewRoot,"Ideas")
+                    for(var j=0;j<3;j++) {
+                        var yy=28+j*23, bb=t.previewBranches[j]
+                        c.strokeStyle=bb.branch; c.lineWidth=1; c.beginPath()
+                        c.moveTo(23,21); c.lineTo(23,yy+6); c.lineTo(45,yy+6); c.stroke()
+                        drawNode(45,yy,w*.40,12,bb,"")
+                        c.beginPath(); c.moveTo(53,yy+12); c.lineTo(53,yy+20); c.lineTo(65,yy+20); c.stroke()
+                        drawNode(65,yy+16,w*.45,8,t.previewLeaves[j],"")
+                    }
+                } else {
+                    drawNode(10,43,45,20,t.previewRoot,"Ideas")
+                    for(var k=0;k<3;k++) {
+                        var y=10+k*34, xx=w*.43, branch=t.previewBranches[k], ll=t.previewLeaves[k]
+                        edge(55,53,xx,y+9,branch.branch); drawNode(xx,y,36,18,branch,"")
+                        edge(xx+36,y+9,w*.79,y+14,ll.branch); drawNode(w*.79,y+4,w*.17,12,ll,"")
+                    }
+                }
+            }
             onPaint: {
                 var c = getContext("2d"), w = width, h = height
                 c.reset(); c.fillStyle = card.theme.canvas; c.fillRect(0,0,w,h)
+                if (card.hasRecipe) { drawRecipe(c,w,h); return }
                 var id = card.theme.id, colors = card.theme.palette
                 var dark = id === "arcade" || id === "lab"
                 function node(x,y,ww,hh,fill,stroke,shape) {
@@ -57,10 +109,16 @@ Button {
             }
         }
         Row {
-            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 7
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.bottomMargin: card.hasRecipe ? 35 : 7; anchors.leftMargin: 7; anchors.rightMargin: 7
             spacing: 7
             Label { text: card.checked ? "✓" : ""; color: "#70d8c4"; width: 12 }
             Label { text: card.theme.name; color: "#e0e9ee"; font.pixelSize: 12; font.bold: card.checked }
+        }
+        Label {
+            visible: card.hasRecipe
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 7
+            text: card.hasRecipe ? card.theme.recipe.name + " · " + card.theme.recipe.layout : ""
+            color: "#a7bdcb"; font.pixelSize: 10; elide: Text.ElideRight
         }
     }
 }

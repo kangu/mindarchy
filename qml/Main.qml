@@ -52,8 +52,19 @@ ApplicationWindow {
         if (next === "sibling") controller.addSibling()
         return true
     }
+    property bool useThemeLayouts: false
     function applyTheme(id) {
         if (!commitEditor("")) return false
+        if (useThemeLayouts) {
+            for (var i=0; i<controller.themes.length; ++i) {
+                var theme = controller.themes[i]
+                if (theme.id === id && theme.recipe.layout) {
+                    var accepted = controller.applyThemeRecipe(id)
+                    if (accepted) canvas.fit()
+                    return accepted
+                }
+            }
+        }
         controller.themeId = id
         return controller.themeId === id
     }
@@ -305,7 +316,10 @@ ApplicationWindow {
                             ColumnLayout {
                                 visible: inspectorTabs.currentIndex === 2; Layout.fillWidth: true; spacing: 12
                                 Label { text: "Choose a theme"; color: window.ink; font.pixelSize: 17; font.bold: true }
-                                Label { Layout.fillWidth: true; text: "Canvas, branches and node styles. Your words and layout stay in place."; wrapMode: Text.Wrap; color: window.muted; font.pixelSize: 12 }
+                                Label { Layout.fillWidth: true; text: "Apply colors and node styles, or include a suggested layout for the new themes."; wrapMode: Text.Wrap; color: window.muted; font.pixelSize: 12 }
+                                CheckBox { objectName: "useThemeLayouts"; text: "Use suggested layout"; checked: window.useThemeLayouts
+                                    onClicked: window.useThemeLayouts = checked
+                                    ToolTip.visible: hovered; ToolTip.text: "New themes include an automatic layout recipe. Applies with the theme as one undoable change." }
                                 Repeater {
                                     model: controller.themes
                                     delegate: ThemeCard {

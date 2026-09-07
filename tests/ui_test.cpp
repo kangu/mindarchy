@@ -140,6 +140,38 @@ class UiTest : public QObject {
         QVERIFY(canvas->editing()); canvas->endEdit();
         tabs->setProperty("currentIndex",0);
     }
+    void researchThemesApplyOptionalLayouts() {
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); tabs->setProperty("currentIndex",2);
+        auto *toggle=window->findChild<QQuickItem *>("useThemeLayouts"); QVERIFY(toggle);
+        toggle->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QVERIFY(window->property("useThemeLayouts").toBool());
+        for(const auto &id:QStringList{"canopy","atlas","studio","nocturne"}) {
+            auto *card=findVisual(window->contentItem(),"theme-"+id); QVERIFY(card);
+            card->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+            QTRY_COMPARE(document->themeId(),id);
+            QCOMPARE(document->layout(),Themes::layoutRecipe(id)["layout"].toString());
+            QTest::qWait(250);
+            const QString dir=qEnvironmentVariable("MINDMAP_RESEARCH_SCREENSHOTS");
+            if(!dir.isEmpty()) {
+                auto *scroll=window->findChild<QQuickItem *>("inspectorScroll"); QVERIFY(scroll);
+                auto *flick=qvariant_cast<QObject *>(scroll->property("contentItem")); QVERIFY(flick);
+                flick->setProperty("contentY",flick->property("contentY").toDouble()+card->mapToScene({0,0}).y()-scroll->mapToScene({0,0}).y());
+                QTest::qWait(100); QDir().mkpath(dir);
+                QVERIFY(window->grabWindow().save(dir+"/"+id+".png"));
+            }
+        }
+        window->setProperty("useThemeLayouts",false);
+        document->setLayout("Vertical");
+        auto *card=findVisual(window->contentItem(),"theme-canopy"); card->forceActiveFocus();
+        QTest::keyClick(window,Qt::Key_Space); QCOMPARE(document->themeId(),QString("canopy"));
+        QCOMPARE(document->layout(),QString("Vertical"));
+        canvas->beginEdit(document->selectedId()); editor->setProperty("text",QString(17000,'x'));
+        window->setProperty("useThemeLayouts",true);
+        QVariant accepted; QVERIFY(QMetaObject::invokeMethod(window,"applyTheme",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,QString("atlas"))));
+        QVERIFY(!accepted.toBool()); QCOMPARE(document->themeId(),QString("canopy"));
+        canvas->endEdit(); window->setProperty("useThemeLayouts",false); tabs->setProperty("currentIndex",0);
+    }
     void themeCardsApplyAllPresets() {
         window->setProperty("inspectorVisible", true);
         auto *tabs = window->findChild<QQuickItem *>("inspectorTabs");
@@ -393,6 +425,35 @@ class UiTest : public QObject {
         QCOMPARE(document->visibleCount(), visible);
         canvas->fit();
         stage("Expanded branch — descendants restored");
+    }
+    void manualDragMirrorsLiveAndMatchesDrop() {
+        document->setManual(true);
+        const int branch=document->nodes().value(1).children.first();
+        const int child=document->nodes().value(branch).children.first();
+        QTest::qWait(250);
+        canvas->zoomAt({canvas->width()/2,canvas->height()/2},.6/canvas->zoom());
+        canvas->panBy(canvas->width()*.5-canvas->mapFromWorld(document->nodes().value(1).rect.center()).x(),0);
+        const auto original=document->nodes();
+        const QPoint from=screenCenter(branch);
+        const QPoint to(screenCenter(1).x()-110,from.y()+20);
+        QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,from);
+        QTest::mouseMove(window,to,60);
+        QTRY_VERIFY(canvas->dragging());
+        QVERIFY(canvas->nodeRect(child).center().x()<canvas->nodeRect(branch).center().x());
+        QCOMPARE(document->nodes().value(child).rect,original.value(child).rect);
+        QTest::mouseMove(window,from,60);
+        QVERIFY(canvas->nodeRect(child).center().x()>canvas->nodeRect(branch).center().x());
+        QTest::mouseMove(window,to,60);
+        const auto previewBranch=canvas->nodeRect(branch), previewChild=canvas->nodeRect(child);
+        const QString dir=qEnvironmentVariable("MINDMAP_MIRROR_SCREENSHOTS");
+        if(!dir.isEmpty()) { QDir().mkpath(dir); QTest::qWait(100); QVERIFY(window->grabWindow().save(dir+"/dragging-left.png")); }
+        QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,to);
+        QCOMPARE(document->nodes().value(branch).rect,previewBranch);
+        QCOMPARE(document->nodes().value(child).rect,previewChild);
+        QCOMPARE(canvas->nodeRect(child),previewChild);
+        QTest::qWait(250); QCOMPARE(canvas->nodeRect(child),previewChild);
+        if(!dir.isEmpty()) QVERIFY(window->grabWindow().save(dir+"/dropped-left.png"));
+        document->undo(); QCOMPARE(document->nodes().value(child).rect,original.value(child).rect);
     }
     void manualDragMovesSubtree() {
         const int root = 1;

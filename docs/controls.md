@@ -48,3 +48,7 @@ Open Inspector → Themes. Click a preview or focus it and press Space to apply.
 ## Toolbar icons
 
 Document, branch, formatting and canvas toolbar actions use locally bundled Lucide icons from Iconify. Hover or keyboard-focus a button for its text tooltip. Labels remain available to assistive technology. PNG export confirmation appears as a temporary message above the canvas controls.
+
+## Manual branch direction
+
+In Horizontal layout with Manual placement enabled, drag a branch across the root's vertical centerline to change its growth direction. A branch centered left of the root grows left; moving it back to the right restores rightward growth. Descendant positions and connector attachment edges update during the drag, while text remains readable. The drop keeps the preview geometry without a second layout animation. Relative manual adjustments mirror with their parent, and dragging a child within a left-facing branch still follows the pointer normally. The arrangement survives save/open and supports undo/redo. Vertical and Compact layouts keep their existing behavior.

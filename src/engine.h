@@ -48,6 +48,7 @@ class Engine : public QObject {
     const QHash<int, MapNode> &nodes() const { return m_nodes; }
     const QVector<int> &visibleIds() const { return m_visible; }
     QRectF bounds() const { return m_bounds; }
+    QHash<int,QRectF> manualGeometry(int movingId = -1, QPointF delta = {}) const;
     QSet<int> selectedIds() const { return m_selection; }
     bool isDescendant(int node, int ancestor) const;
     QString layout() const { return m_layout; }
@@ -85,6 +86,7 @@ class Engine : public QObject {
     void setBranchStyle(QString value);
     void setManual(bool value);
     void setThemeId(QString value);
+    Q_INVOKABLE bool applyThemeRecipe(QString id);
     Q_INVOKABLE void select(int id, bool extend = false);
     Q_INVOKABLE void addChild();
     Q_INVOKABLE void addSibling();
@@ -135,6 +137,7 @@ class Engine : public QObject {
     static bool measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth = 0);
     QHash<int, TextMeasure> m_textCache;
     QHash<int, int> m_branchIndices;
+    QHash<int, QRectF> m_layoutRects;
     QHash<int, MapNode> m_nodes;
     QVector<QPair<int, int>> m_connections;
     QVector<int> m_visible;

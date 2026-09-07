@@ -1,0 +1,184 @@
+{
+  "format": "mindmap-lab",
+  "version": 1,
+  "themeId": "studio",
+  "layout": "Compact",
+  "spacing": "Standard",
+  "branchStyle": "Angular",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "children": [
+        2,
+        6,
+        10
+      ],
+      "text": "Weekly review",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "children": [
+        3,
+        4,
+        5
+      ],
+      "text": "Capture",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "children": [],
+      "text": "Highlights",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "children": [],
+      "text": "Open questions",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 5,
+      "parent": 2,
+      "children": [],
+      "text": "Loose ends",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 6,
+      "parent": 1,
+      "children": [
+        7,
+        8,
+        9
+      ],
+      "text": "Decide",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 7,
+      "parent": 6,
+      "children": [],
+      "text": "Priorities",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 8,
+      "parent": 6,
+      "children": [],
+      "text": "Tradeoffs",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 9,
+      "parent": 6,
+      "children": [],
+      "text": "What to stop",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 10,
+      "parent": 1,
+      "children": [
+        11,
+        12,
+        13
+      ],
+      "text": "Do",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 11,
+      "parent": 10,
+      "children": [],
+      "text": "One small step",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 12,
+      "parent": 10,
+      "children": [],
+      "text": "Follow up",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 13,
+      "parent": 10,
+      "children": [],
+      "text": "Review again",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

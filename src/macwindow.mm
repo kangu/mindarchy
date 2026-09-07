@@ -1,5 +1,4 @@
 #include <QWindow>
-#include <QTimer>
 #import <AppKit/AppKit.h>
 
 // Retain AppKit's real buttons and their native menus/fullscreen behavior.
@@ -26,21 +25,23 @@ void installMacToolbar(QWindow *window) {
             button.frame = buttonFrame;
         }
     };
-    auto schedule = [owner, align] {
-        QTimer::singleShot(0, owner, align);
-        // Native zoom/fullscreen animations can lay out the titlebar after Qt.
-        QTimer::singleShot(250, owner, align);
-    };
-    QObject::connect(window, &QWindow::widthChanged, owner, schedule);
-    QObject::connect(window, &QWindow::heightChanged, owner, schedule);
-    QObject::connect(window, &QWindow::visibilityChanged, owner, schedule);
-    // AppKit finishes its own titlebar layout after fullscreen transitions.
-    id observer = [[NSNotificationCenter defaultCenter]
-        addObserverForName:NSWindowDidExitFullScreenNotification
-        object:reinterpret_cast<NSView *>(window->winId()).window queue:nil
-        usingBlock:^(NSNotification *) { schedule(); }];
-    QObject::connect(owner, &QObject::destroyed, [observer] {
-        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    // Observe AppKit directly: Qt size signals arrive before native titlebar
+    // layout, and queued corrections let the default position reach the screen.
+    // A synchronous did-resize observer runs after layout, before drawing.
+    NSMutableArray *observers = [[NSMutableArray alloc] init];
+    NSWindow *native = reinterpret_cast<NSView *>(window->winId()).window;
+    for (NSNotificationName name in @[NSWindowDidResizeNotification,
+                                     NSWindowDidExitFullScreenNotification,
+                                     NSWindowDidBecomeKeyNotification]) {
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:name object:native queue:nil
+            usingBlock:^(NSNotification *) { align(); }];
+        [observers addObject:observer];
+    }
+    QObject::connect(owner, &QObject::destroyed, [observers] {
+        for (id observer in observers)
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        [observers release];
     });
-    schedule();
+    align();
 }
