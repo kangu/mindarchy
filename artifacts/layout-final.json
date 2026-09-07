@@ -1,0 +1,88 @@
+{
+    "measurement": "Synchronous full layout CPU time, includes text measurement; not frame time or end-to-end latency",
+    "platform": "offscreen",
+    "qt": "6.11.2",
+    "results": [
+        {
+            "fixture_build_ms": 1.209724,
+            "height": 782,
+            "layout": "Horizontal",
+            "layout_ms": 1.185389,
+            "nodes": 15,
+            "visible": 15,
+            "width": 452.75
+        },
+        {
+            "fixture_build_ms": 1.209724,
+            "height": 254,
+            "layout": "Vertical",
+            "layout_ms": 0.019543,
+            "nodes": 15,
+            "visible": 15,
+            "width": 1442
+        },
+        {
+            "fixture_build_ms": 1.209724,
+            "height": 854,
+            "layout": "Compact",
+            "layout_ms": 0.009738,
+            "nodes": 15,
+            "visible": 15,
+            "width": 214
+        },
+        {
+            "fixture_build_ms": 66.800696,
+            "height": 55468,
+            "layout": "Horizontal",
+            "layout_ms": 0.901311,
+            "nodes": 1000,
+            "visible": 1000,
+            "width": 950.75
+        },
+        {
+            "fixture_build_ms": 66.800696,
+            "height": 572,
+            "layout": "Vertical",
+            "layout_ms": 0.842566,
+            "nodes": 1000,
+            "visible": 1000,
+            "width": 100468
+        },
+        {
+            "fixture_build_ms": 66.800696,
+            "height": 57984,
+            "layout": "Compact",
+            "layout_ms": 0.47345,
+            "nodes": 1000,
+            "visible": 1000,
+            "width": 382
+        },
+        {
+            "fixture_build_ms": 435.387991,
+            "height": 554968,
+            "layout": "Horizontal",
+            "layout_ms": 16.341765,
+            "nodes": 10000,
+            "visible": 10000,
+            "width": 1285.6875
+        },
+        {
+            "fixture_build_ms": 435.387991,
+            "height": 784,
+            "layout": "Vertical",
+            "layout_ms": 12.777093,
+            "nodes": 10000,
+            "visible": 10000,
+            "width": 1004970.9375
+        },
+        {
+            "fixture_build_ms": 435.387991,
+            "height": 579984,
+            "layout": "Compact",
+            "layout_ms": 8.677543,
+            "nodes": 10000,
+            "visible": 10000,
+            "width": 496.9375
+        }
+    ]
+}

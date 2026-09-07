@@ -1,0 +1,32 @@
+<RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/ThemeCard.qml</file>
+    <file>qml/NodeStylePanel.qml</file>
+    <file>qml/icons/bold.svg</file>
+    <file>qml/icons/corner-down-right.svg</file>
+    <file>qml/icons/fold-vertical.svg</file>
+    <file>qml/icons/folder-open.svg</file>
+    <file>qml/icons/image-down.svg</file>
+    <file>qml/icons/italic.svg</file>
+    <file>qml/icons/link.svg</file>
+    <file>qml/icons/list-plus.svg</file>
+    <file>qml/icons/maximize.svg</file>
+    <file>qml/icons/panel-left.svg</file>
+    <file>qml/icons/panel-right.svg</file>
+    <file>qml/icons/redo-2.svg</file>
+    <file>qml/icons/save.svg</file>
+    <file>qml/icons/scan.svg</file>
+    <file>qml/icons/underline.svg</file>
+    <file>qml/icons/undo-2.svg</file>
+    <file>qml/icons/unfold-vertical.svg</file>
+    <file>qml/icons/zoom-in.svg</file>
+    <file>qml/icons/zoom-out.svg</file>
+
+    <file>assets/icons/mindmap-blue-16.png</file>
+    <file>assets/icons/mindmap-blue-24.png</file>
+    <file>assets/icons/mindmap-blue-32.png</file>
+    <file>assets/icons/mindmap-blue-48.png</file>
+    <file>assets/icons/mindmap-blue-64.png</file>
+    <file>assets/icons/mindmap-blue-128.png</file>
+    <file>assets/icons/mindmap-blue-256.png</file>
+    <file>assets/icons/mindmap-blue-512.png</file>
+</qresource></RCC>

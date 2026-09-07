@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Mindmap Lab
+Comment=Create and explore mind maps
+Exec=mindmap-lab
+Icon=blue.mindmap.lab
+Terminal=false
+Categories=Office;
+StartupWMClass=blue.mindmap.lab

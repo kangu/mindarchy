@@ -1,0 +1,13 @@
+{
+    "frame_interval_median_ms": 15.132175,
+    "frame_interval_p95_ms": 42.063136,
+    "graphics_api": 3,
+    "measurement": "Full QML app, fit view, scripted pan after10 warmup frames. Frame intervals include compositor scheduling; labels omitted at overview zoom. Not input latency.",
+    "nodes": 10000,
+    "pan_prepare_p95_ms": 0.437878,
+    "platform": "wayland",
+    "samples": 121,
+    "scene_build_p95_ms": 0.025827,
+    "visible_rendered": 10000,
+    "zoom": 0.0007856308832220957
+}

@@ -1,0 +1,16 @@
+Implement ONLY theme catalog/engine/persistence/tests for Qt prototype. No subagents. Own src/theme.h, src/theme.cpp, src/engine.h, src/engine.cpp, tests/engine_test.cpp, CMakeLists.txt, prototype.pro, tests/*.pro only build entries. Do not edit canvas, QML or other tests. Root implements renderer/docs concurrently.
+
+Required public interface (coordinate exactly):
+- enum class NodeShape { Rounded, Rectangle, Pill, Underline, Hexagon, Scalloped };
+- struct NodeAppearance { QColor fill, border, text, branch; NodeShape shape; qreal borderWidth; qreal radius; };
+- struct MapTheme { QString id,name; QColor canvas; QVector<QColor> palette; }; 
+- namespace Themes: const MapTheme &get(const QString &id); bool contains(const QString &id); QVariantList catalog(); NodeAppearance appearance(const QString &themeId, int depth, int branchIndex); 
+- Engine Q_PROPERTY QString themeId READ themeId WRITE setThemeId NOTIFY changed; void setThemeId(QString); default "lab"; catalog property Q_PROPERTY QVariantList themes READ themes CONSTANT; QVariantList themes() const returns catalog(); Q_PROPERTY QColor canvasColor READ canvasColor NOTIFY changed. 
+- Engine NodeAppearance appearance(int id) const resolves depth and top-level branch ordinal, NOT stable node id modulo. Avoid walking ancestors for every render repeatedly if can cache branch index once per rebuild; bounded currentdepth512 okay initially.
+
+Catalog order first four Beach Day (beach-day), Holographic (holographic), Retro (retro), Arcade (arcade). Lab legacy optional fifth to restore existingdocs.
+Observed approximate styles (actualscreen not extracted assets): Beach canvas #FAF9F6, root #F3DDB4 rounded darktext, depth1 whitefill branchcolorborder rounded, depth>=2 transparentfill underline branchcolor, palette #98A5CC #EAA36D #F3CB8D #90C8AD #61A8AA #D8BA83. Holo canvas #F5F0FF rootpink #F3CDF3 rectangle blackborder blacktext; depth1 branchcolor rectangle, depth2pill, deeperhexagon; blackbranches; palette #AAC1F5 #C0EEF1 #D69BEF #ECE7B7 #CCC7F3 #F0BDE0. Retro canvas #F0EDE5 root #32345F hexagon creamtext; depth1solidbranchcolor rectangle creamtext; deepercanvasfill rounded branchcolorborder darktext; palette #AF355F #517659 #6267A3 #B2905A #8C5676 #3F7187. Arcade canvas #2A1C38 rootscalloped #81364E creamtext; depth1pill pastelbranchfill+strongerborder, depth2rounded pastel branchfill, depth>=3underline; palette #B86CC7 #E36B73 #EA9965 #ECD06A #98CA63 #64C6EC. Portable normal font stays15px to preserve measurements and explicit richtext; root can use same font. Root will handle shape drawing.
+
+Theme application preserves text, hierarchy, layout/spacing/manual settings, selection, notes/tasks/connections; one undo step; duplicate/unknown theme setter is no-op (unknown sets useful error if consistent). Save theme ID; legacy JSON missing theme defaults lab; explicitunknownid rejects transactionally; undo/redo restore. Existing numericformatversion unchanged additive field.
+
+Tests first then implementation (TDD). Mac Qt is /Users/user/Qt/6.11.2/macos; use dedicated build-theme-engine via qmake path tests/engine_test.pro then make -j2, run QT_QPA_PLATFORM=offscreen engine_test. Do not build root build-macos concurrently. No Gitrepo. Report file docs/theme-engine-report.md, brief final status. Read AGENTS if applicable.
