@@ -6,6 +6,8 @@ HEADERS += src/engine.h src/theme.h src/canvas.h
 RESOURCES += resources.qrc
 
 macx {
+    OBJECTIVE_SOURCES += src/macwindow.mm
+    LIBS += -framework AppKit
     ICON = assets/icons/mindmap-blue.icns
     QMAKE_MACOSX_BUNDLE_GUI_IDENTIFIER = blue.mindmap.lab
 }

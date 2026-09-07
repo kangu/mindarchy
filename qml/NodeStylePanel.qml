@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 
 ColumnLayout {
-    id: panel
+    id: panel; objectName: "nodeStylePanel"
     required property var controller
     required property var commitEditor
     readonly property var values: controller.selectedStyle
@@ -98,6 +98,15 @@ ColumnLayout {
     Section { text: "BRANCH" }
     Choice { label: "Stroke"; field: "branchStroke"
         choices: [{label:"Solid",value:1},{label:"Dashed",value:2},{label:"Dotted",value:3}] }
+    CheckBox {
+        objectName: "style-themeBranchWidth"; text: "Use theme thickness"
+        checked: panel.values.themeBranchWidth && !panel.mixed("themeBranchWidth")
+        onClicked: {
+            if (!panel.commitEditor("")) return
+            if (checked) controller.resetBranchWidth()
+            else panel.apply("branchWidth",panel.values.branchWidth)
+        }
+    }
     NumberField { label: "Thickness (px)"; field: "branchWidth" }
     ColorField { label: "Branch"; field: "branch" }
     Section { text: "FONT" }
@@ -105,9 +114,10 @@ ColumnLayout {
         objectName: "style-fontFamily"; Layout.fillWidth: true; model: controller.fontFamilies; editable: true
         currentIndex: model.indexOf(panel.values.fontFamily)
         displayText: panel.mixed("fontFamily") ? "Mixed fonts" : panel.values.fontFamily
+        editText: panel.mixed("fontFamily") ? "Mixed fonts" : panel.values.fontFamily
         Accessible.name: "Font family"
         onActivated: panel.apply("fontFamily",currentText)
-        onAccepted: panel.apply("fontFamily",editText)
+        onAccepted: { if (editText !== "Mixed fonts") panel.apply("fontFamily",editText) }
     }
     ComboBox {
         objectName: "style-fontFace"; Layout.fillWidth: true

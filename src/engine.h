@@ -78,6 +78,7 @@ class Engine : public QObject {
     QStringList fontFamilies() const;
     Q_INVOKABLE bool applyNodeStyle(QVariantMap patch);
     Q_INVOKABLE void resetNodeStyle();
+    Q_INVOKABLE void resetBranchWidth();
     Q_INVOKABLE void connectSelection();
     void setLayout(QString value);
     void setSpacing(QString value);

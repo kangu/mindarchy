@@ -19,7 +19,7 @@ The prototype stores local versioned JSON documents. Large test fixtures are ava
 
 One rich-text editor opens over the active title. Return commits; press Return again on the canvas to create a sibling. Tab commits and creates a child. Shift-Return adds a line break. Escape commits and returns focus to the canvas. IME composition is left to Qt while composing text. The editor’s B / I / U toolbar and Ctrl/Command-B / I / U format selected text (or the current word). Normal text selection, copying, pasting, and editor undo remain available inside the title and notes fields.
 
-The Node inspector includes a task flag, completion state, folding and notes. Press **Apply notes** to save notes to the selected node before selecting another node. The outline selects nodes; double-click an outline row to edit.
+The Node inspector includes eight shapes, fixed-width wrapping, fill/border/branch/text colors, stroke styles and thickness, font family/face/size, text formatting and alignment. Style edits apply to all selected nodes as one undoable command; mixed values are labeled. Reset to theme clears custom styling and title formatting while keeping title content. The Node inspector also includes a task flag, completion state, folding and notes. Press **Apply notes** to save notes to the selected node before selecting another node. The outline selects nodes; double-click an outline row to edit.
 
 ## Document and layout
 

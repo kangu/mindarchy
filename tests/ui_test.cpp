@@ -89,6 +89,57 @@ class UiTest : public QObject {
         delete qml;
         qml = nullptr;
     }
+    void nodePanelAppliesStylesAndProtectsDraft() {
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); tabs->setProperty("currentIndex",1);
+        auto *panel=window->findChild<QQuickItem *>("nodeStylePanel"); QVERIFY(panel);
+        document->select(2);
+        auto *shape=window->findChild<QQuickItem *>("style-shape"); QVERIFY(shape);
+        shape->forceActiveFocus(); QTest::keyClick(window,Qt::Key_End);
+        QTRY_COMPARE(document->appearance(2).shape,NodeShape::Octagon);
+        auto *fixed=window->findChild<QQuickItem *>("style-fixedWidth"); QVERIFY(fixed);
+        fixed->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(document->nodes().value(2).style.value("width").toDouble()>0);
+        auto apply=[panel](QString key,QVariant value) {
+            QVariant accepted;
+            const bool called=QMetaObject::invokeMethod(panel,"apply",Q_RETURN_ARG(QVariant,accepted),
+                Q_ARG(QVariant,key),Q_ARG(QVariant,value));
+            return called && accepted.toBool();
+        };
+        QVERIFY(apply("fontSize",28)); QVERIFY(apply("bold",true)); QVERIFY(apply("width",240));
+        QVERIFY(apply("borderWidth",3)); QVERIFY(apply("borderStyle",2));
+        QVERIFY(apply("branchStroke",3)); QVERIFY(apply("branchWidth",4));
+        QVERIFY(apply("fill",QString("#d7e9b4"))); QVERIFY(apply("textColor",QString("#24311a")));
+        QVERIFY(apply("alignment",1));
+        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),28.);
+        QVERIFY(document->selectedStyle()["bold"].toBool());
+        auto *family=window->findChild<QQuickItem *>("style-fontFamily"); QVERIFY(family);
+        QCOMPARE(family->property("editText").toString(),document->selectedStyle()["fontFamily"].toString());
+        canvas->fit(); canvas->beginEdit(2);
+        QTest::keyClick(window,Qt::Key_Right);
+        type(" with a longer title");
+        const auto before=canvas->editingRect();
+        QTest::qWait(150);
+        const QString dir=qEnvironmentVariable("MINDMAP_NODE_SCREENSHOTS");
+        if(!dir.isEmpty()) { QDir().mkpath(dir); QVERIFY(window->grabWindow().save(dir+"/node-panel-editing.png")); }
+        QTest::keyClick(window,Qt::Key_Return); QTRY_VERIFY(!canvas->editing());
+        QCOMPARE(document->nodes().value(2).rect.size()*canvas->zoom(),before.size());
+        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),28.);
+        QVERIFY(document->selectedStyle()["bold"].toBool());
+        QTest::qWait(200);
+        if(!dir.isEmpty()) {
+            QVERIFY(window->grabWindow().save(dir+"/node-panel-committed.png"));
+            auto *scroll=window->findChild<QQuickItem *>("inspectorScroll"); QVERIFY(scroll);
+            auto *flick=qvariant_cast<QObject *>(scroll->property("contentItem")); QVERIFY(flick);
+            flick->setProperty("contentY",650); QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(dir+"/node-panel-font.png"));
+            flick->setProperty("contentY",0);
+        }
+        canvas->beginEdit(2); editor->setProperty("text",QString(17000,'x'));
+        QVERIFY(!apply("shape",1)); QCOMPARE(document->appearance(2).shape,NodeShape::Octagon);
+        QVERIFY(canvas->editing()); canvas->endEdit();
+        tabs->setProperty("currentIndex",0);
+    }
     void themeCardsApplyAllPresets() {
         window->setProperty("inspectorVisible", true);
         auto *tabs = window->findChild<QQuickItem *>("inspectorTabs");

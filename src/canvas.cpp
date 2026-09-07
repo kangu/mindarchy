@@ -50,6 +50,10 @@ void strokePath(QVector<Vertex> &v, const QPolygonF &points, qreal width, QColor
     if(width<=0 || color.alpha()==0) return;
     qreal distance=0;
     const qreal unit=std::max(1.,width), on=style==Qt::DotLine ? unit : 4*unit, period=on+2*unit;
+    qreal totalLength=0;
+    for(int i=1;i<points.size();++i) totalLength+=QLineF(points[i-1],points[i]).length();
+    // Bound dash tessellation for imported maps with extreme manual offsets.
+    if(totalLength/period > 4096) style=Qt::SolidLine;
     for(int i=1;i<points.size();++i) {
         const QPointF a=points[i-1], delta=points[i]-a; const qreal len=QLineF(a,points[i]).length();
         if(style==Qt::SolidLine) { line(v,a,points[i],width,color); continue; }

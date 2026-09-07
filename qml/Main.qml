@@ -9,6 +9,13 @@ ApplicationWindow {
     width: 1380; height: 900
     minimumWidth: 600; minimumHeight: 640
     visible: true
+    readonly property bool integratedMacToolbar: Qt.platform.os === "osx"
+    flags: integratedMacToolbar
+        ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
+        : Qt.Window
+    // The toolbar reserves horizontal space for the native window controls.
+    // Avoid ApplicationWindow's automatic inset below the macOS title bar.
+    Binding { target: window; property: "topPadding"; value: 0; when: window.integratedMacToolbar }
     title: "Mindmap Lab · Qt Quick"
     color: "#111920"
     property var controller: engine
@@ -115,9 +122,19 @@ ApplicationWindow {
         Rectangle {
             objectName: "mainToolbar"
             Layout.fillWidth: true; implicitHeight: 60; color: "#19242d"
+            MouseArea {
+                anchors.fill: parent
+                enabled: window.integratedMacToolbar
+                acceptedButtons: Qt.LeftButton
+                onPressed: window.startSystemMove()
+                onDoubleClicked: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
+            }
             Flickable {
                 id: toolbarViewport
-                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+                anchors.fill: parent
+                anchors.leftMargin: window.integratedMacToolbar && window.visibility !== Window.FullScreen ? 96 : 12
+                anchors.rightMargin: 12
+                interactive: !window.integratedMacToolbar || contentWidth > width
                 contentWidth: toolbarRow.width; contentHeight: height; clip: true
                 flickableDirection: Flickable.HorizontalFlick
                 RowLayout {
@@ -262,6 +279,7 @@ ApplicationWindow {
                 TabButton { text: "Node" }
                 TabButton { text: "Themes"; objectName: "themesTab" } }
                     ScrollView {
+                        objectName: "inspectorScroll"
                         Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                         contentWidth: availableWidth
                         ColumnLayout {
@@ -301,9 +319,8 @@ ApplicationWindow {
                             }
                             ColumnLayout {
                                 visible: inspectorTabs.currentIndex === 1; Layout.fillWidth: true; spacing: 12
-                                Caption { text: "SELECTED NODE · " + controller.selectedId }
+                                Caption { text: controller.selection.length === 1 ? "SELECTED NODE · " + controller.selectedId : controller.selection.length + " NODES SELECTED" }
                                 NodeStylePanel { Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
-                                Label { Layout.fillWidth: true; text: controller.selectedText; textFormat: Text.RichText; wrapMode: Text.Wrap; color: window.ink; font.pixelSize: 17; maximumLineCount: 4; elide: Text.ElideRight }
                                 SmallButton { text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}
                                 CheckBox { text: "Task"; checked: controller.selectedTask; onClicked: { if (!window.commitEditor("")) return; controller.toggleTask() } }
@@ -311,7 +328,7 @@ ApplicationWindow {
                                 SmallButton { text: controller.selectedFolded ? "Expand branch" : "Fold branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                                 Rule {}
                                 Caption { text: "NOTES" }
-                                TextArea { id: notes; objectName: "notesEditor"; Layout.fillWidth: true; Layout.preferredHeight: 150; wrapMode: TextEdit.Wrap; property int loadedId: -1
+                                TextArea { id: notes; objectName: "notesEditor"; enabled: controller.selection.length === 1; Layout.fillWidth: true; Layout.preferredHeight: 150; wrapMode: TextEdit.Wrap; property int loadedId: -1
                                     property string loadedNotes: ""
                                     function syncNotes() {
                                         if (loadedId !== controller.selectedId || loadedNotes !== controller.selectedNotes) {
@@ -323,7 +340,7 @@ ApplicationWindow {
                                     Component.onCompleted: syncNotes()
                                     Connections { target: controller; function onChanged() { notes.syncNotes() } }
                                     placeholderText: "Capture a detail…"; selectByMouse: true }
-                                SmallButton { text: "Apply notes"; Layout.fillWidth: true; onClicked: { controller.setNotes(notes.text); canvas.forceActiveFocus() } }
+                                SmallButton { text: "Apply notes"; enabled: controller.selection.length === 1; Layout.fillWidth: true; onClicked: { controller.setNotes(notes.text); canvas.forceActiveFocus() } }
                                 SmallButton { text: "Delete selected branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.removeSelected(); canvas.forceActiveFocus() } }
                             }
                         }

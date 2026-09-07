@@ -844,7 +844,7 @@ QVariantMap Engine::selectedStyle() const {
         return QVariantMap{{"shape",int(a.shape)}, {"fill",a.fill.name(QColor::HexArgb)},
             {"border",a.border.name(QColor::HexArgb)}, {"textColor",a.text.name(QColor::HexArgb)},
             {"branch",a.branch.name(QColor::HexArgb)}, {"borderWidth",a.borderWidth},
-            {"branchWidth",a.branchWidth}, {"borderStyle",int(a.borderStyle)},
+            {"branchWidth",a.branchWidth}, {"themeBranchWidth",!n.style.contains("branchWidth")}, {"borderStyle",int(a.borderStyle)},
             {"branchStroke",int(a.branchStroke)}, {"width",n.style.value("width",0)},
             {"fontFamily",f.family()}, {"fontSize",f.pixelSize()>0 ? double(f.pixelSize()) : f.pointSizeF()*96./72.},
             {"bold",f.bold()}, {"italic",f.italic()}, {"underline",f.underline()}, {"strike",f.strikeOut()},
@@ -879,20 +879,37 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
         for(auto it=visual.begin();it!=visual.end();++it) n.style.insert(it.key(),it.value());
         QTextDocument doc; QFont base("sans-serif"); base.setPixelSize(15); doc.setDefaultFont(base);
         doc.setDocumentMargin(0); doc.setHtml(n.text);
+        if(patch.contains("fontSize")) {
+            // Imported point sizes take precedence over pixel sizes during HTML
+            // serialization. Remove that competing property on each text run.
+            QVector<QPair<QTextCursor,QTextCharFormat>> runs;
+            for(auto block=doc.begin();block.isValid();block=block.next())
+                for(auto it=block.begin();!it.atEnd();++it) {
+                    const auto fragment=it.fragment(); auto f=fragment.charFormat();
+                    f.clearProperty(QTextFormat::FontPointSize);
+                    f.clearProperty(QTextFormat::FontSizeAdjustment);
+                    f.setProperty(QTextFormat::FontPixelSize,patch["fontSize"].toInt());
+                    QTextCursor run(&doc); run.setPosition(fragment.position());
+                    run.setPosition(fragment.position()+fragment.length(),QTextCursor::KeepAnchor);
+                    runs.append({run,f});
+                }
+            for(auto &run:runs) run.first.setCharFormat(run.second);
+        }
         QTextCursor cursor(&doc); cursor.select(QTextCursor::Document); QTextCharFormat format;
         if(patch.contains("fontFamily")) format.setFontFamilies({patch["fontFamily"].toString()});
-        if(patch.contains("fontSize")) format.setProperty(QTextFormat::FontPixelSize,patch["fontSize"].toDouble());
+        if(patch.contains("fontSize")) format.setProperty(QTextFormat::FontPixelSize,patch["fontSize"].toInt());
         if(patch.contains("bold")) format.setFontWeight(patch["bold"].toBool()?QFont::Bold:QFont::Normal);
         if(patch.contains("italic")) format.setFontItalic(patch["italic"].toBool());
         if(patch.contains("underline")) format.setFontUnderline(patch["underline"].toBool());
         if(patch.contains("strike")) format.setFontStrikeOut(patch["strike"].toBool());
-        // Keep title HTML free of theme colors; the node appearance supplies those.
+        // Explicit text colors replace pre-existing rich-text run colors too.
+        if(patch.contains("textColor")) format.setForeground(QColor(patch["textColor"].toString()));
         cursor.mergeCharFormat(format);
         if(patch.contains("alignment")) {
             QTextBlockFormat block; const Qt::Alignment alignments[]={Qt::AlignLeft,Qt::AlignHCenter,Qt::AlignRight,Qt::AlignJustify};
             block.setAlignment(alignments[patch["alignment"].toInt()]); cursor.mergeBlockFormat(block);
         }
-        bool hasTypography=false; for(const auto &key:typography) hasTypography |= patch.contains(key);
+        bool hasTypography=patch.contains("textColor"); for(const auto &key:typography) hasTypography |= patch.contains(key);
         if(hasTypography) n.text=doc.toHtml();
         TextMeasure measurement;
         if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement,n.style.value("width").toDouble()))
@@ -904,11 +921,21 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
 }
 void Engine::resetNodeStyle() {
     if(m_selection.isEmpty()) return;
-    checkpoint();
+    auto next=m_nodes;
     for(int id:m_selection) {
-        auto &n=m_nodes[id]; n.style.clear();
+        auto &n=next[id]; n.style.clear();
         QTextDocument doc; doc.setHtml(n.text);
         n.text=doc.toPlainText().toHtmlEscaped().replace("\n","<br>");
+        TextMeasure measurement;
+        if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement)) {
+            fail("Reset would exceed the title size limit."); return;
+        }
     }
-    rebuild();
+    checkpoint(); m_nodes=next; rebuild();
+}
+
+void Engine::resetBranchWidth() {
+    bool changed=false; for(int id:m_selection) changed |= m_nodes[id].style.contains("branchWidth");
+    if(!changed) return;
+    checkpoint(); for(int id:m_selection) m_nodes[id].style.remove("branchWidth"); rebuild();
 }

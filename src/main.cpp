@@ -95,6 +95,10 @@ int main(int argc, char **argv) {
     if (qml.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(qml.rootObjects().first());
+#ifdef Q_OS_MACOS
+    void installMacToolbar(QWindow *window);
+    if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
+#endif
     if (window && parser.isSet("theme")) {
         window->setProperty("inspectorVisible",true);
         if (auto *tabs=window->findChild<QQuickItem *>("inspectorTabs")) tabs->setProperty("currentIndex",2);

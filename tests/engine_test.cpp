@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTextDocument>
+#include <QTextCursor>
 #include <QtTest>
 class EngineTest : public QObject {
     Q_OBJECT
@@ -49,6 +50,20 @@ class EngineTest : public QObject {
         node["style"]=QJsonObject{{"shape",999}}; nodes[0]=node; json["nodes"]=nodes;
         QVERIFY(file.open(QIODevice::WriteOnly)); file.write(QJsonDocument(json).toJson()); file.close();
         QVERIFY(!e.open(path)); QCOMPARE(e.nodes().value(2).style,before);
+    }
+    void textColorOverridesRichRunsAndThicknessCanReset() {
+        Engine e; e.select(2);
+        QVERIFY(e.setText(2,"<span style='color:red;font-size:12pt'>Colored title</span>"));
+        QVERIFY(e.applyNodeStyle({{"textColor",QString("#123456")},{"fontSize",30},{"underline",true},{"strike",true},{"branchWidth",7}}));
+        QTextDocument doc; doc.setHtml(e.selectedText()); QTextCursor cursor(&doc);
+        cursor.movePosition(QTextCursor::NextCharacter,QTextCursor::KeepAnchor);
+        QCOMPARE(cursor.charFormat().foreground().color(),QColor("#123456"));
+        QCOMPARE(e.selectedStyle()["fontSize"].toDouble(),30.);
+        QVERIFY(e.selectedStyle()["underline"].toBool()); QVERIFY(e.selectedStyle()["strike"].toBool());
+        QVERIFY(!e.selectedStyle()["themeBranchWidth"].toBool());
+        e.resetBranchWidth(); QVERIFY(e.selectedStyle()["themeBranchWidth"].toBool());
+        QCOMPARE(e.appearance(2).text,QColor("#123456"));
+        e.undo(); QCOMPARE(e.appearance(2).branchWidth,7.);
     }
     void fixedWidthWrapsDraftWithFinalMetrics() {
         Engine e; e.select(2); QVERIFY(e.applyNodeStyle({{"width",160},{"fontSize",26},{"italic",true}}));

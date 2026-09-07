@@ -45,6 +45,7 @@ On Omarchy use `./run.sh --theme beach-day`.
 ## Included
 
 - Four MindNode-inspired theme presets with depth-based styling, previews, undo and persistence.
+- Node inspector with eight shapes, fixed-width wrapping, custom colors/strokes, font controls, alignment, bulk styling and reset to theme.
 - Horizontal, Vertical and Compact placement with geometry-aware arrow navigation.
 - Automatic/manual placement, spacing presets, rounded/angular connectors.
 - Selection, additive multiselection and marquee selection.
