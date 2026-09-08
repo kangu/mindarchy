@@ -1,5 +1,60 @@
 #include <QWindow>
+#include <functional>
 #import <AppKit/AppKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
+@interface OMMSavePanelDelegate : NSObject <NSOpenSavePanelDelegate>
+@end
+@implementation OMMSavePanelDelegate
+- (BOOL)panel:(id)sender shouldEnableURL:(NSURL *)url {
+    NSNumber *directory = nil;
+    [url getResourceValue:&directory forKey:NSURLIsDirectoryKey error:nil];
+    return directory.boolValue || [url.pathExtension caseInsensitiveCompare:@"omm"] == NSOrderedSame;
+}
+@end
+
+void showMacSavePanel(QWindow *window, const QString &name, std::function<void(QString)> completion) {
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    OMMSavePanelDelegate *delegate = [[OMMSavePanelDelegate alloc] init];
+    panel.delegate = delegate;
+    UTType *type = [UTType typeWithFilenameExtension:@"omm" conformingToType:UTTypeJSON];
+    panel.allowedContentTypes = type ? @[type] : @[];
+    panel.allowsOtherFileTypes = NO;
+    panel.canCreateDirectories = YES;
+    panel.extensionHidden = NO;
+    panel.nameFieldStringValue = (name + ".omm").toNSString();
+    panel.title = @"Save mindmap";
+    [panel beginSheetModalForWindow:reinterpret_cast<NSView *>(window->winId()).window
+        completionHandler:^(NSModalResponse response) {
+            const QString path = response == NSModalResponseOK ? QString::fromNSString(panel.URL.path) : QString();
+            [panel orderOut:nil];
+            panel.delegate = nil;
+            [delegate release];
+            completion(path);
+        }];
+}
+
+// 0 = cancel, 1 = save, 2 = discard. AppKit owns the sheet interaction.
+void showMacCloseConfirmation(QWindow *window, const QString &name,
+                              std::function<void(int)> completion) {
+    NSWindow *native = reinterpret_cast<NSView *>(window->winId()).window;
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleInformational;
+    alert.icon = NSApp.applicationIconImage;
+    alert.messageText = [NSString stringWithFormat:@"Do you want to save the changes made to “%@”?", name.toNSString()];
+    alert.informativeText = @"Your changes will be lost if you don’t save them.";
+    [alert addButtonWithTitle:@"Save"];
+    NSButton *discard = [alert addButtonWithTitle:@"Don’t Save"];
+    discard.hasDestructiveAction = YES;
+    discard.keyEquivalent = @"d";
+    discard.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+    NSButton *cancel = [alert addButtonWithTitle:@"Cancel"];
+    cancel.keyEquivalent = @"\033";
+    [alert beginSheetModalForWindow:native completionHandler:^(NSModalResponse response) {
+        completion(response == NSAlertFirstButtonReturn ? 1 : response == NSAlertSecondButtonReturn ? 2 : 0);
+    }];
+    [alert release];
+}
 
 // Retain AppKit's real buttons and their native menus/fullscreen behavior.
 void installMacToolbar(QWindow *window) {

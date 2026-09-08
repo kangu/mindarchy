@@ -3,6 +3,26 @@
 #include <cmath>
 #include <numbers>
 namespace MapDrawing {
+QPolygonF taskCheckPath(QRectF box) {
+    // Oversize the tick while keeping the checkbox and text positions stable.
+    const QRectF overlay = box.adjusted(-7, -8, 7, 6);
+    QPolygonF points;
+    for (const QPointF p : {QPointF(3.74, 7.85), QPointF(7.32, 11.5), QPointF(13.26, 4.5)})
+        points << overlay.topLeft() + QPointF(p.x()*overlay.width()/16, p.y()*overlay.height()/16);
+    return points;
+}
+void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked) {
+    painter.save();
+    if (checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
+    painter.setPen(QPen(frame, 1.5));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(box, 2, 2);
+    if (checked) {
+        painter.setPen(QPen(taskCheckColor, taskCheckWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPolyline(taskCheckPath(box));
+    }
+    painter.restore();
+}
 QPolygonF edgePath(QPointF a, QPointF b, bool angular, bool vertical) {
     QPolygonF path; path << a;
     QPointF c1=vertical ? QPointF(a.x(),(a.y()+b.y())/2) : QPointF((a.x()+b.x())/2,a.y());

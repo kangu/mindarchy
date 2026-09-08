@@ -1,9 +1,14 @@
 #include <QGuiApplication>
 #include <QWindow>
 #include <cmath>
+#include <functional>
+#include <QElapsedTimer>
+#include <QTemporaryDir>
+#include <QFile>
 #import <AppKit/AppKit.h>
 
 void installMacToolbar(QWindow *window);
+void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
@@ -37,5 +42,33 @@ int main(int argc, char **argv) {
         app.processEvents();
     }
     fprintf(stdout, "120 native resizes: all three controls remained aligned, title hidden.\n");
+    for (int choice : {0, 1, 2}) {
+        int result = -1;
+        showMacCloseConfirmation(&window, "Native dialog test", [&](int value) { result = value; });
+        app.processEvents();
+        NSWindow *sheet = native.attachedSheet;
+        if (!sheet) { fprintf(stderr, "Native close sheet was not attached\n"); return 3; }
+        const NSModalResponse response = choice == 1 ? NSAlertFirstButtonReturn
+            : choice == 2 ? NSAlertSecondButtonReturn : NSAlertThirdButtonReturn;
+        [native endSheet:sheet returnCode:response];
+        QElapsedTimer timer; timer.start();
+        while (result < 0 && timer.elapsed() < 3000) app.processEvents();
+        if (result != choice || !window.isVisible()) return 4;
+    }
+    fprintf(stdout, "Native close sheet: Save, Don't Save, and Cancel callbacks verified.\n");
+    QTemporaryDir directory;
+    id<NSOpenSavePanelDelegate> delegate = [[NSClassFromString(@"OMMSavePanelDelegate") alloc] init];
+    if (!delegate) return 5;
+    for (const QString &name : {QString("existing.omm"), QString("uppercase.OMM"), QString("unrelated.json")}) {
+        QFile file(directory.filePath(name));
+        if (!file.open(QIODevice::WriteOnly)) return 6;
+        file.write("{}"); file.close();
+        NSURL *url = [NSURL fileURLWithPath:file.fileName().toNSString()];
+        bool enabled = [delegate panel:native shouldEnableURL:url];
+        if (enabled != name.endsWith("omm", Qt::CaseInsensitive)) return 7;
+    }
+    if (![delegate panel:native shouldEnableURL:[NSURL fileURLWithPath:directory.path().toNSString()]]) return 8;
+    [(NSObject *)delegate release];
+    fprintf(stdout, "Native save filter enables .omm/.OMM and folders, excludes unrelated files.\n");
     return 0;
 }

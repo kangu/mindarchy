@@ -22,6 +22,79 @@ ApplicationWindow {
     property bool outlineVisible: width >= 1100
     property bool inspectorVisible: width >= 1000
     property string exportStatus: ""
+    property bool allowClose: false
+    property bool closeAfterSave: false
+    property bool quitPending: false
+    property bool forgetOnClose: false
+    onClosing: function(event) {
+        if (allowClose) return
+        event.accepted = false
+        requestClose(false, false)
+    }
+    function requestClose(forget, quitting) {
+        if (quitPending) return
+        quitPending = quitting
+        forgetOnClose = forget
+        if (!commitEditor("")) { cancelClose(); return }
+        if (notes.loadedId === controller.selectedId && notes.text !== notes.loadedNotes)
+            controller.setNotes(notes.text)
+        if (controller.hasUnsavedChanges()) {
+            if (typeof nativeCloseAvailable !== "undefined" && nativeCloseAvailable)
+                controller.nativeCloseRequested()
+            else closeDialog.open()
+        } else approveClose()
+    }
+    function approveClose() {
+        closeDialog.close()
+        if (quitPending) {
+            window.contentItem.enabled = false
+            controller.quitDecision(true)
+        } else {
+            controller.windowCloseApproved(forgetOnClose)
+            allowClose = true
+            Qt.callLater(function() { window.close() })
+        }
+    }
+    function cancelClose() {
+        closeDialog.close()
+        if (quitPending) controller.quitDecision(false)
+        quitPending = false
+        forgetOnClose = false
+        window.contentItem.enabled = true
+    }
+    function abortSessionQuit() {
+        quitPending = false
+        window.contentItem.enabled = true
+    }
+    function completeSessionQuit() {
+        allowClose = true
+        window.close()
+    }
+    function saveDocument(closing) {
+        if (!commitEditor("")) { if (closing) cancelClose(); return }
+        if (notes.loadedId === controller.selectedId && notes.text !== notes.loadedNotes)
+            controller.setNotes(notes.text)
+        if (controller.documentPath().length > 0) {
+            var saved = controller.save(controller.documentPath())
+            if (closing) { if (saved) approveClose(); else cancelClose() }
+        } else {
+            closeAfterSave = closing
+            if (typeof nativeCloseAvailable !== "undefined" && nativeCloseAvailable)
+                controller.nativeSaveRequested()
+            else saveDialog.open()
+        }
+    }
+    function saveBeforeClosing() {
+        closeDialog.close()
+        saveDocument(true)
+    }
+    function finishSaveDialog(path) {
+        var shouldClose = closeAfterSave
+        closeAfterSave = false
+        if (!path.length) { if (shouldClose) cancelClose(); return }
+        var saved = controller.save(path)
+        if (shouldClose) { if (saved) approveClose(); else cancelClose() }
+    }
     readonly property color ink: "#e0e9ee"
     readonly property color muted: "#81939f"
     readonly property color accent: "#70d8c4"
@@ -106,6 +179,10 @@ ApplicationWindow {
             opacity: iconButton.enabled ? 1 : 0.3
         }
     }
+    component ToolbarButton: IconButton {
+        implicitWidth: window.width < 800 ? 32 : 36
+        implicitHeight: implicitWidth
+    }
     component MapOptionBar: Rectangle {
         id: bar
         required property var options
@@ -144,12 +221,37 @@ ApplicationWindow {
     component Caption: Label { color: window.muted; font.pixelSize: 10; font.letterSpacing: 1.3; font.bold: true }
     component Rule: Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#2a3943" }
 
+    Shortcut { sequences: [StandardKey.Close]; onActivated: window.requestClose(true, false) }
+    Shortcut { sequences: [StandardKey.Quit]; onActivated: controller.quitRequested() }
+    Shortcut { sequences: [StandardKey.New]; onActivated: controller.newDocumentRequested() }
     Shortcut { sequences: [StandardKey.Open]; onActivated: openDialog.open() }
-    Shortcut { sequences: [StandardKey.Save]; onActivated: { if (!commitEditor("")) return; saveDialog.open() } }
+    Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveDocument(false) }
     Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.undo() }
     Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.redo() }
 
     DateEntryDialog { id: dateDialog; controller: window.controller; canvas: canvas; parent: Overlay.overlay }
+
+    Dialog {
+        id: closeDialog; objectName: "closeConfirmation"
+        parent: Overlay.overlay
+        modal: true; closePolicy: Popup.NoAutoClose
+        Shortcut { sequence: "Escape"; enabled: closeDialog.opened; onActivated: window.cancelClose() }
+        width: Math.min(480, window.width - 40)
+        x: (parent.width-width)/2; y: (parent.height-height)/2
+        title: "Save changes before closing?"
+        contentItem: ColumnLayout {
+            spacing: 20
+            Image { source: "qrc:/assets/icons/mindmap-blue-64.png"; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 64; Layout.preferredHeight: 64 }
+            Label { text: "Your changes will be lost if you don’t save them."; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                Button { objectName: "closeDiscard"; text: "Discard"; palette.buttonText: "#f08b83"; onClicked: window.approveClose() }
+                Item { Layout.fillWidth: true }
+                Button { objectName: "closeCancel"; text: "Cancel"; onClicked: window.cancelClose() }
+                Button { objectName: "closeSave"; text: "Save"; highlighted: true; onClicked: window.saveBeforeClosing() }
+            }
+        }
+    }
 
     FileDialog {
         id: openDialog; title: "Open Mindmap Lab document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
@@ -158,7 +260,8 @@ ApplicationWindow {
     FileDialog {
         id: saveDialog; title: "Save Mindmap Lab document"; fileMode: FileDialog.SaveFile
         nameFilters: ["Open Mindmap (*.omm)"]; defaultSuffix: "omm"
-        onAccepted: controller.save(window.localPath(selectedFile))
+        onAccepted: window.finishSaveDialog(window.localPath(selectedFile))
+        onRejected: window.finishSaveDialog("")
     }
     FileDialog {
         id: imageDialog; title: "Export current canvas view"; fileMode: FileDialog.SaveFile
@@ -186,31 +289,55 @@ ApplicationWindow {
                 interactive: !window.integratedMacToolbar || contentWidth > width
                 contentWidth: toolbarRow.width; contentHeight: height; clip: true
                 flickableDirection: Flickable.HorizontalFlick
-                RowLayout {
+                Item {
                     id: toolbarRow
-                    width: Math.max(toolbarViewport.width, implicitWidth)
-                    height: parent.height; spacing: 6
-                    Image { source: "qrc:/assets/icons/mindmap-blue-64.png"; sourceSize: Qt.size(64,64); Layout.preferredWidth: 32; Layout.preferredHeight: 32; fillMode: Image.PreserveAspectFit }
-                    ColumnLayout {
-                        visible: window.width >= 950; spacing: 2; Layout.leftMargin: 6; Layout.rightMargin: 12
-                        Label { text: "Mindmap Lab"; font.pixelSize: 16; font.bold: true; color: window.ink }
-                        Label { visible: window.width >= 1150; text: "A place to think in branches"; color: window.muted; font.pixelSize: 10 }
+                    readonly property real groupGap: 12
+                    width: Math.max(toolbarViewport.width, documentActions.width + editingActions.width + panelActions.width + groupGap * 2)
+                    height: parent.height
+                    RowLayout {
+                        id: documentActions; objectName: "documentActions"
+                        anchors.left: parent.left; height: parent.height
+                        width: implicitWidth; spacing: window.width < 800 ? 4 : 6
+                        Image {
+                            source: "qrc:/assets/icons/mindmap-blue-64.png"
+                            sourceSize: Qt.size(64, 64)
+                            Layout.preferredWidth: 32; Layout.preferredHeight: 32
+                            fillMode: Image.PreserveAspectFit
+                        }
+                        ColumnLayout {
+                            visible: window.width >= 950; spacing: 2
+                            Layout.leftMargin: 6; Layout.rightMargin: 12
+                            Label { text: "Mindmap Lab"; font.pixelSize: 16; font.bold: true; color: window.ink }
+                            Label { visible: window.width >= 1150; text: "A place to think in branches"; color: window.muted; font.pixelSize: 10 }
+                        }
+                        ToolbarButton { objectName: "newDocumentButton"; iconName: "file-plus-2"; text: "New mindmap"; onClicked: controller.newDocumentRequested() }
+                        ToolbarButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
+                        ToolbarButton { objectName: "saveDocumentButton"; iconName: "save"; text: "Save document"; onClicked: window.saveDocument(false) }
+                        ToolbarButton { iconName: "image-down"; text: "Export canvas as PNG"; onClicked: imageDialog.open() }
                     }
-                    IconButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
-                    IconButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
-                    Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
-                    IconButton { iconName: "undo-2"; text: "Undo"; enabled: controller.canUndo; onClicked: { if (!window.commitEditor("")) return; controller.undo() } }
-                    IconButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
-                    Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
-                    IconButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
-                    IconButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
-                    IconButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
-                    IconButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
-                    Item { Layout.fillWidth: true }
-                    Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
-                    IconButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
-                    IconButton { iconName: "save"; text: "Save document"; onClicked: { if (!window.commitEditor("")) return; saveDialog.open() } }
-                    IconButton { iconName: "image-down"; text: "Export canvas as PNG"; onClicked: imageDialog.open() }
+                    RowLayout {
+                        id: editingActions; objectName: "editingActions"
+                        // Center in the window, including the macOS traffic-light
+                        // inset, then clamp between the fixed outer groups.
+                        x: Math.max(documentActions.width + toolbarRow.groupGap,
+                            Math.min((window.width - width) / 2 - toolbarViewport.x,
+                                panelActions.x - width - toolbarRow.groupGap))
+                        height: parent.height; width: implicitWidth; spacing: window.width < 800 ? 4 : 6
+                        ToolbarButton { iconName: "undo-2"; text: "Undo"; enabled: controller.canUndo; onClicked: { if (!window.commitEditor("")) return; controller.undo() } }
+                        ToolbarButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
+                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
+                        ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
+                        ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
+                        ToolbarButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
+                        ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
+                    }
+                    RowLayout {
+                        id: panelActions; objectName: "panelActions"
+                        anchors.right: parent.right; height: parent.height
+                        width: implicitWidth; spacing: window.width < 800 ? 4 : 6
+                        ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
+                        ToolbarButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
+                    }
                 }
             }
         }
@@ -312,11 +439,6 @@ ApplicationWindow {
                             }
                         }
                     }
-                }
-                Row {
-                    anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 22; spacing: 8
-                    Rectangle { width: 6; height: 6; radius: 3; color: window.accent; anchors.verticalCenter: parent.verticalCenter }
-                    Label { text: controller.manual ? "MANUAL PLACEMENT" : controller.layout.toUpperCase() + " LAYOUT"; color: window.muted; font.pixelSize: 10; font.letterSpacing: 1.5 }
                 }
                 Rectangle {
                     anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 20
@@ -459,8 +581,6 @@ ApplicationWindow {
                             }
                         }
                     }
-                    Rule {}
-                    Label { text: "LOCAL DOCUMENT  ·  JSON"; color: window.muted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                 }
             }
         }

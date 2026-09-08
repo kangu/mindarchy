@@ -1,4 +1,5 @@
 #include "../src/engine.h"
+#include "../src/documentsession.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -11,6 +12,103 @@
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void sessionQuitRequiresEveryWindowAndCanCancel() {
+        QTemporaryDir dir;
+        const QString registry = dir.filePath("session");
+        const auto first = dir.filePath("first.omm"), second = dir.filePath("second.omm");
+        Engine map(nullptr, Engine::InitialContent::Blank);
+        QVERIFY(map.save(first)); QVERIFY(map.save(second));
+        using Action = DocumentSession::QuitAction;
+        {
+            DocumentSession one(registry), two(registry);
+            one.setDocument(first); two.setDocument(second);
+            one.beginQuit();
+            QCOMPARE(one.pollQuit(), Action::Confirm);
+            QCOMPARE(two.pollQuit(), Action::None);
+            one.voteToQuit(true);
+            QCOMPARE(one.pollQuit(), Action::None);
+            QCOMPARE(two.pollQuit(), Action::Confirm);
+            two.voteToQuit(false);
+            QCOMPARE(one.pollQuit(), Action::Cancel);
+            QCOMPARE(two.pollQuit(), Action::Cancel);
+            one.beginQuit();
+            QCOMPARE(one.pollQuit(), Action::Confirm); one.voteToQuit(true);
+            DocumentSession lateWindow(registry);
+            QCOMPARE(two.pollQuit(), Action::Confirm); two.voteToQuit(true);
+            QCOMPARE(one.pollQuit(), Action::None);
+            QCOMPARE(lateWindow.pollQuit(), Action::Confirm); lateWindow.voteToQuit(true);
+            QCOMPARE(one.pollQuit(), Action::Close);
+            QCOMPARE(two.pollQuit(), Action::Close);
+            QCOMPARE(lateWindow.pollQuit(), Action::Close);
+        }
+        QCOMPARE(DocumentSession::restorePaths(registry).size(), 2);
+        {
+            DocumentSession one(registry);
+            one.setDocument(first);
+            one.forgetDocument();
+        }
+        QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
+    }
+    void documentSessionRestoresMultipleWindows() {
+        QTemporaryDir dir;
+        const QString registry = dir.filePath("session");
+        const QString first = dir.filePath("first.omm"), second = dir.filePath("second.omm");
+        Engine map(nullptr, Engine::InitialContent::Blank);
+        QVERIFY(map.save(first)); QVERIFY(map.save(second));
+        QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
+        {
+            DocumentSession one(registry);
+            one.setDocument(first);
+            {
+                DocumentSession two(registry);
+                two.setDocument(second);
+                QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
+            }
+            QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
+        }
+        auto restored = DocumentSession::restorePaths(registry);
+        restored.sort();
+        QCOMPARE(restored, QStringList({first, second}));
+        // A new blank window must not erase the last saved session.
+        { DocumentSession blank(registry); }
+        QCOMPARE(DocumentSession::restorePaths(registry).size(), 2);
+        QVERIFY(QFile::remove(first));
+        QCOMPARE(DocumentSession::restorePaths(registry), QStringList({second}));
+        // A stale process entry from a crash is ignored.
+        QSettings settings(registry + "/documents.ini", QSettings::IniFormat);
+        settings.setValue("windows/terminated-process", second); settings.sync();
+        QCOMPARE(DocumentSession::restorePaths(registry), QStringList({second}));
+    }
+    void unsavedChangesFollowDocumentContent() {
+        QTemporaryDir dir;
+        Engine e(nullptr, Engine::InitialContent::Blank);
+        QVERIFY(e.hasUnsavedChanges());
+        const QString path = dir.filePath("map.omm");
+        QVERIFY(e.save(path));
+        QVERIFY(!e.hasUnsavedChanges());
+        QCOMPARE(e.documentPath(), path);
+        e.select(1);
+        QVERIFY(!e.hasUnsavedChanges());
+        e.setText(1, "Changed");
+        QVERIFY(e.hasUnsavedChanges());
+        e.undo(); QVERIFY(!e.hasUnsavedChanges());
+        e.redo(); QVERIFY(e.hasUnsavedChanges());
+        QVERIFY(!e.save(dir.filePath("missing/map.omm")));
+        QVERIFY(e.hasUnsavedChanges());
+        QVERIFY(e.open(path));
+        QVERIFY(!e.hasUnsavedChanges());
+        e.setNotes("Pending notes");
+        QVERIFY(e.hasUnsavedChanges());
+    }
+    void blankDocumentStartsWithOneEditableRoot() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        QCOMPARE(e.nodeCount(),1); QCOMPARE(e.selectedId(),1);
+        QCOMPARE(e.selectedText(),QString("Central idea"));
+        QVERIFY(!e.canUndo()); QVERIFY(!e.canRedo());
+        QCOMPARE(e.nodes().value(1).parent,-1);
+        e.addChild(); QCOMPARE(e.nodeCount(),2); QCOMPARE(e.selectedId(),2);
+        e.undo(); QCOMPARE(e.nodeCount(),1);
+    }
     void nodeStylesPersistAndUndoAsOneCommand() {
         Engine e; e.selectMany({2,3});
         const auto original=e.nodes().value(2).text;

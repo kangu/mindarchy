@@ -3,6 +3,7 @@
     <file>qml/NodeStylePanel.qml</file>
     <file>qml/DateNodePanel.qml</file>
     <file>qml/DateEntryDialog.qml</file>
+    <file>qml/icons/file-plus-2.svg</file>
     <file>qml/icons/calendar-days.svg</file>
     <file>qml/icons/bold.svg</file>
     <file>qml/icons/corner-down-right.svg</file>

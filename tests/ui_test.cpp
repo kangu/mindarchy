@@ -53,6 +53,65 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void quitConfirmationWaitsForSessionAndCloseShortcutForgets() {
+        QTemporaryDir dir;
+        QVERIFY(document->save(dir.filePath("shortcuts.omm")));
+        QSignalSpy votes(document, &Engine::quitDecision);
+        QSignalSpy closes(document, &Engine::windowCloseApproved);
+        QVERIFY(QMetaObject::invokeMethod(window, "requestClose", Q_ARG(QVariant, false), Q_ARG(QVariant, true)));
+        QCOMPARE(votes.count(), 1); QVERIFY(votes.first().first().toBool());
+        QVERIFY(window->isVisible()); QCOMPARE(closes.count(), 0);
+        QVERIFY(QMetaObject::invokeMethod(window, "abortSessionQuit"));
+        QVERIFY(window->contentItem()->isEnabled());
+        QTest::keySequence(window, QKeySequence(QKeySequence::Close));
+        QTRY_COMPARE(closes.count(), 1);
+        QVERIFY(closes.first().first().toBool());
+        QTRY_VERIFY(!window->isVisible());
+        window->setProperty("allowClose", false);
+        window->show();
+    }
+    void saveOverwritesOpenedDocument() {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("existing.omm");
+        QVERIFY(document->save(path));
+        QVERIFY(document->open(path));
+        document->setText(1, "Saved by shortcut");
+        QTest::keySequence(window, QKeySequence(QKeySequence::Save));
+        QTRY_VERIFY(!document->hasUnsavedChanges());
+        Engine loaded;
+        QVERIFY(loaded.open(path));
+        QCOMPARE(loaded.selectedText(), QString("Saved by shortcut"));
+        document->setText(1, "Saved by toolbar");
+        auto *button = window->findChild<QQuickItem *>("saveDocumentButton");
+        QVERIFY(button);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+            button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
+        QTRY_VERIFY(!document->hasUnsavedChanges());
+        QVERIFY(loaded.open(path));
+        QCOMPARE(loaded.selectedText(), QString("Saved by toolbar"));
+        QVERIFY(window->isVisible());
+    }
+    void closeConfirmationCanCancelOrSave() {
+        QTemporaryDir dir;
+        QVERIFY(!window->close());
+        auto *dialog = window->findChild<QObject *>("closeConfirmation");
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+        QVERIFY(window->isVisible());
+        const QString path = dir.filePath("close.omm");
+        QVERIFY(document->save(path));
+        document->setText(1, "Save on close");
+        QVERIFY(!window->close());
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(window, "saveBeforeClosing"));
+        QTRY_VERIFY(!window->isVisible());
+        Engine loaded;
+        QVERIFY(loaded.open(path));
+        QCOMPARE(loaded.selectedText(), QString("Save on close"));
+        window->setProperty("allowClose", false);
+        window->show();
+    }
     void initTestCase() {
         qmlRegisterUncreatableType<Engine>("MindmapLab", 1, 0, "Engine", "Provided by application");
         qmlRegisterType<MindCanvas>("MindmapLab", 1, 0, "MindCanvas");
@@ -84,6 +143,30 @@ class UiTest : public QObject {
         QVERIFY(canvas->hasActiveFocus());
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
+    }
+    void toolbarGroupsAndNewDocument() {
+        auto *left=window->findChild<QQuickItem *>("documentActions");
+        auto *center=window->findChild<QQuickItem *>("editingActions");
+        auto *right=window->findChild<QQuickItem *>("panelActions");
+        auto *button=window->findChild<QQuickItem *>("newDocumentButton");
+        QVERIFY(left); QVERIFY(center); QVERIFY(right); QVERIFY(button);
+        auto x=[](QQuickItem *item) {return item->mapToScene(QPointF()).x();};
+        QVERIFY(x(left)+left->width()<x(center));
+        QVERIFY(x(center)+center->width()<x(right));
+        QVERIFY(qAbs(x(center)+center->width()/2-window->width()/2)<1);
+        QSignalSpy requested(document,&Engine::newDocumentRequested);
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint());
+        QCOMPARE(requested.count(),1); QCOMPARE(document->nodeCount(),15);
+        QTest::keySequence(window,QKeySequence(QKeySequence::New));
+        QTRY_COMPARE(requested.count(),2);
+        const auto originalSize=window->size();
+        for(int width:{600,950,1380}) {
+            window->resize(width,900); QTest::qWait(100);
+            QVERIFY(x(left)+left->width()<x(center));
+            QVERIFY(x(center)+center->width()<x(right));
+            QVERIFY(x(left)>=0); QVERIFY(x(right)+right->width()<=window->width());
+        }
+        window->resize(originalSize);
     }
     void cleanupTestCase() {
         delete qml;

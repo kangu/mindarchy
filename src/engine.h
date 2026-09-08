@@ -49,7 +49,8 @@ class Engine : public QObject {
     Q_PROPERTY(QStringList fontFamilies READ fontFamilies CONSTANT)
     Q_PROPERTY(QColor canvasColor READ canvasColor NOTIFY changed)
   public:
-    explicit Engine(QObject *parent = nullptr);
+    enum class InitialContent { Example, Blank };
+    explicit Engine(QObject *parent = nullptr, InitialContent content = InitialContent::Example);
     const QHash<int, MapNode> &nodes() const { return m_nodes; }
     const QVector<int> &visibleIds() const { return m_visible; }
     QRectF bounds() const { return m_bounds; }
@@ -117,9 +118,17 @@ class Engine : public QObject {
     Q_INVOKABLE void loadFixture(int count);
     Q_INVOKABLE void moveNode(int id, int parent, int beforeId = -1);
     Q_INVOKABLE void moveManual(int id, double dx, double dy);
+    Q_INVOKABLE bool hasUnsavedChanges() const;
+    Q_INVOKABLE QString documentPath() const { return m_documentPath; }
     Q_INVOKABLE bool save(QString path);
     Q_INVOKABLE bool open(QString path);
   signals:
+    void nativeCloseRequested();
+    void nativeSaveRequested();
+    void quitRequested();
+    void quitDecision(bool accepted);
+    void windowCloseApproved(bool forget);
+    void newDocumentRequested();
     void changed();
     void outlineChanged();
     void editRequested(int id);
@@ -133,6 +142,9 @@ class Engine : public QObject {
         int selected, nextId;
         QSet<int> selection;
     };
+    QByteArray documentBytes() const;
+    QByteArray m_savedBytes;
+    QString m_documentPath;
     State state() const;
     void restore(const State &state);
     void checkpoint();

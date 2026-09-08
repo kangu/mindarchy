@@ -418,9 +418,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                     painter.setBrush(tint);
                     painter.drawRoundedRect(check.adjusted(-3,-3,3,3),3,3);
                 }
-                painter.setPen(QPen(n.appearance.text,1));
-                painter.setBrush(n.checked ? QBrush(n.appearance.text) : QBrush(Qt::NoBrush));
-                painter.drawRoundedRect(check,2,2);
+                paintTask(painter, check, n.appearance.text, n.checked);
             }
         }
         for (const auto &l : m_labels)
@@ -477,10 +475,19 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 tint.setAlphaF(.04);
                 box(vertices, check.adjusted(-3,-3,3,3), tint, 3);
             }
-            box(vertices, check, n.appearance.text, 2);
-            if (!n.checked)
-                box(vertices, check.adjusted(1.5,1.5,-1.5,-1.5),
-                    n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,1);
+            QColor frame = n.appearance.text;
+            if (n.checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
+            box(vertices, check, frame, 2);
+            box(vertices, check.adjusted(1.5,1.5,-1.5,-1.5),
+                n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,1);
+            if (n.checked) {
+                const auto tick = taskCheckPath(check);
+                for (int i = 1; i < tick.size(); ++i)
+                    line(vertices, tick[i-1], tick[i], taskCheckWidth, taskCheckColor);
+                const qreal radius = taskCheckWidth / 2;
+                for (const auto &point : tick)
+                    box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(taskCheckWidth,taskCheckWidth)), taskCheckColor, radius);
+            }
         }
         if (n.folded)
             box(vertices, QRectF(n.expandsLeft ? n.rect.left()-12 : n.rect.right()+4, n.rect.center().y() - 4, 8, 8), n.color, 4);

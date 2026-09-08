@@ -149,3 +149,11 @@ The toolbar uses the same artwork. Native icon assets are committed-source build
 Run `python3 scripts/release-macos.py --version 0.1.0 --unsigned` to build, test and package a self-contained installer for `/Applications/Mindmap Lab.app`. Signed/notarized releases, architecture choices, installation and verification details are in [macOS release workflow](docs/macos-release.md).
 
 Document format, Finder previews, and Linux associations: [OMM documents](docs/omm-documents.md).
+
+## Startup documents
+
+Normal startup reopens the saved documents from the previous session, each in its own window. Missing, unreadable, or invalid documents are skipped. With nothing to restore, the app starts with one blank, editable central node. Explicit file opens and New bypass session restoration; launching while other windows are running does not duplicate them. Unsaved changes still use the Save/Discard/Cancel close flow and are not stored in session metadata.
+
+Session metadata lives in the platform application-data directory under `session/documents.ini`. Per-window locks coordinate separate processes and recover stale entries after a crash. Screenshot, benchmark, and timed test runs do not read or modify the saved session.
+
+Cmd+W closes the active window after any save confirmation and removes it from session restoration. Cmd+Q coordinates all running document windows: each confirms in turn, and all remain open until every confirmation succeeds. Cancel or a failed save aborts the quit. A successful quit preserves the saved paths of those windows for the next startup; discarded unsaved changes are not restored.

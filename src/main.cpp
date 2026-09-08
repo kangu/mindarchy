@@ -4,10 +4,13 @@
 #include <QProcess>
 #include <functional>
 #include "engine.h"
+#include "documentsession.h"
 #include "windowplacement.h"
 #include <QCommandLineParser>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
+#include <QTextDocument>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QJsonArray>
@@ -28,7 +31,12 @@ public:
     using QGuiApplication::QGuiApplication;
     QStringList pendingFiles;
     std::function<void(QString)> openFile;
+    std::function<bool()> requestQuit;
     bool event(QEvent *event) override {
+        if (event->type() == QEvent::Quit && requestQuit && requestQuit()) {
+            event->ignore();
+            return true;
+        }
         if(event->type()==QEvent::FileOpen) {
             auto *file=static_cast<QFileOpenEvent *>(event);
             if(!file->url().isLocalFile()) return false;
@@ -59,6 +67,7 @@ int main(int argc, char **argv) {
     parser.setApplicationDescription(
         "Qt Quick/C++ mind-map interaction and performance laboratory");
     parser.addOption({"no-window-state", "Use default window geometry without saving placement"});
+    parser.addOption({"new", "Start a new blank mindmap"});
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addOption(
@@ -74,7 +83,7 @@ int main(int argc, char **argv) {
     parser.addOption({"preview-output", "PNG output for --render-preview", "path"});
     parser.addOption({"preview-size", "Maximum preview dimension (32–4096 pixels)", "pixels", "1600"});
     parser.process(app);
-    Engine document;
+    Engine document(nullptr, Engine::InitialContent::Blank);
     if(parser.isSet("render-preview")) {
         bool valid=false; int size=parser.value("preview-size").toInt(&valid);
         if(!valid || size<32 || size>4096 || !parser.isSet("preview-output")) {
@@ -115,12 +124,31 @@ int main(int argc, char **argv) {
     QStringList files=parser.positionalArguments();
     if(parser.isSet("document")) files.prepend(parser.value("document"));
     files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
+    const bool sessionEnabled = !parser.isSet("nodes") && !parser.isSet("screenshot") &&
+        !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state");
+    const bool restoring = sessionEnabled && files.isEmpty() && !parser.isSet("new");
+    if (restoring) {
+        // Validate before spawning any windows; a missing or corrupt map must
+        // not prevent the remaining session (or a blank map) from opening.
+        for (const auto &path : DocumentSession::restorePaths()) {
+            Engine candidate(nullptr, Engine::InitialContent::Blank);
+            if (candidate.open(path)) files.append(path);
+        }
+    }
     auto openInNewInstance=[](QString path) {
         QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--document",path});
     };
     const bool startedWithFile=!files.isEmpty();
     if(!files.isEmpty() && !document.open(files.takeFirst())) {
         fprintf(stderr,"%s\n",qPrintable(document.error())); return 1;
+    }
+    std::unique_ptr<DocumentSession> session;
+    if (sessionEnabled) {
+        session = std::make_unique<DocumentSession>();
+        session->setDocument(document.documentPath());
+        QObject::connect(&document, &Engine::changed, &app, [&] {
+            session->setDocument(document.documentPath());
+        });
     }
     for(const auto &path:files) openInNewInstance(path);
     if (parser.isSet("theme")) {
@@ -135,6 +163,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("engine", &document);
     qml.rootContext()->setContextProperty("deferWindowShow", true);
+    qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa");
     QObject::connect(
         &qml, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
@@ -142,17 +171,82 @@ int main(int argc, char **argv) {
         for (const auto &e : errors)
             fprintf(stderr, "QML: %s\n", qPrintable(e.toString()));
     });
+    QObject::connect(&document,&Engine::newDocumentRequested,&app,[] {
+        if(!QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--new"}))
+            fprintf(stderr,"Could not start a new document window\n");
+    });
     qml.load(QUrl("qrc:/qml/Main.qml"));
     if (qml.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(qml.rootObjects().first());
+    QTimer sessionPoll;
+    if (session && window) {
+        QObject::connect(&document, &Engine::windowCloseApproved, &app, [&](bool forget) {
+            if (forget) session->forgetDocument();
+        });
+        QObject::connect(&document, &Engine::quitRequested, &app, [&] { session->beginQuit(); });
+        QObject::connect(&document, &Engine::quitDecision, &app, [&](bool accepted) { session->voteToQuit(accepted); });
+        app.requestQuit = [&] {
+            if (!window->isVisible() || window->property("allowClose").toBool()) return false;
+            session->beginQuit(); return true;
+        };
+        QObject::connect(&sessionPoll, &QTimer::timeout, window, [&] {
+            switch (session->pollQuit()) {
+            case DocumentSession::QuitAction::Confirm:
+                window->raise(); window->requestActivate();
+                QMetaObject::invokeMethod(window, "requestClose", Q_ARG(QVariant, false), Q_ARG(QVariant, true)); break;
+            case DocumentSession::QuitAction::Cancel:
+                QMetaObject::invokeMethod(window, "abortSessionQuit"); break;
+            case DocumentSession::QuitAction::Close:
+                QMetaObject::invokeMethod(window, "completeSessionQuit"); break;
+            default: break;
+            }
+        });
+        sessionPoll.start(150);
+    }
     if(window && !parser.isSet("no-window-state") && !parser.isSet("screenshot") &&
        !parser.isSet("quit-after") && !parser.isSet("render-benchmark")) new WindowPlacement(window);
 #ifdef Q_OS_MACOS
     void installMacToolbar(QWindow *window);
     if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
+    void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
+    void showMacSavePanel(QWindow *, const QString &, std::function<void(QString)>);
+    bool saveSheetOpen = false;
+    QObject::connect(&document, &Engine::nativeSaveRequested, window, [&, window] {
+        if (saveSheetOpen) return;
+        saveSheetOpen = true;
+        QTextDocument title;
+        title.setHtml(document.nodes().value(1).text);
+        QString name = title.toPlainText().simplified().left(100);
+        name.replace('/', '-'); name.replace(':', '-');
+        if (name.isEmpty()) name = "Untitled";
+        showMacSavePanel(window, name, [&, window](QString path) {
+            QTimer::singleShot(0, window, [&, window, path] {
+                saveSheetOpen = false;
+                QMetaObject::invokeMethod(window, "finishSaveDialog", Q_ARG(QVariant, QVariant(path)));
+            });
+        });
+    });
+    bool closeSheetOpen = false;
+    QObject::connect(&document, &Engine::nativeCloseRequested, window, [&, window] {
+        if (closeSheetOpen) return;
+        closeSheetOpen = true;
+        QTextDocument rootTitle;
+        rootTitle.setHtml(document.nodes().value(1).text);
+        QString name = document.documentPath().isEmpty() ? rootTitle.toPlainText()
+            : QFileInfo(document.documentPath()).fileName();
+        if (name.trimmed().isEmpty()) name = "Untitled";
+        showMacCloseConfirmation(window, name, [&, window](int choice) {
+            // Let AppKit finish dismissing the sheet before saving or closing.
+            QTimer::singleShot(0, window, [&, window, choice] {
+                closeSheetOpen = false;
+                if (choice == 1) QMetaObject::invokeMethod(window, "saveBeforeClosing");
+                else QMetaObject::invokeMethod(window, choice == 2 ? "approveClose" : "cancelClose");
+            });
+        });
+    });
 #endif
-    bool freshDocument=!startedWithFile && !parser.isSet("nodes");
+    bool freshDocument=!startedWithFile && !parser.isSet("nodes") && !parser.isSet("new");
     QObject::connect(&document,&Engine::changed,&app,[&freshDocument] { freshDocument=false; });
     app.openFile=[&document,window,&freshDocument,openInNewInstance](QString path) {
         // A cold Finder launch uses the initial window. Later opens preserve
@@ -167,6 +261,13 @@ int main(int argc, char **argv) {
     app.pendingFiles.clear();
     // Preserve the state prepared by WindowPlacement; show() calls showNormal().
     if(window) window->setVisible(true);
+    if(window && !startedWithFile && !parser.isSet("nodes") && !parser.isSet("render-benchmark")) {
+        QTimer::singleShot(0,window,[window] {
+            if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas")) {
+                canvas->fit(); canvas->beginEdit(1);
+            }
+        });
+    }
     if (window && parser.isSet("theme")) {
         window->setProperty("inspectorVisible",true);
         if (auto *tabs=window->findChild<QQuickItem *>("inspectorTabs")) tabs->setProperty("currentIndex",2);

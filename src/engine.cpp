@@ -44,7 +44,12 @@ bool validNodeStyle(const QVariantMap &s) {
     return true;
 }
 } // namespace
-Engine::Engine(QObject *parent) : QObject(parent) {
+Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
+    if(content==InitialContent::Blank) {
+        MapNode root; root.id=1; root.text="Central idea";
+        m_nodes.insert(1,root); m_nextId=2;
+        rebuild(); return;
+    }
     const QStringList labels = {"Mindmap Lab",     "Layout engine",       "Interaction",
                                 "Document",        "Measured text",       "Horizontal / vertical",
                                 "Compact outline", "Keyboard navigation", "Drag to reparent",
@@ -650,7 +655,7 @@ void Engine::moveManual(int id, double dx, double dy) {
     m_nodes[id].manualOffset = next;
     rebuild();
 }
-bool Engine::save(QString path) {
+QByteArray Engine::documentBytes() const {
     QJsonArray nodes;
     QList<int> ids = m_nodes.keys();
     std::sort(ids.begin(), ids.end());
@@ -683,12 +688,20 @@ bool Engine::save(QString path) {
         {"connections", connections}, {"format", "mindmap-lab"}, {"version", 1},
         {"layout", m_layout},         {"spacing", m_spacing},    {"branchStyle", m_branchStyle},
         {"themeId", m_themeId},       {"manual", m_manual},      {"nodes", nodes}};
+    return QJsonDocument(obj).toJson();
+}
+bool Engine::hasUnsavedChanges() const {
+    return m_savedBytes.isEmpty() || documentBytes() != m_savedBytes;
+}
+bool Engine::save(QString path) {
     QSaveFile file(localPath(path));
     if (!file.open(QIODevice::WriteOnly))
         return fail(file.errorString());
-    QByteArray bytes = QJsonDocument(obj).toJson();
+    QByteArray bytes = documentBytes();
     if (file.write(bytes) != bytes.size() || !file.commit())
         return fail(file.errorString());
+    m_savedBytes = bytes;
+    m_documentPath = localPath(path);
     m_error.clear();
     emit changed();
     return true;
@@ -832,6 +845,9 @@ bool Engine::open(QString path) {
     m_selected = 1;
     m_selection = {1};
     rebuild();
+    m_savedBytes = documentBytes();
+    m_documentPath = localPath(path);
+    emit changed();
     return true;
 }
 
