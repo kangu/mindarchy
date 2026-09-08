@@ -5,10 +5,14 @@
 #include <QElapsedTimer>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QVariantList>
 #import <AppKit/AppKit.h>
 
 void installMacToolbar(QWindow *window);
 void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
+NSMenu *createMacParentFolderMenu(const QString &);
+void installMacWindowMenu(QWindow *, std::function<QVariantList()>, std::function<void(qint64)>);
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
@@ -70,5 +74,31 @@ int main(int argc, char **argv) {
     if (![delegate panel:native shouldEnableURL:[NSURL fileURLWithPath:directory.path().toNSString()]]) return 8;
     [(NSObject *)delegate release];
     fprintf(stdout, "Native save filter enables .omm/.OMM and folders, excludes unrelated files.\n");
+    NSMenu *folders = createMacParentFolderMenu(directory.filePath("existing.omm"));
+    QString expected = directory.path();
+    for (NSMenuItem *item in folders.itemArray) {
+        NSURL *url = item.representedObject;
+        if (QString::fromNSString(url.path) != expected || !item.image || !item.target ||
+            item.action != @selector(openFolder:)) return 9;
+        expected = QFileInfo(expected).absolutePath();
+    }
+    if (QString::fromNSString([(NSURL *)folders.itemArray.lastObject.representedObject path]) != "/") return 10;
+    fprintf(stdout, "Native parent-folder menu contains every ancestor through the volume root.\n");
+    qint64 activated = 0;
+    installMacWindowMenu(&window, [] {
+        return QVariantList{QVariantMap{{"pid", QCoreApplication::applicationPid()}, {"title", "Current map"}},
+            QVariantMap{{"pid", qint64(999999)}, {"title", "Second map"}}};
+    }, [&](qint64 pid) { activated=pid; });
+    NSMenu *windowMenu=NSApp.windowsMenu;
+    if (!windowMenu || ![NSApp.mainMenu itemWithTitle:@"Window"]) return 11;
+    [windowMenu.delegate menuNeedsUpdate:windowMenu];
+    NSMenuItem *next=[windowMenu itemWithTitle:@"Next Window"];
+    NSMenuItem *previous=[windowMenu itemWithTitle:@"Previous Window"];
+    if (!next || !previous || ![next.keyEquivalent isEqualToString:@"`"] ||
+        previous.keyEquivalentModifierMask != (NSEventModifierFlagCommand|NSEventModifierFlagShift)) return 12;
+    [NSApp sendAction:next.action to:next.target from:next];
+    if (activated != 999999) return 13;
+    if (![windowMenu itemWithTitle:@"Second map"] || ![windowMenu itemWithTitle:@"Minimize"]) return 14;
+    fprintf(stdout, "Window menu: native registration, cross-process listing and cycle shortcut verified.\n");
     return 0;
 }

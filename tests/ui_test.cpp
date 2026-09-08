@@ -53,6 +53,72 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void integratedColorPickerPresetsCustomAndCancel() {
+        auto *button=window->findChild<QObject *>("style-fill-picker");
+        QVERIFY(button);
+        const auto original=document->appearance(1).fill;
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QObject *picker=nullptr;
+        for (auto *candidate : window->findChildren<QObject *>("appColorPicker"))
+            if (candidate->property("visible").toBool()) picker=candidate;
+        QVERIFY(picker);
+        if (qEnvironmentVariableIsSet("MINDMAP_COLOR_SCREENSHOT")) {
+            QTest::qWait(200); QVERIFY(window->grabWindow().save(qEnvironmentVariable("MINDMAP_COLOR_SCREENSHOT")));
+        }
+        auto *content=picker->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        auto *preset=findVisual(content,"preset-ef8585");
+        QVERIFY(preset); QVERIFY(QMetaObject::invokeMethod(preset, "clicked"));
+        QCOMPARE(document->appearance(1).fill, original);
+        QVERIFY(QMetaObject::invokeMethod(picker, "accept"));
+        QCOMPARE(document->appearance(1).fill.name(), QString("#ef8585"));
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        auto *hex=findVisual(content,"colorHex");
+        QVERIFY(hex); hex->setProperty("text", "#8040a0e0");
+        QVERIFY(QMetaObject::invokeMethod(hex, "textEdited"));
+        QCOMPARE(picker->property("selectedColor").value<QColor>().name(QColor::HexArgb), QString("#8040a0e0"));
+        QVERIFY(QMetaObject::invokeMethod(picker, "reject"));
+        QCOMPARE(document->appearance(1).fill.name(), QString("#ef8585"));
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        hex->setProperty("text", "not a color");
+        QVERIFY(!picker->property("validHex").toBool());
+        hex->setProperty("text", "#8040a0e0"); QMetaObject::invokeMethod(hex,"textEdited");
+        QVERIFY(QMetaObject::invokeMethod(picker, "accept"));
+        QCOMPARE(document->appearance(1).fill.name(QColor::HexArgb), QString("#8040a0e0"));
+    }
+    void documentHeaderTracksSaveAndEditing() {
+        QTemporaryDir dir;
+        auto *name = window->findChild<QQuickItem *>("documentNameLabel");
+        auto *edited = window->findChild<QQuickItem *>("documentEditedLabel");
+        QVERIFY(name); QVERIFY(edited);
+        QVERIFY(document->save(dir.filePath("My project.omm")));
+        QTRY_COMPARE(name->property("text").toString(), QString("My project"));
+        QTRY_VERIFY(!edited->isVisible());
+        QTRY_VERIFY(qAbs(name->mapToScene(QPointF(0, name->height()/2)).y() - 30) < 1);
+        canvas->beginEdit(1);
+        QTRY_VERIFY(canvas->editing());
+        QVERIFY(!window->property("documentEdited").toBool());
+        type("Changed title");
+        QTRY_VERIFY(window->property("documentEdited").toBool());
+        QVERIFY(QMetaObject::invokeMethod(window, "saveDocument", Q_ARG(QVariant, false)));
+        QTRY_VERIFY(!edited->isVisible());
+        QVERIFY(!document->edited());
+        if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::MacOS) {
+            auto *mouse = window->findChild<QQuickItem *>("documentTitleMouse");
+            QVERIFY(mouse);
+            const QPoint position = mouse->mapToScene(QPointF(mouse->width()/2, mouse->height()/2)).toPoint();
+            QTest::mouseMove(window, QPoint(window->width()/2, 150));
+            QTest::qWait(180);
+            const qreal initialX = name->mapToScene(QPointF()).x();
+            QTest::mouseMove(window, position);
+            QTRY_VERIFY(name->mapToScene(QPointF()).x() > initialX + 19);
+            QSignalSpy menu(document, &Engine::nativeFolderMenuRequested);
+            QTest::mouseClick(window, Qt::RightButton, Qt::NoModifier, position);
+            QCOMPARE(menu.count(), 1);
+            QTest::mouseMove(window, QPoint(window->width()/2, 150));
+            QTRY_VERIFY(qAbs(name->mapToScene(QPointF()).x()-initialX) < 1);
+        }
+    }
     void quitConfirmationWaitsForSessionAndCloseShortcutForgets() {
         QTemporaryDir dir;
         QVERIFY(document->save(dir.filePath("shortcuts.omm")));
@@ -214,6 +280,10 @@ class UiTest : public QObject {
         QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Design review"));
         QTest::mouseMove(window,point()+QPoint(0,40)); QTest::mouseMove(window,point());
         QTRY_COMPARE(canvas->dateHoverText(),QString("Design review"));
+        auto *tooltip=window->findChild<QObject *>("dateEntryTooltip"); QVERIFY(tooltip);
+        QCOMPARE(tooltip->property("delay").toInt(),0);
+        QVERIFY(tooltip->property("visible").toBool());
+        QCOMPARE(tooltip->property("text").toString(),QString("Design review"));
         const QString dir=qEnvironmentVariable("MINDMAP_DATE_SCREENSHOTS");
         if(!dir.isEmpty()) {QDir().mkpath(dir); QTest::qWait(600); QVERIFY(window->grabWindow().save(dir+"/month-hover.png"));}
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point()); QTRY_VERIFY(dialog->property("opened").toBool());
@@ -650,6 +720,42 @@ class UiTest : public QObject {
         document->undo();
         QCOMPARE(document->nodes().value(branch).rect.center(), before);
         stage("Undo restored manual placement");
+    }
+    void automaticDragReordersSiblingsInGaps() {
+        document->setManual(false);
+        for (const QString layout : {QString("Horizontal"),QString("Vertical"),QString("Compact")}) {
+            document->setLayout(layout); QTest::qWait(250); canvas->fit();
+            const auto original=document->nodes().value(1).children;
+            QVERIFY(original.size()>=3);
+            const int moving=original[1], first=original[0];
+            const auto rect=document->nodes().value(first).rect;
+            const QPointF before=layout=="Vertical" ? QPointF(rect.left()-10,rect.center().y())
+                                                       : QPointF(rect.center().x(),rect.top()-10);
+            drag(screenCenter(moving),canvas->mapToScene(canvas->mapFromWorld(before)).toPoint());
+            auto expected=original; expected.removeAll(moving); expected.prepend(moving);
+            QCOMPARE(document->nodes().value(1).children,expected);
+            QCOMPARE(document->nodes().value(moving).parent,1);
+            document->undo(); QCOMPARE(document->nodes().value(1).children,original);
+            QTest::qWait(250);
+            const auto last=document->nodes().value(original.last()).rect;
+            const QPointF after=layout=="Vertical" ? QPointF(last.right()+10,last.center().y())
+                                                      : QPointF(last.center().x(),last.bottom()+10);
+            drag(screenCenter(moving),canvas->mapToScene(canvas->mapFromWorld(after)).toPoint());
+            expected=original; expected.removeAll(moving); expected.append(moving);
+            QCOMPARE(document->nodes().value(1).children,expected);
+            document->undo(); QCOMPARE(document->nodes().value(1).children,original);
+            QTest::qWait(250);
+            const auto third=document->nodes().value(original[2]).rect;
+            const QPointF middle=layout=="Vertical" ? QPointF(third.left()-10,third.center().y())
+                                                       : QPointF(third.center().x(),third.top()-10);
+            drag(screenCenter(first),canvas->mapToScene(canvas->mapFromWorld(middle)).toPoint());
+            expected=original; expected.removeAll(first); expected.insert(1,first);
+            QCOMPARE(document->nodes().value(1).children,expected);
+            document->undo(); QCOMPARE(document->nodes().value(1).children,original);
+            document->redo(); QCOMPARE(document->nodes().value(1).children,expected);
+            document->undo();
+        }
+        document->setLayout("Horizontal");
     }
     void automaticDragReparentsBranch() {
         const int root = 1;

@@ -16,10 +16,13 @@ for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
 with tempfile.TemporaryDirectory() as tmp:
     iconset = Path(tmp) / 'mindmap-blue.iconset'
     iconset.mkdir()
+    subprocess.run(['swift', str(root / 'packaging/macos/generate-icon.swift'),
+                    str(source), tmp], check=True)
+    shutil.copyfile(Path(tmp) / 'mac-512.png', out / 'mindmap-blue-macos-512.png')
     for size in (16, 32, 128, 256, 512):
         for scale in (1, 2):
             suffix = '@2x' if scale == 2 else ''
-            shutil.copyfile(out / f'mindmap-blue-{size * scale}.png',
+            shutil.copyfile(Path(tmp) / f'mac-{size * scale}.png',
                             iconset / f'icon_{size}x{size}{suffix}.png')
     subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o',
                     str(out / 'mindmap-blue.icns')], check=True)

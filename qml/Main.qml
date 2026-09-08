@@ -16,12 +16,15 @@ ApplicationWindow {
     // The toolbar reserves horizontal space for the native window controls.
     // Avoid ApplicationWindow's automatic inset below the macOS title bar.
     Binding { target: window; property: "topPadding"; value: 0; when: window.integratedMacToolbar }
-    title: "Mindmap Lab · Qt Quick"
+    title: controller.documentName
     color: "#111920"
     property var controller: engine
     property bool outlineVisible: width >= 1100
     property bool inspectorVisible: width >= 1000
     property string exportStatus: ""
+    readonly property bool documentEdited: controller.edited ||
+        (canvas.editing && editor.text !== editor.initialText) ||
+        (notes.loadedId === controller.selectedId && notes.text !== notes.loadedNotes) || dateDialog.entryModified
     property bool allowClose: false
     property bool closeAfterSave: false
     property bool quitPending: false
@@ -304,11 +307,37 @@ ApplicationWindow {
                             Layout.preferredWidth: 32; Layout.preferredHeight: 32
                             fillMode: Image.PreserveAspectFit
                         }
-                        ColumnLayout {
-                            visible: window.width >= 950; spacing: 2
+                        Item {
+                            id: documentTitleArea
+                            visible: window.width >= 950
+                            readonly property bool canReveal: { controller.documentName; return window.integratedMacToolbar && controller.documentPath().length > 0 }
+                            implicitWidth: Math.min(180, documentNameLabel.implicitWidth) + 20
+                            implicitHeight: documentTitleColumn.implicitHeight
                             Layout.leftMargin: 6; Layout.rightMargin: 12
-                            Label { text: "Mindmap Lab"; font.pixelSize: 16; font.bold: true; color: window.ink }
-                            Label { visible: window.width >= 1150; text: "A place to think in branches"; color: window.muted; font.pixelSize: 10 }
+                            Image {
+                                source: "qrc:/qml/icons/folder-open.svg"
+                                width: 16; height: 16
+                                y: documentNameLabel.y + (documentNameLabel.height-height)/2
+                                opacity: titleMouse.containsMouse && documentTitleArea.canReveal ? 1 : 0
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
+                            }
+                            ColumnLayout {
+                                id: documentTitleColumn; spacing: 2
+                                x: titleMouse.containsMouse && documentTitleArea.canReveal ? 20 : 0
+                                Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            Label { id: documentNameLabel; objectName: "documentNameLabel"; text: controller.documentName; textFormat: Text.PlainText; Layout.maximumWidth: 180; elide: Text.ElideRight; font.pixelSize: 16; font.bold: true; color: window.ink }
+                            Label { objectName: "documentEditedLabel"; visible: window.documentEdited; text: "Edited"; color: window.muted; font.pixelSize: 10 }
+                            }
+                            MouseArea {
+                                id: titleMouse; objectName: "documentTitleMouse"
+                                anchors.fill: parent; hoverEnabled: true
+                                enabled: documentTitleArea.canReveal
+                                acceptedButtons: Qt.RightButton
+                                onClicked: function(mouse) {
+                                    var point = mapToItem(null, mouse.x, mouse.y)
+                                    controller.nativeFolderMenuRequested(point.x, point.y)
+                                }
+                            }
                         }
                         ToolbarButton { objectName: "newDocumentButton"; iconName: "file-plus-2"; text: "New mindmap"; onClicked: controller.newDocumentRequested() }
                         ToolbarButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
@@ -383,16 +412,15 @@ ApplicationWindow {
                         if (window.commitEditor("")) dateDialog.openEntry(id,date,text)
                     }
                     ToolTip {
+                        objectName: "dateEntryTooltip"
+                        text: canvas.dateHoverText
                         visible: canvas.dateHoverText.length>0 && !dateDialog.opened && !canvas.dragging
-                        delay: 450
+                        delay: 0
+                        width: Math.min(implicitWidth, 300, canvas.width)
                         x: Math.max(0,Math.min(canvas.width-width,canvas.dateHoverPosition.x+12))
                         y: Math.max(0,Math.min(canvas.height-height,canvas.dateHoverPosition.y+16))
-                        contentItem: Text {
-                            text: canvas.dateHoverText; textFormat: Text.PlainText; wrapMode: Text.Wrap
-                            width: 280; color: "#e0e9ee"; font.pixelSize: 12
-                        }
                     }
-                    onEditRequested: function(id, text) { editor.text = text; editor.forceActiveFocus(); editor.selectAll() }
+                    onEditRequested: function(id, text) { editor.text = text; editor.initialText = editor.text; editor.forceActiveFocus(); editor.selectAll() }
                     onExportFinished: function(path, success) { window.exportStatus = success ? "PNG exported" : "PNG export failed"; exportTimer.restart() }
                     Item {
                         id: inlineEditor; objectName: "inlineNodeEditor"
@@ -403,19 +431,9 @@ ApplicationWindow {
                         scale: canvas.zoom; transformOrigin: Item.TopLeft
                         property var nodeAppearance: { controller.themeId; return canvas.appearanceForNode(canvas.editingId) }
                         property real textInset: 15 + (controller.selectedTask ? 20 : 0)
-                        Rectangle {
-                            anchors.left: parent.left; anchors.bottom: parent.top; anchors.bottomMargin: 5
-                            width: formatRow.implicitWidth + 4; height: formatRow.implicitHeight + 4
-                            radius: 6; color: "#1c2b35"; border.color: "#34454f"
-                            Row {
-                            id: formatRow; x: 2; y: 2; spacing: 4
-                            IconButton { iconName: "bold"; text: "Bold"; width: 32; font.bold: true; onClicked: canvas.formatText(editor, "bold") }
-                            IconButton { iconName: "italic"; text: "Italic"; width: 32; font.italic: true; onClicked: canvas.formatText(editor, "italic") }
-                            IconButton { iconName: "underline"; text: "Underline"; width: 32; font.underline: true; onClicked: canvas.formatText(editor, "underline") }
-                            }
-                        }
                         TextEdit {
                             id: editor; objectName: "titleEditor"
+                            property string initialText: ""
                             x: inlineEditor.textInset
                             y: Math.max(8, (inlineEditor.height - contentHeight) / 2)
                             width: Math.max(20, inlineEditor.width - inlineEditor.textInset - 15)
@@ -558,7 +576,7 @@ ApplicationWindow {
                                         }
                                     }
                                 }
-                                NodeStylePanel { visible: controller.selectedKind !== "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}
                                 SmallButton { text: controller.selectedFolded ? "Expand branch" : "Fold branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }

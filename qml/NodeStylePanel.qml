@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
 
 ColumnLayout {
     id: panel; objectName: "nodeStylePanel"
@@ -9,6 +8,7 @@ ColumnLayout {
     required property var commitEditor
     readonly property var values: controller.selectedStyle
     readonly property bool bare: values.shape === 3 || values.shape === 6
+    property bool shapeOnly: false
     spacing: 10
     enabled: values.count > 0
     function mixed(key) { return values.mixed.indexOf(key) >= 0 }
@@ -65,7 +65,7 @@ ColumnLayout {
             contentItem: Rectangle { color: panel.values[fieldRow.field] || "transparent"; radius: 4; border.color: "#718896"
                 Label { anchors.centerIn: parent; text: panel.mixed(fieldRow.field) ? "…" : ""; color: "white" }
             }
-            onClicked: { if (!panel.commitEditor("")) return; picker.selectedColor = panel.values[fieldRow.field]; picker.open() }
+            onClicked: { if (!panel.commitEditor("")) return; picker.openColor(panel.values[fieldRow.field]) }
         }
         TextField {
             objectName: "style-" + fieldRow.field
@@ -75,7 +75,7 @@ ColumnLayout {
             Accessible.name: fieldRow.label + " hex color"
             onEditingFinished: { if (text.length) panel.apply(fieldRow.field, text) }
         }
-        ColorDialog { id: picker; title: fieldRow.label + " color"; options: ColorDialog.ShowAlphaChannel
+        ColorPicker { id: picker; title: fieldRow.label + " color"
             onAccepted: panel.apply(fieldRow.field, selectedColor.toString()) }
     }
     Section { text: "SHAPE" }
@@ -83,6 +83,8 @@ ColumnLayout {
         {label:"Line",value:3}, {label:"Embedded",value:6}, {label:"Rectangle",value:1},
         {label:"Rounded",value:0}, {label:"Pill",value:2}, {label:"Cloud",value:5},
         {label:"Hexagon",value:4}, {label:"Octagon",value:7}] }
+    ColumnLayout {
+        visible: !panel.shapeOnly; Layout.fillWidth: true; spacing: 10
     CheckBox {
         objectName: "style-fixedWidth"; text: "Fixed width" + (panel.mixed("width") ? " · Mixed" : "")
         checked: panel.values.width > 0
@@ -152,5 +154,6 @@ ColumnLayout {
         objectName: "style-reset"; Layout.fillWidth: true; text: "Reset to theme"
         ToolTip.visible: hovered; ToolTip.text: "Clear custom appearance and title formatting on selected nodes"
         onClicked: { if(panel.commitEditor("")) controller.resetNodeStyle() }
+    }
     }
 }

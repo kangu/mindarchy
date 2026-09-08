@@ -1,6 +1,7 @@
 #include "engine.h"
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
 #include <QTextCursor>
@@ -48,7 +49,7 @@ Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
     if(content==InitialContent::Blank) {
         MapNode root; root.id=1; root.text="Central idea";
         m_nodes.insert(1,root); m_nextId=2;
-        rebuild(); return;
+        rebuild(); m_savedBytes = documentBytes(); return;
     }
     const QStringList labels = {"Mindmap Lab",     "Layout engine",       "Interaction",
                                 "Document",        "Measured text",       "Horizontal / vertical",
@@ -74,12 +75,14 @@ Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
     }
     m_nextId = labels.size() + 1;
     rebuild();
+    m_savedBytes = documentBytes();
 }
 Engine::State Engine::state() const {
     return {m_nodes,  m_connections, m_layout, m_spacing, m_branchStyle, m_themeId,
             m_manual, m_selected,    m_nextId, m_selection};
 }
 void Engine::restore(const State &s) {
+    ++m_documentRevision;
     m_nodes = s.nodes;
     m_connections = s.connections;
     m_layout = s.layout;
@@ -94,6 +97,7 @@ void Engine::restore(const State &s) {
     rebuild();
 }
 void Engine::checkpoint() {
+    ++m_documentRevision;
     m_undo.append(state());
     m_redo.clear();
     m_error.clear();
@@ -311,7 +315,7 @@ NodeAppearance Engine::appearance(int id) const {
     if (s.contains("branchWidth")) a.branchWidth = s["branchWidth"].toDouble();
     if (s.contains("borderStyle")) a.borderStyle = Qt::PenStyle(s["borderStyle"].toInt());
     if (s.contains("branchStroke")) a.branchStroke = Qt::PenStyle(s["branchStroke"].toInt());
-    if(it->kind=="date" && (a.shape==NodeShape::Underline || a.shape==NodeShape::Embedded)) {
+    if(it->kind=="date" && !s.contains("shape") && (a.shape==NodeShape::Underline || a.shape==NodeShape::Embedded)) {
         a.shape=NodeShape::Rounded; a.border=a.branch; a.borderWidth=1; a.fill=canvasColor();
     }
     return a;
@@ -691,7 +695,18 @@ QByteArray Engine::documentBytes() const {
     return QJsonDocument(obj).toJson();
 }
 bool Engine::hasUnsavedChanges() const {
-    return m_savedBytes.isEmpty() || documentBytes() != m_savedBytes;
+    return m_documentPath.isEmpty() || edited();
+}
+QString Engine::documentName() const {
+    return m_documentPath.isEmpty() ? QStringLiteral("New mindmap") : QFileInfo(m_documentPath).completeBaseName();
+}
+bool Engine::edited() const {
+    // Selection/hover notifications do not serialize the map again.
+    if (m_checkedRevision != m_documentRevision) {
+        m_edited = documentBytes() != m_savedBytes;
+        m_checkedRevision = m_documentRevision;
+    }
+    return m_edited;
 }
 bool Engine::save(QString path) {
     QSaveFile file(localPath(path));
@@ -701,6 +716,7 @@ bool Engine::save(QString path) {
     if (file.write(bytes) != bytes.size() || !file.commit())
         return fail(file.errorString());
     m_savedBytes = bytes;
+    m_checkedRevision = ~quint64(0);
     m_documentPath = localPath(path);
     m_error.clear();
     emit changed();
@@ -847,6 +863,7 @@ bool Engine::open(QString path) {
     rebuild();
     m_savedBytes = documentBytes();
     m_documentPath = localPath(path);
+    m_checkedRevision = ~quint64(0);
     emit changed();
     return true;
 }

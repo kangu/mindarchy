@@ -56,19 +56,28 @@ void strokePath(QVector<Vertex> &v, const QPolygonF &points, qreal width, QColor
     for(int i=1;i<points.size();++i) totalLength+=QLineF(points[i-1],points[i]).length();
     // Bound dash tessellation for imported maps with extreme manual offsets.
     if(totalLength/period > 4096) style=Qt::SolidLine;
+    auto appendStroke = [&](const QPolygonF &path) {
+        const auto mesh=strokeTriangles(path,width);
+        for (const auto &point : mesh) vertex(v,point,color);
+    };
+    if (style==Qt::SolidLine) { appendStroke(points); return; }
+    QPolygonF dash;
     for(int i=1;i<points.size();++i) {
         const QPointF a=points[i-1], delta=points[i]-a; const qreal len=QLineF(a,points[i]).length();
-        if(style==Qt::SolidLine) { line(v,a,points[i],width,color); continue; }
         qreal t=0;
         while(t<len-.0001) {
             const qreal phase=std::fmod(distance+t,period);
             const qreal step=std::min(len-t,phase<on ? on-phase : period-phase);
             if(step<.0001) {t+=.0001;continue;}
-            if(phase<on) line(v,a+delta*(t/len),a+delta*((t+step)/len),width,color);
+            if(phase<on) {
+                if(dash.isEmpty()) dash << a+delta*(t/len);
+                dash << a+delta*((t+step)/len);
+            } else if(!dash.isEmpty()) { appendStroke(dash); dash.clear(); }
             t+=step;
         }
         distance+=len;
     }
+    if(!dash.isEmpty()) appendStroke(dash);
 }
 void box(QVector<Vertex> &v, QRectF r, QColor c, qreal radius = 0) {
     if (radius <= 0) {
@@ -94,8 +103,8 @@ bool hasShapedBorder(const NodeAppearance &style) {
            style.shape != NodeShape::Underline && style.shape != NodeShape::Embedded;
 }
 void shapeOutline(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &style,
-                  QColor color, qreal thickness) {
-    auto polygon = shapePolygon(rect, style.shape, style.radius);
+                  QColor color, qreal thickness, qreal detail = 1) {
+    auto polygon = shapePolygon(rect, style.shape, style.radius, detail);
     if (polygon.size() > 1 && polygon.first() == polygon.last()) polygon.removeLast();
     if (polygon.size() < 3) return;
     qreal area = 0;
@@ -123,13 +132,13 @@ void shapeOutline(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &
         triangle(vertices, inner[i], outer[j], inner[j], color);
     }
 }
-void themedShape(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &style) {
+void themedShape(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &style, qreal detail) {
     if(style.shape == NodeShape::Embedded) return;
     if (style.shape == NodeShape::Underline) {
         strokePath(vertices, QPolygonF{rect.bottomLeft(), rect.bottomRight()}, style.branchWidth,style.branch,style.branchStroke);
         return;
     }
-    const QPolygonF polygon=shapePolygon(rect,style.shape,style.radius);
+    const QPolygonF polygon=shapePolygon(rect,style.shape,style.radius,detail);
     for(int i=0;i<polygon.size();++i) {
         const auto a=polygon[i],b=polygon[(i+1)%polygon.size()];
         if(style.fill.alpha()) triangle(vertices,rect.center(),a,b,style.fill);
@@ -206,15 +215,25 @@ QRectF MindCanvas::displayRect(int id) const {
         r.translate(m_dragDelta);
     return r;
 }
+qreal MindCanvas::taskProgress(int id) const {
+    const qreal target = m_targetTasks.value(id);
+    if (!m_animating) return target;
+    const qreal t = 1 - std::pow(1 - std::clamp(m_animationClock.elapsed()/180., 0., 1.), 3);
+    return m_previousTasks.value(id, target) + (target-m_previousTasks.value(id, target))*t;
+}
 void MindCanvas::documentChanged() {
     if(!m_dateHoverText.isEmpty()) { m_dateHoverText.clear(); emit interactionChanged(); }
     if (!m_engine)
         return;
     QHash<int, QRectF> next;
+    QHash<int, qreal> nextTasks;
     bool moved = false;
     for (int id : m_engine->visibleIds()) {
         QRectF r = m_engine->nodes().value(id).rect;
         next.insert(id, r);
+        const qreal task = m_engine->nodes().value(id).task ? 1 : 0;
+        nextTasks.insert(id, task);
+        if (m_targetTasks.contains(id) && m_targetTasks.value(id) != task) moved = true;
         if (m_target.contains(id) && m_target.value(id) != r)
             moved = true;
     }
@@ -222,6 +241,9 @@ void MindCanvas::documentChanged() {
         QHash<int, QRectF> current;
         for (int id : m_target.keys())
             current.insert(id, displayRect(id));
+        QHash<int, qreal> currentTasks;
+        for (int id : m_targetTasks.keys()) currentTasks.insert(id, taskProgress(id));
+        m_previousTasks = currentTasks;
         m_previous = current;
         m_animating = true;
         m_animationClock.restart();
@@ -231,6 +253,7 @@ void MindCanvas::documentChanged() {
         m_animationTimer.stop();
     }
     m_target = next;
+    m_targetTasks = nextTasks;
     if (editing() && (!m_engine->nodes().contains(m_editingId) || !m_target.contains(m_editingId)))
         endEdit();
     refresh();
@@ -264,8 +287,8 @@ void MindCanvas::refresh() {
     const qreal dpr = window() ? window()->effectiveDevicePixelRatio() : 1.;
     qsizetype labelBytes = 0;
     constexpr qsizetype LabelBudget = 64 * 1024 * 1024;
-    int bucket = m_zoom > 1.5 ? 3 : m_zoom > .8 ? 2 : 1;
-    double rasterScale = std::min(4., bucket * dpr);
+    int bucket = std::clamp(int(std::ceil(std::log2(std::max(1., m_zoom*dpr))*2)), 0, 12);
+    double rasterScale = std::pow(2., bucket/2.);
     for (int id : m_engine->visibleIds()) {
         const auto &n = nodes[id];
         QRectF r = displayRect(id);
@@ -296,22 +319,30 @@ void MindCanvas::refresh() {
         }
         if (!r.intersects(viewport))
             continue;
-        m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, n.task, n.checked,
-            m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x()});
+        const qreal taskOpacity = taskProgress(id);
+        m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, taskOpacity > 0, n.checked,
+            m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x(), taskOpacity});
         if (m_zoom < .28 || editingId() == id)
             continue;
+        // Task conversion changes padding, not the text's wrapping width.
+        // Rasterize at the destination size and slide the label with the box.
+        QRectF labelRect = r;
+        if (m_animating && m_previousTasks.value(id, m_targetTasks.value(id)) != m_targetTasks.value(id)) {
+            labelRect.setSize(m_target.value(id).size());
+            labelRect.translate(20 * (taskOpacity - (n.task ? 1 : 0)), 0);
+        }
         const QString labelKey=n.kind=="date" ? Calendar::key(n.calendar)+appearance.branch.name(QColor::HexArgb) : n.text;
         auto it = m_cache.find(id);
-        if (it == m_cache.end() || it->text != labelKey || it->size != r.size() ||
+        if (it == m_cache.end() || it->text != labelKey || it->size != labelRect.size() ||
             it->bucket != bucket || it->task != n.task || it->textColor != appearance.text) {
             // Bound per-label raster memory even for very tall rich-text nodes.
             const double safeScale =
-                std::min({rasterScale, 2048. / r.width(), 2048. / r.height(),
-                          std::sqrt(1024. * 1024. / (r.width() * r.height()))});
+                std::min({rasterScale, 4096. / labelRect.width(), 4096. / labelRect.height(),
+                          std::sqrt(4. * 1024. * 1024. / (labelRect.width() * labelRect.height()))});
             if (!std::isfinite(safeScale) || safeScale <= 0)
                 continue;
-            QSize pixels(std::max(1, int(r.width() * safeScale)),
-                         std::max(1, int(r.height() * safeScale)));
+            QSize pixels(std::max(1, int(labelRect.width() * safeScale)),
+                         std::max(1, int(labelRect.height() * safeScale)));
             if (labelBytes + qsizetype(pixels.width()) * pixels.height() * 4 > LabelBudget)
                 continue;
             QImage image(pixels, QImage::Format_ARGB32_Premultiplied);
@@ -327,23 +358,23 @@ void MindCanvas::refresh() {
             doc.setDocumentMargin(0);
             doc.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(appearance.text.name()));
             doc.setHtml(n.text);
-            doc.setTextWidth(std::max(20., r.width() - 30 - (n.task ? 20 : 0)));
+            doc.setTextWidth(std::max(20., labelRect.width() - 30 - (n.task ? 20 : 0)));
             QPainter painter(&image);
             painter.setRenderHint(QPainter::TextAntialiasing);
             painter.translate(15 + (n.task ? 20 : 0),
-                              std::max(8., (r.height() - doc.size().height()) / 2));
+                              std::max(8., (labelRect.height() - doc.size().height()) / 2));
             QAbstractTextDocumentLayout::PaintContext ctx;
             ctx.palette.setColor(QPalette::Text, appearance.text);
             doc.documentLayout()->draw(&painter, ctx);
             painter.end();
             }
-            m_cache.insert(id, {labelKey, appearance.text, r.size(), bucket, n.task, image, m_nextTextureKey++});
+            m_cache.insert(id, {labelKey, appearance.text, labelRect.size(), bucket, n.task, image, m_nextTextureKey++});
             it = m_cache.find(id);
         }
         if (labelBytes + it->image.sizeInBytes() > LabelBudget)
             continue;
         labelBytes += it->image.sizeInBytes();
-        m_labels.append({id, r, it->image, it->key});
+        m_labels.append({id, labelRect, it->image, it->key});
     }
     for (const auto &link : m_engine->connections()) {
         if (!m_target.contains(link.first) || !m_target.contains(link.second))
@@ -374,8 +405,10 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     timer.start();
     if (window()->rendererInterface()->graphicsApi() == QSGRendererInterface::Software) {
         // Qt's software adaptation does not support custom vertex-color materials.
-        QImage image(QSize(qMax(1, int(width())), qMax(1, int(height()))),
+        const qreal dpr = window()->effectiveDevicePixelRatio();
+        QImage image(QSize(qMax(1, int(width()*dpr)), qMax(1, int(height()*dpr))),
                      QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr);
         image.fill(m_canvasColor);
         QPainter painter(&image);
         painter.setRenderHint(QPainter::Antialiasing);
@@ -383,13 +416,13 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         painter.scale(m_zoom, m_zoom);
         for (const auto &e : m_edges) {
             painter.setPen(QPen(e.color, e.width, e.stroke));
-            if(e.width>0) painter.drawPolyline(edgePath(e.a,e.b,e.angular,e.vertical));
+            if(e.width>0) painter.drawPolyline(edgePath(e.a,e.b,e.angular,e.vertical,m_zoom*window()->effectiveDevicePixelRatio()));
         }
         for (const auto &n : m_draw) {
             if ((n.selected || n.id == m_hovered) && hasShapedBorder(n.appearance)) {
                 QVector<Vertex> outline;
                 shapeOutline(outline, n.rect, n.appearance,
-                             QColor(n.selected ? "#7065CE" : "#ACA4DC"), (n.selected ? 2. : 1.) / m_zoom);
+                             QColor(n.selected ? "#7065CE" : "#ACA4DC"), (n.selected ? 2. : 1.) / m_zoom, m_zoom*window()->effectiveDevicePixelRatio());
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(QColor(n.selected ? "#7065CE" : "#ACA4DC"));
                 QPainterPath outlinePath;
@@ -408,7 +441,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             if(n.appearance.shape==NodeShape::Underline) {
                 painter.setPen(QPen(n.appearance.branch,n.appearance.branchWidth,n.appearance.branchStroke));
                 if(n.appearance.branchWidth>0) painter.drawLine(n.rect.bottomLeft(),n.rect.bottomRight());
-            } else if(n.appearance.shape!=NodeShape::Embedded) painter.drawPolygon(shapePolygon(n.rect,n.appearance.shape,n.appearance.radius));
+            } else if(n.appearance.shape!=NodeShape::Embedded) painter.drawPolygon(shapePolygon(n.rect,n.appearance.shape,n.appearance.radius,m_zoom*window()->effectiveDevicePixelRatio()));
             if(m_zoom > .28 && n.task) {
                 const QRectF check(n.rect.left()+8,n.rect.center().y()-5,10,10);
                 if (n.id == m_hoveredTask && !m_dragging && !m_panning) {
@@ -418,11 +451,18 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                     painter.setBrush(tint);
                     painter.drawRoundedRect(check.adjusted(-3,-3,3,3),3,3);
                 }
+                painter.save();
+                painter.setOpacity(n.taskOpacity);
                 paintTask(painter, check, n.appearance.text, n.checked);
+                painter.restore();
             }
         }
         for (const auto &l : m_labels)
             painter.drawImage(l.rect, l.image);
+        if (m_dragging && !m_dropLine.isNull()) {
+            painter.setPen(QPen(QColor("#f3cc79"),2./m_zoom));
+            painter.drawLine(m_dropLine);
+        }
         painter.end();
         auto *node = static_cast<QSGSimpleTextureNode *>(old);
         if (!node) {
@@ -449,7 +489,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     vertices.reserve(m_draw.size() * 12 + m_edges.size() * 24);
     box(vertices, m_cullViewport, m_canvasColor);
     for (const auto &e : m_edges) {
-        strokePath(vertices,edgePath(e.a,e.b,e.angular,e.vertical),e.width,e.color,e.stroke);
+        strokePath(vertices,edgePath(e.a,e.b,e.angular,e.vertical,m_zoom*window()->effectiveDevicePixelRatio()),e.width,e.color,e.stroke);
     }
     for (const auto &n : m_draw) {
         auto style=n.appearance;
@@ -460,14 +500,14 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         const bool shapedOutline = hasShapedBorder(style);
         if ((n.selected || n.id == m_hovered) && shapedOutline)
             shapeOutline(vertices, n.rect, style, QColor(n.selected ? "#7065CE" : "#ACA4DC"),
-                         (n.selected ? 2. : 1.) / m_zoom);
+                         (n.selected ? 2. : 1.) / m_zoom, m_zoom*window()->effectiveDevicePixelRatio());
         else if (n.selected)
             box(vertices, n.rect.adjusted(-4,-4,4,4), QColor("#7065CE"), 10);
         else if (n.id == m_hovered)
             box(vertices, n.rect.adjusted(-2,-2,2,2), QColor("#ACA4DC"), 9);
         if(!shapedOutline && (n.selected || n.id == m_hovered))
             box(vertices,n.rect.adjusted(-1,-1,1,1),m_canvasColor,8);
-        themedShape(vertices,n.rect,style);
+        themedShape(vertices,n.rect,style,m_zoom*window()->effectiveDevicePixelRatio());
         if (m_zoom > .28 && n.task) {
             QRectF check(n.rect.left() + 8, n.rect.center().y() - 5, 10, 10);
             if (n.id == m_hoveredTask && !m_dragging && !m_panning) {
@@ -476,23 +516,27 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 box(vertices, check.adjusted(-3,-3,3,3), tint, 3);
             }
             QColor frame = n.appearance.text;
+            frame.setAlphaF(frame.alphaF() * n.taskOpacity);
             if (n.checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
             box(vertices, check, frame, 2);
             box(vertices, check.adjusted(1.5,1.5,-1.5,-1.5),
                 n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,1);
             if (n.checked) {
                 const auto tick = taskCheckPath(check);
+                QColor tickColor = taskCheckColor; tickColor.setAlphaF(n.taskOpacity);
                 for (int i = 1; i < tick.size(); ++i)
-                    line(vertices, tick[i-1], tick[i], taskCheckWidth, taskCheckColor);
+                    line(vertices, tick[i-1], tick[i], taskCheckWidth, tickColor);
                 const qreal radius = taskCheckWidth / 2;
                 for (const auto &point : tick)
-                    box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(taskCheckWidth,taskCheckWidth)), taskCheckColor, radius);
+                    box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(taskCheckWidth,taskCheckWidth)), tickColor, radius);
             }
         }
         if (n.folded)
             box(vertices, QRectF(n.expandsLeft ? n.rect.left()-12 : n.rect.right()+4, n.rect.center().y() - 4, 8, 8), n.color, 4);
     }
-    if (m_dragging && m_dropParent >= 0 && m_target.contains(m_dropParent)) {
+    if (m_dragging && !m_dropLine.isNull()) {
+        line(vertices,m_dropLine.p1(),m_dropLine.p2(),2./m_zoom,QColor("#f3cc79"));
+    } else if (m_dragging && m_dropParent >= 0 && m_target.contains(m_dropParent)) {
         QRectF r = displayRect(m_dropParent).adjusted(-6, -6, 6, 6);
         QColor col("#f3cc79");
         line(vertices, r.topLeft(), r.topRight(), 2. / m_zoom, col);
@@ -748,6 +792,9 @@ void MindCanvas::mousePressEvent(QMouseEvent *e) {
 void MindCanvas::updateDrop(QPointF screen) {
     m_dropParent = -1;
     m_before = -1;
+    m_dropLine = {};
+    const QPointF world = mapToWorld(screen);
+    const bool verticalLayout = m_engine->layout() == "Vertical";
     int target = hit(screen, true);
     if (target >= 0) {
         const auto &n = m_engine->nodes()[target];
@@ -768,9 +815,59 @@ void MindCanvas::updateDrop(QPointF screen) {
         } else
             m_dropParent = target;
     }
+    // Empty space in the sibling lane is an insertion target too. Node centers
+    // retain their existing meaning (attach as a child).
+    const int currentParent=m_engine->nodes().value(m_pressedId).parent;
+    if (!m_engine->manual() && target < 0 && currentParent >= 0) {
+        QVector<int> siblings;
+        QRectF lane;
+        for (int id : m_engine->nodes().value(currentParent).children) {
+            if (id == m_pressedId) continue;
+            siblings.append(id);
+            lane=lane.united(displayRect(id));
+        }
+        const qreal margin=24./m_zoom;
+        // Beyond either end, accept the entire open canvas rather than requiring
+        // proximity to the insertion marker or alignment with the sibling column.
+        const bool beyondEnds=verticalLayout
+            ? world.x()<lane.left() || world.x()>lane.right()
+            : world.y()<lane.top() || world.y()>lane.bottom();
+        if (!siblings.isEmpty() && (beyondEnds || lane.adjusted(-margin,-margin,margin,margin).contains(world))) {
+            m_dropParent=currentParent;
+            for (int id : siblings) {
+                const auto center=displayRect(id).center();
+                if ((verticalLayout ? world.x()<center.x() : world.y()<center.y())) {
+                    m_before=id; break;
+                }
+            }
+        }
+    }
+    if (!m_engine->manual() && m_dropParent >= 0 &&
+        (m_before >= 0 || (target >= 0 && m_engine->nodes().value(target).parent == m_dropParent) || target < 0)) {
+        QVector<int> siblings;
+        for (int id : m_engine->nodes().value(m_dropParent).children)
+            if (id != m_pressedId) siblings.append(id);
+        if (!siblings.isEmpty()) {
+            // Skip the dragged node when an edge hit points at its old position.
+            if (m_before == m_pressedId) {
+                const auto all=m_engine->nodes().value(m_dropParent).children;
+                const int next=all.indexOf(m_pressedId)+1;
+                m_before=next<all.size() ? all[next] : -1;
+            }
+            const QRectF r=displayRect(m_before>=0 ? m_before : siblings.last());
+            const qreal offset=6./m_zoom;
+            if (verticalLayout) {
+                const qreal x=m_before>=0 ? r.left()-offset : r.right()+offset;
+                m_dropLine=QLineF(QPointF(x,r.top()),QPointF(x,r.bottom()));
+            } else {
+                const qreal y=m_before>=0 ? r.top()-offset : r.bottom()+offset;
+                m_dropLine=QLineF(QPointF(r.left(),y),QPointF(r.right(),y));
+            }
+        }
+    }
     m_hint = m_engine->manual()  ? "Release to place subtree"
-             : m_dropParent >= 0 ? (m_before >= 0 ? "Release to reorder before target"
-                                                  : "Release to attach to highlighted parent")
+             : !m_dropLine.isNull() ? "Release to reorder at insertion line"
+             : m_dropParent >= 0 ? "Release to attach to highlighted parent"
                                  : "Drop on a node to attach · near its edge to reorder";
     emit interactionChanged();
 }
@@ -808,6 +905,7 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
     if (m_dragging) {
+        updateDrop(e->position());
         int id = m_pressedId, parent = m_dropParent, before = m_before;
         QPointF delta = m_dragDelta;
         // Adopt the rendered preview before notifying the document, avoiding

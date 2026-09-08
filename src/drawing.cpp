@@ -23,15 +23,48 @@ void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked) {
     }
     painter.restore();
 }
-QPolygonF edgePath(QPointF a, QPointF b, bool angular, bool vertical) {
+QVector<QPointF> strokeTriangles(const QPolygonF &path, qreal width) {
+    QPolygonF points;
+    for (const auto &p : path)
+        if (points.isEmpty() || QLineF(points.last(), p).length() > .00001) points << p;
+    const bool closed = points.size()>2 && points.first()==points.last();
+    if (closed) points.removeLast();
+    if (points.size()<2 || width<=0) return {};
+    auto normal = [](QPointF d) { return QPointF(-d.y(), d.x()) / std::hypot(d.x(), d.y()); };
+    QVector<QPointF> left, right, triangles;
+    for (int i=0; i<points.size(); ++i) {
+        const auto before = normal(points[i] - points[(i+points.size()-1)%points.size()]);
+        const auto after = normal(points[(i+1)%points.size()] - points[i]);
+        QPointF offset;
+        if (!closed && i==0) offset=after;
+        else if (!closed && i==points.size()-1) offset=before;
+        else offset=(before+after)/std::max(.25, 1.+QPointF::dotProduct(before,after));
+        offset *= width/2;
+        left << points[i]+offset; right << points[i]-offset;
+    }
+    // Adjacent segments share identical edge vertices: no butt-cap wedges.
+    const int count=closed ? points.size() : points.size()-1;
+    for (int i=0; i<count; ++i) {
+        const int j=(i+1)%points.size();
+        triangles << left[i] << right[i] << left[j] << left[j] << right[i] << right[j];
+    }
+    return triangles;
+}
+QPolygonF edgePath(QPointF a, QPointF b, bool angular, bool vertical, qreal detail) {
     QPolygonF path; path << a;
     QPointF c1=vertical ? QPointF(a.x(),(a.y()+b.y())/2) : QPointF((a.x()+b.x())/2,a.y());
     QPointF c2=vertical ? QPointF(b.x(),c1.y()) : QPointF(c1.x(),b.y());
     if(angular) path << c1 << c2 << b;
-    else for(int j=1;j<=24;++j) { qreal t=j/24.,u=1-t; path << u*u*u*a+3*u*u*t*c1+3*u*t*t*c2+t*t*t*b; }
+    else {
+        QPainterPath curve(a); curve.cubicTo(c1,c2,b);
+        const qreal scale=std::clamp(detail, .001, 64.);
+        const QTransform transform=QTransform::fromScale(scale,scale);
+        const auto polygons=curve.toSubpathPolygons(transform);
+        if (!polygons.isEmpty()) path=transform.inverted().map(polygons.first());
+    }
     return path;
 }
-QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius) {
+QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius, qreal detail) {
     QPolygonF polygon;
     if (shape == NodeShape::Hexagon) {
         qreal inset = std::min(10., r.width() / 5);
@@ -46,12 +79,13 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius) {
                 << QPointF(r.left(),r.bottom()-d) << QPointF(r.left(),r.top()+d);
     } else if (shape == NodeShape::Scalloped) {
         const qreal halfW=r.width()/2, halfH=r.height()/2;
-        for (int i=0;i<160;++i) {
-            const qreal a=i*2*std::numbers::pi/160.;
+        const int segments=160*std::clamp(int(std::ceil(std::sqrt(std::max(1.,detail)))),1,8);
+        for (int i=0;i<segments;++i) {
+            const qreal a=i*2*std::numbers::pi/segments;
             const qreal x=std::cos(a), y=std::sin(a);
             const qreal distance=std::min(halfW/std::max(.00001,std::abs(x)),
                                          halfH/std::max(.00001,std::abs(y)));
-            const qreal wave=1.8*std::sin(i*2*std::numbers::pi/8.);
+            const qreal wave=1.8*std::sin(a*20);
             polygon << r.center()+QPointF(x,y)*(distance+wave);
         }
     } else {
@@ -59,7 +93,9 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius) {
         if (shape == NodeShape::Rectangle) path.addRect(r);
         else path.addRoundedRect(r, shape==NodeShape::Pill ? r.height()/2 : radius,
                                 shape==NodeShape::Pill ? r.height()/2 : radius);
-        polygon=path.toFillPolygon();
+        const qreal scale=std::clamp(detail, .001, 64.);
+        const QTransform transform=QTransform::fromScale(scale,scale);
+        polygon=transform.inverted().map(path.toFillPolygon(transform));
     }
     return polygon;
 }
@@ -78,9 +114,10 @@ void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearan
         const auto day=days[i]; if(!day.isValid()) continue;
         const auto cell=Calendar::cell(i); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
         const bool today=day==QDate::currentDate();
-        painter.setPen(today ? QPen(style.branch,1.5) : QPen(Qt::NoPen));
+        painter.setPen(today && !assigned ? QPen(style.branch,1.5) : QPen(Qt::NoPen));
         painter.setBrush(assigned ? QBrush(style.branch) : QBrush(Qt::NoBrush));
-        if(assigned || today) painter.drawRoundedRect(cell,5,5);
+        if(assigned) painter.drawRoundedRect(cell,5,5);
+        else if(today) painter.drawRoundedRect(cell.adjusted(.75,.75,-.75,-.75),4.25,4.25);
         const double luminance=.2126*style.branch.redF()+.7152*style.branch.greenF()+.0722*style.branch.blueF();
         painter.setPen(assigned ? QColor(luminance>.55 ? "#172129" : "#ffffff") : style.text);
         font.setPixelSize(12); font.setBold(assigned || today); painter.setFont(font);

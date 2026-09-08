@@ -9,12 +9,14 @@ Dialog {
     property int nodeId: -1
     property string day: ""
     property bool existing: false
+    property string initialText: ""
+    readonly property bool entryModified: opened && entry.text !== initialText
     modal: true; closePolicy: Popup.NoAutoClose
     width: Math.min(400, parent.width - 32)
     x: (parent.width-width)/2; y: (parent.height-height)/2
     title: (existing ? "Edit date entry · " : "New date entry · ") + day
     function openEntry(id, date, text) {
-        nodeId=id; day=date; existing=text.length>0; entry.text=text; open()
+        nodeId=id; day=date; existing=text.length>0; entry.text=text; initialText=text; open()
     }
     function saveEntry() {
         if(entry.text.trim().length && controller.setDateEntry(nodeId,day,entry.text)) close()

@@ -12,6 +12,23 @@
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void dateNodesSupportEveryExplicitShape() {
+        Engine e(nullptr, Engine::InitialContent::Blank);
+        QVERIFY(e.setNodeKind(1, "date"));
+        const auto calendar=e.selectedCalendar();
+        const auto size=e.nodes().value(1).rect.size();
+        for (int shape=0; shape<8; ++shape) {
+            QVERIFY(e.applyNodeStyle({{"shape",shape}}));
+            QCOMPARE(int(e.appearance(1).shape), shape);
+            QCOMPARE(e.nodes().value(1).rect.size(), size);
+            QCOMPARE(e.selectedCalendar(), calendar);
+        }
+        QTemporaryDir dir;
+        QVERIFY(e.save(dir.filePath("date.omm")));
+        Engine loaded; QVERIFY(loaded.open(dir.filePath("date.omm")));
+        QCOMPARE(int(loaded.appearance(1).shape), 7);
+        QCOMPARE(loaded.selectedCalendar(), calendar);
+    }
     void sessionQuitRequiresEveryWindowAndCanCancel() {
         QTemporaryDir dir;
         const QString registry = dir.filePath("session");
@@ -62,6 +79,10 @@ class EngineTest : public QObject {
             {
                 DocumentSession two(registry);
                 two.setDocument(second);
+                QCOMPARE(one.liveWindows().size(), 2);
+                one.activateWindow(QCoreApplication::applicationPid());
+                QVERIFY(two.takeActivation());
+                QVERIFY(!one.takeActivation());
                 QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
             }
             QVERIFY(DocumentSession::restorePaths(registry).isEmpty());
@@ -82,16 +103,21 @@ class EngineTest : public QObject {
     void unsavedChangesFollowDocumentContent() {
         QTemporaryDir dir;
         Engine e(nullptr, Engine::InitialContent::Blank);
+        QCOMPARE(e.documentName(), QString("New mindmap"));
+        QVERIFY(!e.edited());
         QVERIFY(e.hasUnsavedChanges());
         const QString path = dir.filePath("map.omm");
         QVERIFY(e.save(path));
+        QCOMPARE(e.documentName(), QString("map"));
+        QVERIFY(!e.edited());
         QVERIFY(!e.hasUnsavedChanges());
         QCOMPARE(e.documentPath(), path);
         e.select(1);
         QVERIFY(!e.hasUnsavedChanges());
         e.setText(1, "Changed");
+        QVERIFY(e.edited());
         QVERIFY(e.hasUnsavedChanges());
-        e.undo(); QVERIFY(!e.hasUnsavedChanges());
+        e.undo(); QVERIFY(!e.hasUnsavedChanges()); QVERIFY(!e.edited());
         e.redo(); QVERIFY(e.hasUnsavedChanges());
         QVERIFY(!e.save(dir.filePath("missing/map.omm")));
         QVERIFY(e.hasUnsavedChanges());

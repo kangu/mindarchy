@@ -1,7 +1,44 @@
 #include <QWindow>
+#include <QVariantList>
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <functional>
 #import <AppKit/AppKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
+@interface OMMFolderMenuTarget : NSObject
+- (void)openFolder:(NSMenuItem *)item;
+@end
+@implementation OMMFolderMenuTarget
+- (void)openFolder:(NSMenuItem *)item {
+    [NSWorkspace.sharedWorkspace openURL:item.representedObject];
+}
+@end
+
+NSMenu *createMacParentFolderMenu(const QString &file) {
+    static OMMFolderMenuTarget *target = [[OMMFolderMenuTarget alloc] init];
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Document location"] autorelease];
+    NSString *path = QFileInfo(file).absolutePath().toNSString();
+    while (path.length) {
+        NSString *name = [NSFileManager.defaultManager displayNameAtPath:path];
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:name action:@selector(openFolder:) keyEquivalent:@""] autorelease];
+        item.target = target;
+        item.representedObject = [NSURL fileURLWithPath:path isDirectory:YES];
+        NSImage *icon = [[[NSWorkspace.sharedWorkspace iconForFile:path] copy] autorelease];
+        icon.size = NSMakeSize(16, 16); item.image = icon;
+        [menu addItem:item];
+        NSString *parent = [path stringByDeletingLastPathComponent];
+        if ([parent isEqualToString:path]) break;
+        path = parent;
+    }
+    return menu;
+}
+
+void showMacParentFolderMenu(QWindow *window, const QString &file, double x, double y) {
+    NSView *view = reinterpret_cast<NSView *>(window->winId());
+    NSPoint position = NSMakePoint(x, view.isFlipped ? y : NSHeight(view.bounds)-y);
+    [createMacParentFolderMenu(file) popUpMenuPositioningItem:nil atLocation:position inView:view];
+}
 
 @interface OMMSavePanelDelegate : NSObject <NSOpenSavePanelDelegate>
 @end
@@ -99,4 +136,103 @@ void installMacToolbar(QWindow *window) {
         [observers release];
     });
     align();
+}
+
+@interface OMMWindowMenuTarget : NSObject <NSMenuDelegate> {
+@public
+    std::function<QVariantList()> listWindows;
+    std::function<void(qint64)> activateWindow;
+}
+- (void)selectWindow:(NSMenuItem *)item;
+- (void)nextWindow:(id)sender;
+- (void)previousWindow:(id)sender;
+- (void)bringAll:(id)sender;
+- (void)centerWindow:(id)sender;
+@end
+@implementation OMMWindowMenuTarget
+- (void)activatePid:(qint64)pid {
+    activateWindow(pid);
+    NSRunningApplication *application = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    if (@available(macOS 14.0, *)) [application activateFromApplication:NSRunningApplication.currentApplication options:0];
+    else [application activateWithOptions:0];
+}
+- (void)selectWindow:(NSMenuItem *)item { [self activatePid:[item.representedObject longLongValue]]; }
+- (void)cycle:(int)direction {
+    const auto windows = listWindows();
+    if (windows.isEmpty()) return;
+    int current = 0;
+    for (int i=0; i<windows.size(); ++i)
+        if (windows[i].toMap().value("pid").toLongLong() == QCoreApplication::applicationPid()) current=i;
+    [self activatePid:windows[(current+direction+windows.size())%windows.size()].toMap().value("pid").toLongLong()];
+}
+- (void)nextWindow:(id)sender { [self cycle:1]; }
+- (void)previousWindow:(id)sender { [self cycle:-1]; }
+- (void)bringAll:(id)sender {
+    for (const auto &window : listWindows()) [self activatePid:window.toMap().value("pid").toLongLong()];
+    [self activatePid:QCoreApplication::applicationPid()];
+}
+- (void)centerWindow:(id)sender { [NSApp.keyWindow center]; }
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    for (NSMenuItem *item in [[menu.itemArray copy] autorelease]) if (item.tag == 9101) [menu removeItem:item];
+    const auto windows = listWindows();
+    for (const auto &window : windows) {
+        const auto map = window.toMap();
+        // AppKit supplies the current process's window list itself.
+        if (map.value("pid").toLongLong() == QCoreApplication::applicationPid()) continue;
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:map.value("title").toString().toNSString()
+            action:@selector(selectWindow:) keyEquivalent:@""] autorelease];
+        item.target=self; item.tag=9101; item.representedObject=@(map.value("pid").toLongLong());
+        [menu addItem:item];
+    }
+}
+@end
+
+void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
+                          std::function<void(qint64)> activate) {
+    NSMenu *main = NSApp.mainMenu;
+    if (!main) { main = [[[NSMenu alloc] initWithTitle:@""] autorelease]; NSApp.mainMenu=main; }
+    OMMWindowMenuTarget *target = [[OMMWindowMenuTarget alloc] init];
+    target->listWindows=std::move(list); target->activateWindow=std::move(activate);
+    // Qt already registers a hidden Window menu for Dock window listings.
+    // Reuse that native menu instead of competing with its registration.
+    NSMenu *menu = NSApp.windowsMenu;
+    NSMenuItem *root = nil;
+    for (NSMenuItem *item in main.itemArray) if (item.submenu == menu) { root=item; break; }
+    if (!menu) menu = [[[NSMenu alloc] initWithTitle:@"Window"] autorelease];
+    [menu removeAllItems];
+    menu.delegate=target;
+    auto add = [&](NSString *title, SEL action, NSString *key, id receiver) {
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key] autorelease];
+        item.target=receiver; [menu addItem:item]; return item;
+    };
+    add(@"Minimize", @selector(performMiniaturize:), @"m", nil);
+    add(@"Zoom", @selector(performZoom:), @"", nil);
+    add(@"Center", @selector(centerWindow:), @"", target);
+    NSMenuItem *fullscreen=add(@"Enter Full Screen", @selector(toggleFullScreen:), @"f", nil);
+    fullscreen.keyEquivalentModifierMask=NSEventModifierFlagControl|NSEventModifierFlagCommand;
+    [menu addItem:NSMenuItem.separatorItem];
+    add(@"Next Window", @selector(nextWindow:), @"`", target);
+    NSMenuItem *previous=add(@"Previous Window", @selector(previousWindow:), @"`", target);
+    previous.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;
+    [menu addItem:NSMenuItem.separatorItem];
+    add(@"Bring All to Front", @selector(bringAll:), @"", target);
+    if (!root) {
+        root = [[[NSMenuItem alloc] initWithTitle:@"Window" action:nil keyEquivalent:@""] autorelease];
+        root.submenu=menu;
+        NSInteger index=main.numberOfItems;
+        for (NSInteger i=0; i<main.numberOfItems; ++i) if ([[main itemAtIndex:i].title isEqualToString:@"Help"]) { index=i; break; }
+        [main insertItem:root atIndex:index];
+    }
+    root.hidden=NO; root.title=@"Window"; menu.title=@"Window";
+    if (NSApp.windowsMenu != menu) NSApp.windowsMenu=menu;
+    for (NSWindow *native in NSApp.windows) {
+        native.excludedFromWindowsMenu = !native.excludedFromWindowsMenu;
+        native.excludedFromWindowsMenu = !native.excludedFromWindowsMenu;
+    }
+    QObject::connect(window, &QObject::destroyed, [target, menu, root] {
+        menu.delegate=nil;
+        if (NSApp.windowsMenu == menu) NSApp.windowsMenu=nil;
+        [NSApp.mainMenu removeItem:root];
+        [target release];
+    });
 }

@@ -85,12 +85,14 @@ class MindCanvas : public QQuickItem {
     void keyReleaseEvent(QKeyEvent *) override;
 
   private:
+    friend class CanvasTest;
     struct DrawNode {
         int id;
         QRectF rect;
         QColor color;
         NodeAppearance appearance;
         bool selected, folded, task, checked, expandsLeft;
+        qreal taskOpacity = 0;
     };
     struct Label {
         int id;
@@ -122,6 +124,7 @@ class MindCanvas : public QQuickItem {
     int hit(QPointF screen, bool excludeDrag = false) const;
     int taskHit(QPointF screen) const;
     QRectF displayRect(int id) const;
+    qreal taskProgress(int id) const;
     QColor nodeColor(int id) const;
     void updateDrop(QPointF screen);
     QColor m_canvasColor = QColor("#111920");
@@ -139,6 +142,7 @@ class MindCanvas : public QQuickItem {
     QTimer m_metricsTimer, m_animationTimer;
     QElapsedTimer m_animationClock;
     QHash<int, QRectF> m_previous, m_target, m_manualPreview;
+    QHash<int, qreal> m_previousTasks, m_targetTasks;
     bool m_animating = false;
     int m_hovered = -1, m_pressedId = -1, m_dropParent = -1, m_before = -1, m_editingId = -1;
     int m_hoveredTask = -1, m_pressedTask = -1;
@@ -147,6 +151,7 @@ class MindCanvas : public QQuickItem {
     QPointF m_press, m_last, m_dragDelta;
     QSet<int> m_dragIds;
     QRectF m_marqueeRect, m_editPreview;
+    QLineF m_dropLine;
     QString m_dateHoverText;
     QPointF m_dateHoverPosition;
     QString m_hint = "Click to select · double-click to edit · Tab adds a child";

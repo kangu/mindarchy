@@ -1,6 +1,8 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>assets/icons/mindmap-blue-macos-512.png</file>
     <file>qml/ThemeCard.qml</file>
     <file>qml/NodeStylePanel.qml</file>
+    <file>qml/ColorPicker.qml</file>
     <file>qml/DateNodePanel.qml</file>
     <file>qml/DateEntryDialog.qml</file>
     <file>qml/icons/file-plus-2.svg</file>

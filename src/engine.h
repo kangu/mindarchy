@@ -22,6 +22,8 @@ struct MapNode {
 };
 class Engine : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QString documentName READ documentName NOTIFY changed)
+    Q_PROPERTY(bool edited READ edited NOTIFY changed)
     Q_PROPERTY(QString layout READ layout WRITE setLayout NOTIFY changed)
     Q_PROPERTY(QString spacing READ spacing WRITE setSpacing NOTIFY changed)
     Q_PROPERTY(QString branchStyle READ branchStyle WRITE setBranchStyle NOTIFY changed)
@@ -119,12 +121,15 @@ class Engine : public QObject {
     Q_INVOKABLE void moveNode(int id, int parent, int beforeId = -1);
     Q_INVOKABLE void moveManual(int id, double dx, double dy);
     Q_INVOKABLE bool hasUnsavedChanges() const;
+    QString documentName() const;
+    bool edited() const;
     Q_INVOKABLE QString documentPath() const { return m_documentPath; }
     Q_INVOKABLE bool save(QString path);
     Q_INVOKABLE bool open(QString path);
   signals:
     void nativeCloseRequested();
     void nativeSaveRequested();
+    void nativeFolderMenuRequested(double x, double y);
     void quitRequested();
     void quitDecision(bool accepted);
     void windowCloseApproved(bool forget);
@@ -144,6 +149,9 @@ class Engine : public QObject {
     };
     QByteArray documentBytes() const;
     QByteArray m_savedBytes;
+    quint64 m_documentRevision = 0;
+    mutable quint64 m_checkedRevision = ~quint64(0);
+    mutable bool m_edited = false;
     QString m_documentPath;
     State state() const;
     void restore(const State &state);

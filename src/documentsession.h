@@ -4,8 +4,11 @@
 #include <QLockFile>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QCoreApplication>
+#include <QVariantList>
 #include <QUuid>
 #include <memory>
+#include <algorithm>
 
 // Each document window runs in its own process. Instance locks distinguish live
 // windows from stale entries after a crash; the registry lock serializes updates.
@@ -40,6 +43,38 @@ public:
         if (m_locked) update(QString(), false);
     }
     ~DocumentSession() { if (m_locked) update(QString(), true); }
+    QVariantList liveWindows() {
+        QLockFile guard(m_directory + "/registry.lock");
+        if (!guard.tryLock(1000)) return {};
+        QSettings settings(m_directory + "/documents.ini", QSettings::IniFormat);
+        prune(settings, m_directory);
+        settings.beginGroup("windows"); const auto ids = settings.childKeys(); settings.endGroup();
+        QVariantList windows;
+        for (const auto &id : ids) {
+            const QString path = settings.value("windows/" + id).toString();
+            const qint64 pid = settings.value("processes/" + id).toLongLong();
+            if (pid > 0) windows.append(QVariantMap{{"pid", pid}, {"title", path.isEmpty() ? "New mindmap" : QFileInfo(path).completeBaseName()}});
+        }
+        std::sort(windows.begin(), windows.end(), [](const QVariant &a, const QVariant &b) {
+            return a.toMap().value("pid").toLongLong() < b.toMap().value("pid").toLongLong();
+        });
+        return windows;
+    }
+    void activateWindow(qint64 pid) {
+        QLockFile guard(m_directory + "/registry.lock");
+        if (!guard.tryLock(1000)) return;
+        QSettings settings(m_directory + "/documents.ini", QSettings::IniFormat);
+        settings.setValue("activate/" + QString::number(pid), true); settings.sync();
+    }
+    bool takeActivation() {
+        QLockFile guard(m_directory + "/registry.lock");
+        if (!guard.tryLock(1000)) return false;
+        QSettings settings(m_directory + "/documents.ini", QSettings::IniFormat);
+        const QString key = "activate/" + QString::number(QCoreApplication::applicationPid());
+        const bool requested = settings.value(key).toBool();
+        if (requested) { settings.remove(key); settings.sync(); }
+        return requested;
+    }
     enum class QuitAction { None, Confirm, Cancel, Close };
     void forgetDocument() {
         QLockFile guard(m_directory + "/registry.lock");
@@ -153,6 +188,8 @@ private:
             if (!file.isEmpty()) paths.append(file);
         }
         settings.endGroup();
+        if (closing) settings.remove("processes/" + m_id);
+        else settings.setValue("processes/" + m_id, QCoreApplication::applicationPid());
         // Preserve the last set as windows close, including the final window.
         // Empty new windows must not erase documents waiting to be restored.
         if (!closing && !path.isEmpty()) {

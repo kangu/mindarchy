@@ -141,7 +141,7 @@ The application uses `assets/mindmap-blue-icon-concept-v1.png` on every supporte
 - Windows: multi-resolution ICO embedded through CMake RC or qmake RC_ICONS. Windows packaging is configured but not yet built/tested on Windows.
 - Linux/Omarchy: Qt runtime icon and a matching `blue.mindmap.lab.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
 
-The toolbar uses the same artwork. Native icon assets are committed-source build inputs; regenerating them on macOS uses `python3 packaging/generate-icons.py` (sips/iconutil). No icon-generation tools are needed to build on Linux or Windows.
+The toolbar uses the same artwork. Native icon assets are committed-source build inputs; regenerating them on macOS uses `python3 packaging/generate-icons.py` (sips/iconutil and Swift/AppKit). The macOS icon uses 85% artwork size with transparent margins, including the runtime Dock icon. No icon-generation tools are needed to build on Linux or Windows.
 
 
 ## macOS installer releases

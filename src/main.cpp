@@ -21,6 +21,7 @@
 #include <QQmlError>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <QSGRendererInterface>
 #include <QTimer>
 #include <algorithm>
@@ -48,6 +49,9 @@ public:
     }
 };
 int main(int argc, char **argv) {
+    QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+    format.setSamples(4);
+    QSurfaceFormat::setDefaultFormat(format);
     for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") qputenv("QT_QPA_PLATFORM","offscreen");
     DocumentApplication app(argc, argv);
     app.setApplicationName("Mindmap Lab");
@@ -59,8 +63,12 @@ int main(int argc, char **argv) {
     app.setOrganizationName("MindmapBlue");
     app.setDesktopFileName("blue.mindmap.lab");
     QIcon applicationIcon;
+#ifdef Q_OS_MACOS
+    applicationIcon.addFile(":/assets/icons/mindmap-blue-macos-512.png");
+#else
     for (int size : {16, 24, 32, 48, 64, 128, 256, 512})
         applicationIcon.addFile(QString(":/assets/icons/mindmap-blue-%1.png").arg(size));
+#endif
     app.setWindowIcon(applicationIcon);
     QQuickStyle::setStyle("Basic");
     QCommandLineParser parser;
@@ -191,6 +199,10 @@ int main(int argc, char **argv) {
             session->beginQuit(); return true;
         };
         QObject::connect(&sessionPoll, &QTimer::timeout, window, [&] {
+            if (session->takeActivation()) {
+                if (window->windowState() == Qt::WindowMinimized) window->showNormal();
+                window->raise(); window->requestActivate();
+            }
             switch (session->pollQuit()) {
             case DocumentSession::QuitAction::Confirm:
                 window->raise(); window->requestActivate();
@@ -209,8 +221,19 @@ int main(int argc, char **argv) {
 #ifdef Q_OS_MACOS
     void installMacToolbar(QWindow *window);
     if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
+    void installMacWindowMenu(QWindow *, std::function<QVariantList()>, std::function<void(qint64)>);
+    if (window && session && QGuiApplication::platformName() == "cocoa") {
+        QTimer::singleShot(0, window, [&] {
+            installMacWindowMenu(window, [&] { return session->liveWindows(); },
+                [&](qint64 pid) { session->activateWindow(pid); });
+        });
+    }
     void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
     void showMacSavePanel(QWindow *, const QString &, std::function<void(QString)>);
+    void showMacParentFolderMenu(QWindow *, const QString &, double, double);
+    QObject::connect(&document, &Engine::nativeFolderMenuRequested, window, [&, window](double x, double y) {
+        if (!document.documentPath().isEmpty()) showMacParentFolderMenu(window, document.documentPath(), x, y);
+    });
     bool saveSheetOpen = false;
     QObject::connect(&document, &Engine::nativeSaveRequested, window, [&, window] {
         if (saveSheetOpen) return;
