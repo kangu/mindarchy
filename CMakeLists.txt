@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Test)
-add_library(mindmap_engine src/engine.cpp src/engine.h src/theme.cpp src/theme.h)
+add_library(mindmap_engine src/engine.cpp src/engine.h src/theme.cpp src/theme.h src/drawing.cpp src/drawing.h src/preview.cpp src/preview.h)
 target_link_libraries(mindmap_engine PUBLIC Qt6::Core Qt6::Gui)
 target_include_directories(mindmap_engine PUBLIC src)
 add_library(mindmap_canvas src/canvas.cpp src/canvas.h)
@@ -16,13 +16,25 @@ target_link_libraries(mindmap-lab PRIVATE mindmap_canvas Qt6::Qml Qt6::QuickCont
 target_compile_definitions(mindmap-lab PRIVATE MINDMAP_VERSION="${PROJECT_VERSION}")
 if(APPLE)
     enable_language(OBJCXX)
-    target_sources(mindmap-lab PRIVATE src/macwindow.mm)
+    target_sources(mindmap-lab PRIVATE src/macwindow.mm src/macplacement.mm)
     target_link_libraries(mindmap-lab PRIVATE "-framework AppKit")
+    add_executable(omm-preview packaging/macos/PreviewProvider.mm)
+    set_target_properties(omm-preview PROPERTIES AUTOMOC OFF OUTPUT_NAME OMMPreview)
+    target_compile_options(omm-preview PRIVATE -fobjc-arc)
+    target_link_options(omm-preview PRIVATE -Wl,-e,_NSExtensionMain)
+    target_link_libraries(omm-preview PRIVATE mindmap_engine "-framework Cocoa" "-framework Quartz" "-framework UniformTypeIdentifiers")
+    set(preview_bundle "${CMAKE_CURRENT_BINARY_DIR}/mindmap-lab.app/Contents/PlugIns/OMMPreview.appex")
+    set_target_properties(omm-preview PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${preview_bundle}/Contents/MacOS")
+    configure_file(packaging/macos/Preview-Info.plist.in "${preview_bundle}/Contents/Info.plist" @ONLY)
+    add_custom_command(TARGET omm-preview POST_BUILD
+        COMMAND /usr/bin/codesign --force --sign - --entitlements "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Preview.entitlements" "${preview_bundle}")
+    add_dependencies(mindmap-lab omm-preview)
     set(app_icon "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/mindmap-blue.icns")
     target_sources(mindmap-lab PRIVATE "${app_icon}")
     set_source_files_properties("${app_icon}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(mindmap-lab PROPERTIES
         MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
         MACOSX_BUNDLE_ICON_FILE mindmap-blue.icns
         MACOSX_BUNDLE_GUI_IDENTIFIER blue.mindmap.lab
         MACOSX_BUNDLE_BUNDLE_NAME "Mindmap Lab"
@@ -38,6 +50,8 @@ else()
     include(GNUInstallDirs)
     install(TARGETS mindmap-lab RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES packaging/blue.mindmap.lab.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES packaging/blue.mindmap.omm.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
+    install(FILES packaging/blue.mindmap.lab.thumbnailer DESTINATION ${CMAKE_INSTALL_DATADIR}/thumbnailers)
     foreach(size 16 24 32 48 64 128 256 512 1024)
         install(FILES assets/icons/mindmap-blue-${size}.png
             DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${size}x${size}/apps
@@ -65,5 +79,19 @@ set_tests_properties(ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(windowplacement_test tests/windowplacement_test.cpp src/windowplacement.cpp)
 target_link_libraries(windowplacement_test PRIVATE Qt6::Quick Qt6::Test)
+if(APPLE)
+    target_sources(windowplacement_test PRIVATE tests/maczoom_test_support.mm src/macplacement.mm)
+    target_link_libraries(windowplacement_test PRIVATE "-framework AppKit")
+endif()
 add_test(NAME windowplacement COMMAND windowplacement_test)
-set_tests_properties(windowplacement PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(APPLE)
+    # The zoom regression requires real AppKit; offscreen cannot reproduce it.
+    set_tests_properties(windowplacement PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+else()
+    set_tests_properties(windowplacement PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+add_executable(preview_test tests/preview_test.cpp)
+target_link_libraries(preview_test PRIVATE mindmap_engine Qt6::Test)
+add_test(NAME preview COMMAND preview_test)
+set_tests_properties(preview PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

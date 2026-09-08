@@ -88,6 +88,15 @@ def main():
             run(['/usr/bin/ditto', build / 'mindmap-lab.app', bundle])
             run(['/usr/bin/xattr', '-cr', bundle])
             deploy = [deployqt, bundle, f'-qmldir={PROJECT / "qml"}', '-always-overwrite', '-appstore-compliant', '-verbose=2']
+            preview = bundle / 'Contents/PlugIns/OMMPreview.appex'
+            preview_executable = preview / 'Contents/MacOS/OMMPreview'
+            offscreen = bundle / 'Contents/PlugIns/platforms/libqoffscreen.dylib'
+            offscreen.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(args.qt / 'plugins/platforms/libqoffscreen.dylib', offscreen)
+            preview_platform = preview / 'Contents/PlugIns/platforms/libqoffscreen.dylib'
+            preview_platform.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(args.qt / 'plugins/platforms/libqoffscreen.dylib', preview_platform)
+            deploy += [f'-executable={preview_executable}', f'-executable={offscreen}', f'-executable={preview_platform}']
             if args.sign:
                 shutil.copy2(PROJECT / 'packaging/macos/MindmapLab.entitlements', bundle / 'Contents/Resources/MindmapLab.entitlements')
                 deploy.append(f'-sign-for-notarization={application_identity}')
@@ -108,6 +117,11 @@ def main():
             if args.sign:
                 sign += ['--options', 'runtime', '--timestamp', '--entitlements',
                          bundle / 'Contents/Resources/MindmapLab.entitlements']
+            extension_sign = ['codesign', '--force', '--sign', application_identity if args.sign else '-',
+                              '--entitlements', PROJECT / 'packaging/macos/Preview.entitlements']
+            if args.sign:
+                extension_sign += ['--options', 'runtime', '--timestamp']
+            run(extension_sign + [preview])
             run(sign + [bundle])
             verification = verify_bundle(bundle, args.version, architectures)
             component_file = work / 'components.plist'
@@ -155,11 +169,36 @@ def main():
             screenshot = release / 'payload-smoke.png'
             run([executable, '--screenshot', screenshot, '--quit-after', '1800'], env=clean, timeout=30)
             assert screenshot.is_file(), 'Packaged QML interface did not produce a screenshot'
+            preview_png = release / 'document-preview.png'
+            run([executable, '--render-preview', PROJECT / 'examples/Welcome.omm',
+                 '--preview-output', preview_png], env=clean, timeout=30)
+            assert preview_png.is_file(), 'Packaged document renderer did not produce a PNG'
             # Retain a convenient verified, portable app next to the installer.
             run(['/usr/bin/ditto', payload, release / 'Mindmap Lab.app'])
+        # A drag-to-Applications DMG contains the same verified app and bundled
+        # Quick Look extension as the package installer.
+        disk_image = release / f'{name}.dmg'
+        with tempfile.TemporaryDirectory(prefix='.dmg-', dir=release) as disk_source:
+            disk_source = Path(disk_source)
+            run(['/usr/bin/ditto', release / 'Mindmap Lab.app', disk_source / 'Mindmap Lab.app'])
+            (disk_source / 'Applications').symlink_to('/Applications')
+            run(['hdiutil', 'create', '-volname', 'Mindmap Lab', '-srcfolder', disk_source,
+                 '-format', 'UDZO', '-ov', disk_image])
+        if args.sign:
+            run(['codesign', '--force', '--sign', application_identity, '--timestamp', disk_image])
+        if args.notarize:
+            response = run(['xcrun', 'notarytool', 'submit', disk_image, '--keychain-profile', notary_profile,
+                            '--wait', '--output-format', 'json'], capture=True)
+            (release / 'dmg-notarization.json').write_text(response)
+            if json.loads(response).get('status') != 'Accepted':
+                raise RuntimeError('DMG notarization was not accepted')
+            run(['xcrun', 'stapler', 'staple', disk_image])
+            run(['xcrun', 'stapler', 'validate', disk_image])
+        run(['hdiutil', 'verify', disk_image])
+        disk_digest = hashlib.sha256(disk_image.read_bytes()).hexdigest()
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
-        (release / 'SHA256SUMS').write_text(f'{digest}  {package.name}\n')
-        manifest = {**verification, 'package': package.name, 'sha256': digest,
+        (release / 'SHA256SUMS').write_text(f'{digest}  {package.name}\n{disk_digest}  {disk_image.name}\n')
+        manifest = {**verification, 'package': package.name, 'sha256': digest, 'dmg': disk_image.name, 'dmg_sha256': disk_digest,
                     'signed': args.sign, 'notarized': args.notarize, 'minimum_macos': args.min_macos,
                     'built_at': stamp, 'qt_version': subprocess.check_output([str(args.qt / 'bin/qmake'), '-query', 'QT_VERSION'], text=True).strip(),
                     'install_path': '/Applications/Mindmap Lab.app'}

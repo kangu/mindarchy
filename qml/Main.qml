@@ -152,12 +152,12 @@ ApplicationWindow {
     DateEntryDialog { id: dateDialog; controller: window.controller; canvas: canvas; parent: Overlay.overlay }
 
     FileDialog {
-        id: openDialog; title: "Open Mindmap Lab document"; nameFilters: ["Mindmap Lab (*.json)"]
+        id: openDialog; title: "Open Mindmap Lab document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
         onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.fit(); canvas.forceActiveFocus() }
     }
     FileDialog {
         id: saveDialog; title: "Save Mindmap Lab document"; fileMode: FileDialog.SaveFile
-        nameFilters: ["Mindmap Lab (*.json)"]; defaultSuffix: "json"
+        nameFilters: ["Open Mindmap (*.omm)"]; defaultSuffix: "omm"
         onAccepted: controller.save(window.localPath(selectedFile))
     }
     FileDialog {
@@ -207,7 +207,6 @@ ApplicationWindow {
                     IconButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
                     IconButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                     Item { Layout.fillWidth: true }
-                    Caption { visible: window.width >= 1400; text: "QT QUICK / C++"; Layout.rightMargin: 8 }
                     Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
                     IconButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
                     IconButton { iconName: "save"; text: "Save document"; onClicked: { if (!window.commitEditor("")) return; saveDialog.open() } }

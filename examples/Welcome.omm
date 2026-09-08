@@ -1,0 +1,61 @@
+{
+  "format": "mindmap-lab",
+  "version": 1,
+  "themeId": "lab",
+  "layout": "Horizontal",
+  "spacing": "Standard",
+  "branchStyle": "Rounded",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "children": [
+        2,
+        3
+      ],
+      "text": "Open Mindmap",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "children": [],
+      "text": "September",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "kind": "date",
+      "calendar": {
+        "view": "month",
+        "anchor": "2026-09-01",
+        "entries": {
+          "2026-09-08": "225.50",
+          "2026-09-09": "24.50",
+          "2026-09-15": "80"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 1,
+      "children": [],
+      "text": "Plain JSON · portable on macOS and Omarchy",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": true,
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

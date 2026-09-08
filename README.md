@@ -44,7 +44,7 @@ On Omarchy use `./run.sh --theme beach-day`.
 
 ## Included
 
-- Persistent window placement on macOS and Omarchy, with disconnected-display fallback; floating Hyprland windows restore through the compositor.
+- Persistent window placement on macOS and Omarchy, with disconnected-display fallback; floating Hyprland windows restore through the compositor. macOS zoom/maximize is prepared on the hidden native window before it appears, avoiding a normal-size flash or visible zoom animation and preserving the normal rectangle for restore-down. The placement suite runs against real AppKit on macOS to cover title-bar zoom and repeated reopen cycles.
 
 - Date nodes with Monday-first week/month calendars, period navigation, themed assigned days and hover-only entry previews.
 
@@ -147,3 +147,5 @@ The toolbar uses the same artwork. Native icon assets are committed-source build
 ## macOS installer releases
 
 Run `python3 scripts/release-macos.py --version 0.1.0 --unsigned` to build, test and package a self-contained installer for `/Applications/Mindmap Lab.app`. Signed/notarized releases, architecture choices, installation and verification details are in [macOS release workflow](docs/macos-release.md).
+
+Document format, Finder previews, and Linux associations: [OMM documents](docs/omm-documents.md).

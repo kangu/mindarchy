@@ -1,4 +1,8 @@
 #include "canvas.h"
+#include "preview.h"
+#include <QFileOpenEvent>
+#include <QProcess>
+#include <functional>
 #include "engine.h"
 #include "windowplacement.h"
 #include <QCommandLineParser>
@@ -19,8 +23,25 @@
 #include <algorithm>
 #include <cstdio>
 #include <memory>
+class DocumentApplication : public QGuiApplication {
+public:
+    using QGuiApplication::QGuiApplication;
+    QStringList pendingFiles;
+    std::function<void(QString)> openFile;
+    bool event(QEvent *event) override {
+        if(event->type()==QEvent::FileOpen) {
+            auto *file=static_cast<QFileOpenEvent *>(event);
+            if(!file->url().isLocalFile()) return false;
+            const auto path=file->url().toLocalFile();
+            if(openFile) openFile(path); else pendingFiles.append(path);
+            return true;
+        }
+        return QGuiApplication::event(event);
+    }
+};
 int main(int argc, char **argv) {
-    QGuiApplication app(argc, argv);
+    for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") qputenv("QT_QPA_PLATFORM","offscreen");
+    DocumentApplication app(argc, argv);
     app.setApplicationName("Mindmap Lab");
 #ifdef MINDMAP_VERSION
     app.setApplicationVersion(MINDMAP_VERSION);
@@ -47,9 +68,21 @@ int main(int argc, char **argv) {
     parser.addOption({"screenshot", "Capture this application window after startup", "path"});
     parser.addOption({"quit-after", "Exit after milliseconds (test runs)", "ms"});
     parser.addOption({"theme", "Start with a theme ID and show Themes", "id"});
-    parser.addOption({"document", "Open a prototype JSON document", "path"});
+    parser.addOption({"document", "Open an .omm or legacy JSON document", "path"});
+    parser.addPositionalArgument("file", "Document to open (.omm or legacy .json)", "[file...]");
+    parser.addOption({"render-preview", "Render a document without opening a window", "path"});
+    parser.addOption({"preview-output", "PNG output for --render-preview", "path"});
+    parser.addOption({"preview-size", "Maximum preview dimension (32–4096 pixels)", "pixels", "1600"});
     parser.process(app);
     Engine document;
+    if(parser.isSet("render-preview")) {
+        bool valid=false; int size=parser.value("preview-size").toInt(&valid);
+        if(!valid || size<32 || size>4096 || !parser.isSet("preview-output")) {
+            fprintf(stderr,"Preview requires --preview-output and size between 32 and 4096\n"); return 2;
+        }
+        if(!document.open(parser.value("render-preview"))) { fprintf(stderr,"%s\n",qPrintable(document.error())); return 1; }
+        return renderMapPreview(document,QSize(size,size)).save(parser.value("preview-output"),"PNG") ? 0 : 1;
+    }
     if (parser.isSet("benchmark")) {
         QJsonArray results;
         for (int count : {15, 1000, 10000}) {
@@ -79,8 +112,17 @@ int main(int argc, char **argv) {
     }
     if (parser.isSet("nodes"))
         document.loadFixture(parser.value("nodes").toInt());
-    if (parser.isSet("document"))
-        document.open(parser.value("document"));
+    QStringList files=parser.positionalArguments();
+    if(parser.isSet("document")) files.prepend(parser.value("document"));
+    files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
+    auto openInNewInstance=[](QString path) {
+        QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--document",path});
+    };
+    const bool startedWithFile=!files.isEmpty();
+    if(!files.isEmpty() && !document.open(files.takeFirst())) {
+        fprintf(stderr,"%s\n",qPrintable(document.error())); return 1;
+    }
+    for(const auto &path:files) openInNewInstance(path);
     if (parser.isSet("theme")) {
         if (!Themes::contains(parser.value("theme"))) {
             fprintf(stderr, "Unknown theme: %s\n", qPrintable(parser.value("theme")));
@@ -110,7 +152,21 @@ int main(int argc, char **argv) {
     void installMacToolbar(QWindow *window);
     if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
 #endif
-    if(window) window->show();
+    bool freshDocument=!startedWithFile && !parser.isSet("nodes");
+    QObject::connect(&document,&Engine::changed,&app,[&freshDocument] { freshDocument=false; });
+    app.openFile=[&document,window,&freshDocument,openInNewInstance](QString path) {
+        // A cold Finder launch uses the initial window. Later opens preserve
+        // any work in it, including an unsaved new map.
+        if(freshDocument) {
+            freshDocument=false;
+            if(document.open(path) && window)
+                if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas")) canvas->fit();
+        } else openInNewInstance(path);
+    };
+    for(const auto &path:app.pendingFiles) app.openFile(path);
+    app.pendingFiles.clear();
+    // Preserve the state prepared by WindowPlacement; show() calls showNormal().
+    if(window) window->setVisible(true);
     if (window && parser.isSet("theme")) {
         window->setProperty("inspectorVisible",true);
         if (auto *tabs=window->findChild<QQuickItem *>("inspectorTabs")) tabs->setProperty("currentIndex",2);

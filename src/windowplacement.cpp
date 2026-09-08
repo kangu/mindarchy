@@ -84,8 +84,21 @@ WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
                {"backend",m_hyprland ? "hyprland" : m_wayland ? "wayland" : "qt"}, {"state","normal"}};
     if(!m_hyprland && m_target.restored) {
         const auto state=m_saved.value("state").toString();
-        if(state=="maximized") window->setWindowState(Qt::WindowMaximized);
-        else if(state=="fullscreen") window->setWindowState(Qt::WindowFullScreen);
+        if(state=="maximized") m_pendingQtState=Qt::WindowMaximized;
+        else if(state=="fullscreen") m_pendingQtState=Qt::WindowFullScreen;
+        m_restorePending=m_pendingQtState!=Qt::WindowNoState;
+    }
+    if(QGuiApplication::platformName()=="cocoa" && m_pendingQtState==Qt::WindowMaximized) {
+        // Prepare the native zoom and its restore-down rectangle while hidden.
+        // The caller must use setVisible(true): QWindow::show() calls
+        // showNormal(), which would undo this prepared state.
+#ifdef Q_OS_MACOS
+        void prepareMacMaximizedWindow(QWindow *window);
+        prepareMacMaximizedWindow(window);
+#endif
+        m_current["state"]="maximized";
+        m_pendingQtState=Qt::WindowNoState;
+        m_restorePending=false;
     }
     window->installEventFilter(this);
     connect(qGuiApp,&QCoreApplication::aboutToQuit,this,&WindowPlacement::save);
@@ -107,7 +120,19 @@ WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
         connect(window,&QWindow::windowStateChanged,this,capture);
     }
 }
+void WindowPlacement::restoreQtState() {
+    if(m_hyprland || !m_restorePending || !m_window->isVisible()) return;
+    // Apply deferred states after the initial show (including native
+    // fullscreen). macOS maximization is prepared separately while hidden.
+    // Retain the validated normal rectangle for restore-down.
+    if(m_pendingQtState==Qt::WindowMaximized) m_window->showMaximized();
+    else if(m_pendingQtState==Qt::WindowFullScreen) m_window->showFullScreen();
+    m_restorePending=false;
+    m_pendingQtState=Qt::WindowNoState;
+    captureQt();
+}
 void WindowPlacement::captureQt() {
+    if(m_restorePending) return;
     const auto state=m_window->windowState();
     if(state==Qt::WindowMinimized || !m_window->isVisible()) return;
     m_current["state"]=state==Qt::WindowMaximized ? "maximized" : state==Qt::WindowFullScreen ? "fullscreen" : "normal";
@@ -168,6 +193,10 @@ void WindowPlacement::save() {
     }
 }
 bool WindowPlacement::eventFilter(QObject *object, QEvent *event) {
-    if(object==m_window && event->type()==QEvent::Close) save();
+    if(object==m_window) {
+        if(event->type()==QEvent::Show && !m_hyprland && m_restorePending)
+            QTimer::singleShot(0,this,&WindowPlacement::restoreQtState);
+        else if(event->type()==QEvent::Close) save();
+    }
     return QObject::eventFilter(object,event);
 }

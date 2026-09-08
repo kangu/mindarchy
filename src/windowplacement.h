@@ -23,6 +23,7 @@ private:
     QVector<PlacementScreen> screens() const;
     QByteArray hypr(const QStringList &args) const;
     void captureQt();
+    void restoreQtState();
     void captureHypr(const QByteArray &data);
     void queryHypr();
     QWindow *m_window;
@@ -33,5 +34,6 @@ private:
     QProcess m_query;
     QTimer m_poll, m_timeout;
     PlacementResult m_target;
+    Qt::WindowState m_pendingQtState=Qt::WindowNoState;
     bool m_wayland=false, m_hyprland=false, m_lua=false, m_restorePending=false, m_settling=false;
 };

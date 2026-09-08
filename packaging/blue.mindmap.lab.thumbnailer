@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=mindmap-lab
+Exec=mindmap-lab --render-preview %i --preview-output %o --preview-size %s
+MimeType=application/x-omm+json;

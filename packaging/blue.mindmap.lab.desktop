@@ -2,8 +2,9 @@
 Type=Application
 Name=Mindmap Lab
 Comment=Create and explore mind maps
-Exec=mindmap-lab
+Exec=mindmap-lab %f
 Icon=blue.mindmap.lab
 Terminal=false
 Categories=Office;
 StartupWMClass=blue.mindmap.lab
+MimeType=application/x-omm+json;

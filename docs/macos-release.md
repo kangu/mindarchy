@@ -80,3 +80,5 @@ Built an unsigned arm64 0.1.0 installer (54 MiB) on macOS 15.7.4 with Qt 6.11.2.
 Artifact: `dist/macos/0.1.0/arm64/20260908T064237110951Z/`. No administrative installation or clean-machine upgrade was performed. Signed/notarized and Intel/universal releases remain untested.
 
 Qt’s deployment log may mention missing client libraries for optional SQL drivers before they are pruned. The final bundle verifier rejects any remaining non-system external dependency; the verified artifact contains only the SQLite SQL driver.
+
+The workflow also produces a verified DMG containing the same app plus an Applications shortcut. Both delivery formats bundle the sandboxed OMM Quick Look preview extension and its offscreen Qt plugin. Signed/notarized mode signs and notarizes both distribution artifacts.
