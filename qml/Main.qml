@@ -8,7 +8,7 @@ ApplicationWindow {
     id: window
     width: 1380; height: 900
     minimumWidth: 600; minimumHeight: 640
-    visible: true
+    visible: typeof deferWindowShow === "undefined" || !deferWindowShow
     readonly property bool integratedMacToolbar: Qt.platform.os === "osx"
     flags: integratedMacToolbar
         ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
@@ -44,6 +44,7 @@ ApplicationWindow {
         return s
     }
     function commitEditor(next) {
+        if (dateDialog.opened) return false
         if (!canvas.editing) return true
         if (editor.inputMethodComposing) return false
         if (!canvas.commitEditing(editor.text)) { editor.forceActiveFocus(); return false }
@@ -105,6 +106,41 @@ ApplicationWindow {
             opacity: iconButton.enabled ? 1 : 0.3
         }
     }
+    component MapOptionBar: Rectangle {
+        id: bar
+        required property var options
+        required property string selectedValue
+        property string optionPrefix: "map-option-"
+        signal chosen(string value)
+        Layout.fillWidth: true
+        implicitHeight: 42
+        radius: 8; color: "#122029"; border.color: "#2a3943"
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 3; spacing: 3
+            Repeater {
+                id: mapOptions
+                model: bar.options
+                delegate: IconButton {
+                    required property var modelData
+                    required property int index
+                    objectName: bar.optionPrefix + modelData.value
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    iconName: ""; text: modelData.label
+                    checked: bar.selectedValue === modelData.value
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.checked: checked
+                    onClicked: bar.chosen(modelData.value)
+                    Keys.onLeftPressed: { if(index>0) { mapOptions.itemAt(index-1).forceActiveFocus(); bar.chosen(bar.options[index-1].value) } }
+                    Keys.onRightPressed: { if(index+1<bar.options.length) { mapOptions.itemAt(index+1).forceActiveFocus(); bar.chosen(bar.options[index+1].value) } }
+                    contentItem: Image {
+                        source: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c5d3da" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="' + modelData.path + '"/></svg>')
+                        sourceSize: Qt.size(24,24); fillMode: Image.PreserveAspectFit
+                        opacity: bar.enabled ? 1 : 0.3
+                    }
+                }
+            }
+        }
+    }
     component Caption: Label { color: window.muted; font.pixelSize: 10; font.letterSpacing: 1.3; font.bold: true }
     component Rule: Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#2a3943" }
 
@@ -112,6 +148,8 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Save]; onActivated: { if (!commitEditor("")) return; saveDialog.open() } }
     Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.undo() }
     Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.redo() }
+
+    DateEntryDialog { id: dateDialog; controller: window.controller; canvas: canvas; parent: Overlay.overlay }
 
     FileDialog {
         id: openDialog; title: "Open Mindmap Lab document"; nameFilters: ["Mindmap Lab (*.json)"]
@@ -215,6 +253,19 @@ ApplicationWindow {
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; engine: window.controller; focus: true
                     onCommitRequested: window.commitEditor("")
+                    onDateEditRequested: function(id, date, text) {
+                        if (window.commitEditor("")) dateDialog.openEntry(id,date,text)
+                    }
+                    ToolTip {
+                        visible: canvas.dateHoverText.length>0 && !dateDialog.opened && !canvas.dragging
+                        delay: 450
+                        x: Math.max(0,Math.min(canvas.width-width,canvas.dateHoverPosition.x+12))
+                        y: Math.max(0,Math.min(canvas.height-height,canvas.dateHoverPosition.y+16))
+                        contentItem: Text {
+                            text: canvas.dateHoverText; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                            width: 280; color: "#e0e9ee"; font.pixelSize: 12
+                        }
+                    }
                     onEditRequested: function(id, text) { editor.text = text; editor.forceActiveFocus(); editor.selectAll() }
                     onExportFinished: function(path, success) { window.exportStatus = success ? "PNG exported" : "PNG export failed"; exportTimer.restart() }
                     Item {
@@ -297,21 +348,28 @@ ApplicationWindow {
                             width: parent.width; spacing: 18
                             ColumnLayout {
                                 visible: inspectorTabs.currentIndex === 0; Layout.fillWidth: true; spacing: 12
-                                Label { text: "Shape your thinking"; color: window.ink; font.pixelSize: 17; font.bold: true }
-                                Label { text: "Switch the arrangement without\nchanging the hierarchy."; color: window.muted; font.pixelSize: 12; lineHeight: 1.35 }
-                                Rule {}
                                 Caption { text: "DIRECTION" }
-                                ComboBox { Layout.fillWidth: true; model: ["Horizontal", "Vertical", "Compact"]; currentIndex: model.indexOf(controller.layout); onActivated: { if (!window.commitEditor("")) return; controller.layout = currentText; canvas.forceActiveFocus() } }
+                                MapOptionBar { selectedValue: controller.layout; options: [{"value": "Horizontal", "label": "Horizontal \u2014 branches expand sideways", "path": "M3 10h5v4H3z M16 3h5v4h-5z M16 17h5v4h-5z M8 12h4 M12 5v14 M12 5h4 M12 19h4"}, {"value": "Vertical", "label": "Vertical \u2014 branches expand downward", "path": "M10 3h4v5h-4z M3 16h4v5H3z M17 16h4v5h-4z M12 8v4 M5 12h14 M5 12v4 M19 12v4"}, {"value": "Compact", "label": "Compact \u2014 tightly arranged branches", "path": "M3 10h5v4H3z M16 3h5v4h-5z M16 10h5v4h-5z M16 17h5v4h-5z M8 12h8 M12 5v14 M12 5h4 M12 19h4"}]
+                                    onChosen: function(value) { if (!window.commitEditor("")) return; controller.layout = value }
+                                }
                                 Caption { text: "SPACING" }
-                                ComboBox { enabled: !controller.manual && controller.layout !== "Compact"; Layout.fillWidth: true; model: ["Narrow", "Standard", "Wide"]; currentIndex: model.indexOf(controller.spacing); onActivated: { if (!window.commitEditor("")) return; controller.spacing = currentText } }
+                                MapOptionBar { enabled: !controller.manual && controller.layout !== "Compact"; selectedValue: controller.spacing; options: [{"value": "Narrow", "label": "Narrow spacing", "path": "M3 5h18 M3 19h18 M8 10h8v4H8z M12 6v3 M10 7l2 2 2-2 M12 18v-3 M10 17l2-2 2 2"}, {"value": "Standard", "label": "Standard spacing", "path": "M3 3h18 M3 21h18 M8 10h8v4H8z M12 5v3 M10 6l2 2 2-2 M12 19v-3 M10 18l2-2 2 2"}, {"value": "Wide", "label": "Wide spacing", "path": "M3 2h18 M3 22h18 M8 10h8v4H8z M12 8V4 M10 6l2-2 2 2 M12 16v4 M10 18l2 2 2-2"}]
+                                    onChosen: function(value) { if (!window.commitEditor("")) return; controller.spacing = value }
+                                }
                                 Caption { text: "CONNECTIONS" }
-                                ComboBox { Layout.fillWidth: true; model: ["Rounded", "Angular"]; currentIndex: model.indexOf(controller.branchStyle); onActivated: { if (!window.commitEditor("")) return; controller.branchStyle = currentText } }
-                                Rule {}
-                                Switch { enabled: controller.layout !== "Compact"; text: "Manual placement"; checked: controller.manual; onClicked: { if (!window.commitEditor("")) return; controller.manual = checked } }
-                                Label { Layout.fillWidth: true; text: controller.manual ? "Drag a node to place it freely. Turn off to restore automatic layout." : "Drag a branch onto another node to move it in the hierarchy."; wrapMode: Text.Wrap; color: window.muted; font.pixelSize: 12; lineHeight: 1.4 }
-                                Rule {}
-                                Caption { text: "TRY THE PROTOTYPE" }
-                                Label { Layout.fillWidth: true; text: "01   Grow and fold branches\n02   Try all three layouts\n03   Drag to reorganize\n04   Explore the Themes tab"; color: "#a5b5bf"; font.pixelSize: 12; lineHeight: 1.8 }
+                                MapOptionBar { selectedValue: controller.branchStyle; options: [{"value": "Rounded", "label": "Rounded connections", "path": "M3 18h5a4 4 0 0 0 4-4v-4a4 4 0 0 1 4-4h5"}, {"value": "Angular", "label": "Angular connections", "path": "M3 18h9V6h9"}]
+                                    onChosen: function(value) { if (!window.commitEditor("")) return; controller.branchStyle = value }
+                                }
+                                Caption { text: "PLACEMENT" }
+                                MapOptionBar {
+                                    enabled: controller.layout !== "Compact"
+                                    selectedValue: controller.manual ? "Manual" : "Automatic"
+                                    options: [
+                                        { value: "Automatic", label: "Automatic placement — arrange branches automatically", path: "M3 3h6v6H3z M15 3h6v6h-6z M3 15h6v6H3z M15 15h6v6h-6z" },
+                                        { value: "Manual", label: "Manual placement — drag nodes to position them freely", path: "M12 3v18 M3 12h18 M9 6l3-3 3 3 M9 18l3 3 3-3 M6 9l-3 3 3 3 M18 9l3 3-3 3" }
+                                    ]
+                                    onChosen: function(value) { if (!window.commitEditor("")) return; controller.manual = value === "Manual" }
+                                }
                             }
                             ColumnLayout {
                                 visible: inspectorTabs.currentIndex === 2; Layout.fillWidth: true; spacing: 12
@@ -333,12 +391,55 @@ ApplicationWindow {
                             }
                             ColumnLayout {
                                 visible: inspectorTabs.currentIndex === 1; Layout.fillWidth: true; spacing: 12
+                                enabled: controller.selection.length > 0
+                                opacity: enabled ? 1 : 0.65
                                 Caption { text: controller.selection.length === 1 ? "SELECTED NODE · " + controller.selectedId : controller.selection.length + " NODES SELECTED" }
-                                NodeStylePanel { Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
-                                SmallButton { text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
+                                Rectangle {
+                                    Layout.fillWidth: true; implicitHeight: typeGroup.height
+                                    color: "#122029"; radius: 8; border.color: "#2a3943"
+                                    Column {
+                                        id: typeGroup; width: parent.width; spacing: 0
+                                        MapOptionBar {
+                                            width: parent.width; optionPrefix: "node-type-"
+                                            enabled: controller.selection.length === 1
+                                            selectedValue: controller.selectedKind === "date" ? "Date" : controller.selectedTask ? "Task" : "Text"
+                                            options: [
+                                                {value: "Text", label: "Text", path: "M4 5h16 M12 5v14 M8 19h8"},
+                                                {value: "Task", label: "Task", path: "M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+                                                {value: "Date", label: "Date", path: "M8 2v4 M16 2v4 M3 10h18 M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2 M8 14h.01 M12 14h.01 M16 14h.01 M8 18h.01 M12 18h.01"}
+                                            ]
+                                            onChosen: function(value) {
+                                                if(!window.commitEditor("")) return
+                                                controller.setNodeKind(controller.selectedId,value.toLowerCase())
+                                                canvas.revealNode(controller.selectedId)
+                                            }
+                                        }
+                                        Item {
+                                            objectName: "nodeTypeOptions"
+                                            width: parent.width
+                                            visible: controller.selectedKind === "date" || controller.selectedTask
+                                            height: visible ? typeOptions.implicitHeight + 24 : 0
+                                            enabled: controller.selection.length === 1
+                                            Rectangle { x: 12; width: parent.width-24; height: 1; color: "#2a3943" }
+                                            ColumnLayout {
+                                                id: typeOptions; x: 12; y: 12; width: parent.width-24; spacing: 8
+                                                Caption { visible: controller.selectedTask; text: "TASK" }
+                                                CheckBox {
+                                                    objectName: "taskCompleted"; visible: controller.selectedTask
+                                                    text: "Completed"; checked: controller.selectedChecked
+                                                    onClicked: { if(window.commitEditor("")) controller.toggleChecked() }
+                                                }
+                                                DateNodePanel {
+                                                    visible: controller.selectedKind === "date"; Layout.fillWidth: true
+                                                    controller: window.controller; canvas: canvas; commitEditor: window.commitEditor
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                NodeStylePanel { visible: controller.selectedKind !== "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}
-                                CheckBox { text: "Task"; checked: controller.selectedTask; onClicked: { if (!window.commitEditor("")) return; controller.toggleTask() } }
-                                CheckBox { text: "Completed"; enabled: controller.selectedTask; checked: controller.selectedChecked; onClicked: { if (!window.commitEditor("")) return; controller.toggleChecked() } }
                                 SmallButton { text: controller.selectedFolded ? "Expand branch" : "Fold branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                                 Rule {}
                                 Caption { text: "NOTES" }

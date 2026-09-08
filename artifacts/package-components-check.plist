@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>BundleHasStrictIdentifier</key>
+		<true/>
+		<key>BundleIsRelocatable</key>
+		<true/>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>ChildBundles</key>
+		<array>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlMeta.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlXmlListModel.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtGui.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtDBus.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickTemplates2.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQuick.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtCore.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQml.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlWorkerScript.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Impl.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtOpenGL.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtNetwork.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlModels.framework</string>
+			</dict>
+			<dict>
+				<key>BundleOverwriteAction</key>
+				<string></string>
+				<key>RootRelativeBundlePath</key>
+				<string>Applications/Mindmap Lab.app/Contents/Frameworks/QtLabsFolderListModel.framework</string>
+			</dict>
+		</array>
+		<key>RootRelativeBundlePath</key>
+		<string>Applications/Mindmap Lab.app</string>
+	</dict>
+</array>
+</plist>

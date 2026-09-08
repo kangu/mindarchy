@@ -127,6 +127,40 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius) {
     }
     return polygon;
 }
+bool hasShapedBorder(const NodeAppearance &style) {
+    return style.borderWidth > 0 && style.border.alpha() > 0 &&
+           style.shape != NodeShape::Underline && style.shape != NodeShape::Embedded;
+}
+void shapeOutline(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &style,
+                  QColor color, qreal thickness) {
+    auto polygon = shapePolygon(rect, style.shape, style.radius);
+    if (polygon.size() > 1 && polygon.first() == polygon.last()) polygon.removeLast();
+    if (polygon.size() < 3) return;
+    qreal area = 0;
+    for (int i = 0; i < polygon.size(); ++i) {
+        const auto a = polygon[i], b = polygon[(i + 1) % polygon.size()];
+        area += a.x() * b.y() - b.x() * a.y();
+    }
+    auto normal = [area](QPointF edge) {
+        const qreal length = std::hypot(edge.x(), edge.y());
+        return length > .00001 ? QPointF(edge.y(), -edge.x()) * ((area > 0 ? 1. : -1.) / length) : QPointF();
+    };
+    QVector<QPointF> inner, outer;
+    for (int i = 0; i < polygon.size(); ++i) {
+        const auto p = polygon[i];
+        const auto a = normal(p - polygon[(i + polygon.size() - 1) % polygon.size()]);
+        const auto b = normal(polygon[(i + 1) % polygon.size()] - p);
+        const auto offset = (a + b) / std::max(.25, 1. + QPointF::dotProduct(a, b));
+        inner << p + offset * (style.borderWidth / 2);
+        outer << p + offset * (style.borderWidth / 2 + thickness);
+    }
+    // A ring outside the actual border leaves transparent node interiors intact.
+    for (int i = 0; i < polygon.size(); ++i) {
+        const int j = (i + 1) % polygon.size();
+        triangle(vertices, inner[i], outer[i], outer[j], color);
+        triangle(vertices, inner[i], outer[j], inner[j], color);
+    }
+}
 void themedShape(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &style) {
     if(style.shape == NodeShape::Embedded) return;
     if (style.shape == NodeShape::Underline) {
@@ -141,6 +175,44 @@ void themedShape(QVector<Vertex> &vertices, QRectF rect, const NodeAppearance &s
     }
     auto border=polygon; if(!border.isEmpty()) border << border.first();
     strokePath(vertices,border,style.borderWidth,style.border,style.borderStyle);
+}
+void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style) {
+    painter.setRenderHint(QPainter::Antialiasing); painter.setRenderHint(QPainter::TextAntialiasing);
+    QFont font("sans-serif"); font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
+    painter.drawText(QRectF(39,10,216,28),Qt::AlignCenter,Calendar::title(data));
+    font.setPixelSize(18); painter.setFont(font);
+    painter.drawText(Calendar::previous(),Qt::AlignCenter,QStringLiteral("‹"));
+    painter.drawText(Calendar::next(),Qt::AlignCenter,QStringLiteral("›"));
+    font.setPixelSize(10); font.setBold(false); painter.setFont(font);
+    const QStringList weekdays{"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
+    for(int i=0;i<7;++i) painter.drawText(QRectF(14+i*38,44,34,20),Qt::AlignCenter,weekdays[i]);
+    const auto days=Calendar::days(data);
+    for(int i=0;i<days.size();++i) {
+        const auto day=days[i]; if(!day.isValid()) continue;
+        const auto cell=Calendar::cell(i); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
+        const bool today=day==QDate::currentDate();
+        painter.setPen(today ? QPen(style.branch,1.5) : QPen(Qt::NoPen));
+        painter.setBrush(assigned ? QBrush(style.branch) : QBrush(Qt::NoBrush));
+        if(assigned || today) painter.drawRoundedRect(cell,5,5);
+        const double luminance=.2126*style.branch.redF()+.7152*style.branch.greenF()+.0722*style.branch.blueF();
+        painter.setPen(assigned ? QColor(luminance>.55 ? "#172129" : "#ffffff") : style.text);
+        font.setPixelSize(12); font.setBold(assigned || today); painter.setFont(font);
+        painter.drawText(cell,Qt::AlignCenter,QString::number(day.day()));
+    }
+    const auto sums=Calendar::totals(data);
+    if(sums.enabled) {
+        painter.setPen(style.text); font.setPixelSize(11); font.setBold(true); painter.setFont(font);
+        painter.drawText(QRectF(294,44,108,20),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Sum"));
+        for(int row=0;row<sums.weeks.size();++row)
+            painter.drawText(Calendar::sumCell(row),Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.weeks[row]));
+        if(data.view=="month") {
+            const auto total=Calendar::sumCell(sums.weeks.size()).translated(0,4);
+            painter.setPen(QPen(style.branch,1)); painter.drawLine(QPointF(294,total.top()),QPointF(402,total.top()));
+            painter.setPen(style.text);
+            painter.drawText(QRectF(14,total.y(),265,total.height()),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Month total"));
+            painter.drawText(total,Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.month));
+        }
+    }
 }
 struct TextureEntry {
     QSGSimpleTextureNode *node = nullptr;
@@ -211,6 +283,7 @@ QRectF MindCanvas::displayRect(int id) const {
     return r;
 }
 void MindCanvas::documentChanged() {
+    if(!m_dateHoverText.isEmpty()) { m_dateHoverText.clear(); emit interactionChanged(); }
     if (!m_engine)
         return;
     QHash<int, QRectF> next;
@@ -303,8 +376,9 @@ void MindCanvas::refresh() {
             m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x()});
         if (m_zoom < .28 || editingId() == id)
             continue;
+        const QString labelKey=n.kind=="date" ? Calendar::key(n.calendar)+appearance.branch.name(QColor::HexArgb) : n.text;
         auto it = m_cache.find(id);
-        if (it == m_cache.end() || it->text != n.text || it->size != r.size() ||
+        if (it == m_cache.end() || it->text != labelKey || it->size != r.size() ||
             it->bucket != bucket || it->task != n.task || it->textColor != appearance.text) {
             // Bound per-label raster memory even for very tall rich-text nodes.
             const double safeScale =
@@ -319,6 +393,9 @@ void MindCanvas::refresh() {
             QImage image(pixels, QImage::Format_ARGB32_Premultiplied);
             image.setDevicePixelRatio(safeScale);
             image.fill(Qt::transparent);
+            if(n.kind=="date") {
+                QPainter painter(&image); paintCalendar(painter,n.calendar,appearance);
+            } else {
             QTextDocument doc;
             QFont font("sans-serif", 11);
             font.setPixelSize(15);
@@ -335,7 +412,8 @@ void MindCanvas::refresh() {
             ctx.palette.setColor(QPalette::Text, appearance.text);
             doc.documentLayout()->draw(&painter, ctx);
             painter.end();
-            m_cache.insert(id, {n.text, appearance.text, r.size(), bucket, n.task, image, m_nextTextureKey++});
+            }
+            m_cache.insert(id, {labelKey, appearance.text, r.size(), bucket, n.task, image, m_nextTextureKey++});
             it = m_cache.find(id);
         }
         if (labelBytes + it->image.sizeInBytes() > LabelBudget)
@@ -384,7 +462,19 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             if(e.width>0) painter.drawPolyline(edgePath(e.a,e.b,e.angular,e.vertical));
         }
         for (const auto &n : m_draw) {
-            if(n.selected) {
+            if ((n.selected || n.id == m_hovered) && hasShapedBorder(n.appearance)) {
+                QVector<Vertex> outline;
+                shapeOutline(outline, n.rect, n.appearance,
+                             QColor(n.selected ? "#7065CE" : "#ACA4DC"), (n.selected ? 2. : 1.) / m_zoom);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(n.selected ? "#7065CE" : "#ACA4DC"));
+                QPainterPath outlinePath;
+                outlinePath.setFillRule(Qt::WindingFill);
+                for (int i = 0; i + 2 < outline.size(); i += 3)
+                    outlinePath.addPolygon(QPolygonF{QPointF(outline[i].x, outline[i].y),
+                        QPointF(outline[i+1].x, outline[i+1].y), QPointF(outline[i+2].x, outline[i+2].y)});
+                painter.drawPath(outlinePath);
+            } else if(n.selected) {
                 painter.setPen(QPen(QColor("#7065CE"),2));
                 painter.setBrush(Qt::NoBrush);
                 painter.drawRoundedRect(n.rect.adjusted(-4,-4,4,4),10,10);
@@ -395,8 +485,15 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 painter.setPen(QPen(n.appearance.branch,n.appearance.branchWidth,n.appearance.branchStroke));
                 if(n.appearance.branchWidth>0) painter.drawLine(n.rect.bottomLeft(),n.rect.bottomRight());
             } else if(n.appearance.shape!=NodeShape::Embedded) painter.drawPolygon(shapePolygon(n.rect,n.appearance.shape,n.appearance.radius));
-            if(n.task) {
+            if(m_zoom > .28 && n.task) {
                 const QRectF check(n.rect.left()+8,n.rect.center().y()-5,10,10);
+                if (n.id == m_hoveredTask && !m_dragging && !m_panning) {
+                    QColor tint = n.appearance.text;
+                    tint.setAlphaF(.04);
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(tint);
+                    painter.drawRoundedRect(check.adjusted(-3,-3,3,3),3,3);
+                }
                 painter.setPen(QPen(n.appearance.text,1));
                 painter.setBrush(n.checked ? QBrush(n.appearance.text) : QBrush(Qt::NoBrush));
                 painter.drawRoundedRect(check,2,2);
@@ -433,20 +530,29 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         strokePath(vertices,edgePath(e.a,e.b,e.angular,e.vertical),e.width,e.color,e.stroke);
     }
     for (const auto &n : m_draw) {
-        if (n.selected)
-            box(vertices, n.rect.adjusted(-4,-4,4,4), QColor("#7065CE"), 10);
-        else if (n.id == m_hovered)
-            box(vertices, n.rect.adjusted(-2,-2,2,2), QColor("#ACA4DC"), 9);
-        if(n.selected || n.id == m_hovered)
-            box(vertices,n.rect.adjusted(-1,-1,1,1),m_canvasColor,8);
         auto style=n.appearance;
         if(m_zoom < .25 && style.shape != NodeShape::Underline && style.shape != NodeShape::Embedded) {
             style.shape=NodeShape::Rectangle;
             style.radius=0;
         }
+        const bool shapedOutline = hasShapedBorder(style);
+        if ((n.selected || n.id == m_hovered) && shapedOutline)
+            shapeOutline(vertices, n.rect, style, QColor(n.selected ? "#7065CE" : "#ACA4DC"),
+                         (n.selected ? 2. : 1.) / m_zoom);
+        else if (n.selected)
+            box(vertices, n.rect.adjusted(-4,-4,4,4), QColor("#7065CE"), 10);
+        else if (n.id == m_hovered)
+            box(vertices, n.rect.adjusted(-2,-2,2,2), QColor("#ACA4DC"), 9);
+        if(!shapedOutline && (n.selected || n.id == m_hovered))
+            box(vertices,n.rect.adjusted(-1,-1,1,1),m_canvasColor,8);
         themedShape(vertices,n.rect,style);
         if (m_zoom > .28 && n.task) {
             QRectF check(n.rect.left() + 8, n.rect.center().y() - 5, 10, 10);
+            if (n.id == m_hoveredTask && !m_dragging && !m_panning) {
+                QColor tint = n.appearance.text;
+                tint.setAlphaF(.04);
+                box(vertices, check.adjusted(-3,-3,3,3), tint, 3);
+            }
             box(vertices, check, n.appearance.text, 2);
             if (!n.checked)
                 box(vertices, check.adjusted(1.5,1.5,-1.5,-1.5),
@@ -581,6 +687,11 @@ void MindCanvas::beginEdit(int id) {
         return;
     if (m_engine->selectedId() != id)
         m_engine->select(id);
+    if(m_engine->nodes().value(id).kind=="date") {
+        ensureVisible(id);
+        editDateEntry(id,m_engine->nodes().value(id).calendar.anchor.toString(Qt::ISODate));
+        return;
+    }
     // Settle the one creation layout before accepting keystrokes. Editing itself
     // neither animates the graph nor changes the user's chosen zoom level.
     m_animating = false;
@@ -644,6 +755,26 @@ int MindCanvas::hit(QPointF p, bool excludeDrag) const {
             return it->id;
     return -1;
 }
+int MindCanvas::taskHit(QPointF screen) const {
+    if (!m_engine || m_zoom <= .28)
+        return -1;
+    const QPointF world = mapToWorld(screen);
+    for (auto it = m_draw.crbegin(); it != m_draw.crend(); ++it) {
+        if (it->task && m_engine->nodes().value(it->id).kind != "date") {
+            const QPointF center = mapFromWorld(QPointF(it->rect.left() + 13, it->rect.center().y()));
+            const qreal half = std::max(16., 8. * m_zoom);
+            QRectF target(center - QPointF(half, half), QSizeF(half * 2, half * 2));
+            // Preserve a gap before the text, especially when zoomed out.
+            target.setRight(std::min(target.right(), mapFromWorld(it->rect.topLeft()).x() + 32 * m_zoom));
+            if (target.contains(screen))
+                return it->id;
+        }
+        // An overlapping node in front owns its own pointer events.
+        if (it->rect.contains(world))
+            return -1;
+    }
+    return -1;
+}
 void MindCanvas::mousePressEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
@@ -659,6 +790,10 @@ void MindCanvas::mousePressEvent(QMouseEvent *e) {
     m_pressedId = hit(m_press);
     m_extend = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
     m_panning = e->button() == Qt::MiddleButton || m_space || e->button() == Qt::RightButton;
+    m_pressedTask = !m_panning && !m_extend && e->button() == Qt::LeftButton
+                        ? taskHit(m_press) : -1;
+    if (m_pressedTask >= 0)
+        m_pressedId = m_pressedTask;
     m_marquee = false;
     m_dragging = false;
     m_manualPreview.clear();
@@ -755,6 +890,22 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
             m_engine->moveManual(id, delta.x(), delta.y());
         else if (parent >= 0)
             m_engine->moveNode(id, parent, before);
+    } else if (e->button() == Qt::LeftButton && m_pressedTask >= 0 &&
+               taskHit(e->position()) == m_pressedTask) {
+        m_engine->select(m_pressedTask);
+        m_engine->toggleChecked();
+    } else if(!m_panning && !m_extend && m_pressedId>=0 && hit(e->position())==m_pressedId &&
+              m_engine->nodes().value(m_pressedId).kind=="date") {
+        const int id=m_pressedId; const auto n=m_engine->nodes().value(id);
+        const QPointF local=mapToWorld(e->position())-displayRect(id).topLeft();
+        if(Calendar::previous().contains(local)) m_engine->shiftDateNode(id,-1);
+        else if(Calendar::next().contains(local)) m_engine->shiftDateNode(id,1);
+        else {
+            const auto days=Calendar::days(n.calendar);
+            for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i).contains(local)) {
+                editDateEntry(id,days[i].toString(Qt::ISODate)); break;
+            }
+        }
     } else if (m_marquee) {
         QVector<int> ids;
         for (const auto &n : m_draw)
@@ -768,6 +919,7 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     m_panning = false;
     m_marquee = false;
     m_pressedId = -1;
+    m_pressedTask = -1;
     m_dropParent = -1;
     m_hint = "Click to select · double-click to edit · Tab adds a child";
     emit interactionChanged();
@@ -783,6 +935,11 @@ void MindCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
         }
     }
 
+    if (taskHit(e->position()) >= 0) {
+        m_pressedTask = m_pressedId = -1;
+        e->accept();
+        return;
+    }
     int id = hit(e->position());
     if (id >= 0 && m_engine) {
         m_engine->select(id);
@@ -790,13 +947,29 @@ void MindCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
     }
     e->accept();
 }
+void MindCanvas::editDateEntry(int id,QString date) {
+    if(!m_engine || !m_engine->nodes().contains(id) || m_engine->nodes().value(id).kind!="date" ||
+       !QDate::fromString(date,Qt::ISODate).isValid()) return;
+    m_dateHoverText.clear(); emit interactionChanged();
+    emit dateEditRequested(id,date,m_engine->dateEntry(id,date));
+}
 void MindCanvas::hoverMoveEvent(QHoverEvent *e) {
-    int id = hit(e->position());
-    if (id != m_hovered) {
-        m_hovered = id;
-        emit interactionChanged();
-        refresh();
+    const int task = taskHit(e->position());
+    int id=task >= 0 ? task : hit(e->position()); QString text; bool actionable=task >= 0;
+    if(m_engine && id>=0 && m_engine->nodes().value(id).kind=="date") {
+        const auto n=m_engine->nodes().value(id); const auto days=Calendar::days(n.calendar);
+        const QPointF local=mapToWorld(e->position())-displayRect(id).topLeft();
+        actionable=Calendar::previous().contains(local) || Calendar::next().contains(local);
+        for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i).contains(local)) {
+            text=n.calendar.entries.value(days[i].toString(Qt::ISODate)); actionable=true; break;
+        }
     }
+    if(actionable) setCursor(Qt::PointingHandCursor); else unsetCursor();
+    m_dateHoverPosition=e->position(); m_dateHoverText=text; emit interactionChanged();
+    if(id!=m_hovered || task!=m_hoveredTask) {m_hovered=id; m_hoveredTask=task; refresh();}
+}
+void MindCanvas::hoverLeaveEvent(QHoverEvent *e) {
+    m_dateHoverText.clear(); m_hovered=-1; m_hoveredTask=-1; unsetCursor(); emit interactionChanged(); refresh(); e->accept();
 }
 void MindCanvas::wheelEvent(QWheelEvent *e) {
     if (e->modifiers() & Qt::ControlModifier || e->pixelDelta().isNull()) {

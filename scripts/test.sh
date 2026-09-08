@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-for suite in engine canvas ui; do
+for suite in engine canvas ui windowplacement; do
   build_dir="$project_dir/build-tests/$suite"
   mkdir -p "$build_dir"
   cd "$build_dir"

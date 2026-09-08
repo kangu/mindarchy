@@ -5,6 +5,49 @@
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void taskCheckboxInteraction() {
+        Engine engine;
+        engine.select(1);
+        engine.toggleChecked();
+        QQuickWindow window;
+        window.resize(1000, 700);
+        auto *canvas = new MindCanvas(window.contentItem());
+        canvas->setSize({1000, 700});
+        canvas->setEngine(&engine);
+        canvas->resetZoom();
+        canvas->revealNode(1);
+        window.show();
+        QTest::qWait(250);
+        const QRectF original = canvas->nodeRect(1);
+        const bool checked = engine.nodes().value(1).checked;
+        const QPoint target = canvas->mapFromWorld(
+            QPointF(original.left() + 13, original.center().y())).toPoint();
+        // Ten pixels below the glyph is still comfortably clickable.
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, target + QPoint(0, 10));
+        QCOMPARE(engine.nodes().value(1).checked, !checked);
+        QCOMPARE(canvas->nodeRect(1), original);
+        engine.undo();
+        QCOMPARE(engine.nodes().value(1).checked, checked);
+        QTest::mouseMove(&window, target + QPoint(0, 10));
+        QTRY_COMPARE(canvas->cursor().shape(), Qt::PointingHandCursor);
+        const QPoint text = canvas->mapFromWorld(
+            QPointF(original.left() + 45, original.center().y())).toPoint();
+        QTest::mouseMove(&window, text);
+        QTRY_COMPARE(canvas->cursor().shape(), Qt::ArrowCursor);
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, text);
+        QCOMPARE(engine.nodes().value(1).checked, checked);
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::ShiftModifier, target);
+        QCOMPARE(engine.nodes().value(1).checked, checked);
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, target);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, text);
+        QCOMPARE(engine.nodes().value(1).checked, checked);
+        engine.setManual(true);
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, target);
+        QTest::mouseMove(&window, target + QPoint(70, 50), 30);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, target + QPoint(70, 50));
+        QCOMPARE(engine.nodes().value(1).checked, checked);
+        QVERIFY(!canvas->editing());
+    }
     void cursorAnchoredZoom() {
         Engine engine;
         MindCanvas canvas;

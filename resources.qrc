@@ -1,6 +1,9 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
     <file>qml/ThemeCard.qml</file>
     <file>qml/NodeStylePanel.qml</file>
+    <file>qml/DateNodePanel.qml</file>
+    <file>qml/DateEntryDialog.qml</file>
+    <file>qml/icons/calendar-days.svg</file>
     <file>qml/icons/bold.svg</file>
     <file>qml/icons/corner-down-right.svg</file>
     <file>qml/icons/fold-vertical.svg</file>

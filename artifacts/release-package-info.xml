@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info overwrite-permissions="true" relocatable="false" identifier="blue.mindmap.lab.installer" postinstall-action="none" version="0.1.0" format-version="2" generator-version="InstallCmds-860.14 (24G517)" install-location="/" auth="root">
+    <payload numberOfFiles="4639" installKBytes="153285"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickDialogs2Utils.framework" id="org.qt-project.QtQuickDialogs2Utils" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickTimelineBlendTrees.framework" id="org.qt-project.QtQuickTimelineBlendTrees" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickShapes.framework" id="org.qt-project.QtQuickShapes" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickDialogs2QuickImpl.framework" id="org.qt-project.QtQuickDialogs2QuickImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2BasicStyleImpl.framework" id="org.qt-project.QtQuickControls2BasicStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtCore.framework" id="org.qt-project.QtCore" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickParticles.framework" id="org.qt-project.QtQuickParticles" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickEffects.framework" id="org.qt-project.QtQuickEffects" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2MaterialStyleImpl.framework" id="org.qt-project.QtQuickControls2MaterialStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickLayouts.framework" id="org.qt-project.QtQuickLayouts" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Fusion.framework" id="org.qt-project.QtQuickControls2Fusion" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuick.framework" id="org.qt-project.QtQuick" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Basic.framework" id="org.qt-project.QtQuickControls2Basic" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2FusionStyleImpl.framework" id="org.qt-project.QtQuickControls2FusionStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickTemplates2.framework" id="org.qt-project.QtQuickTemplates2" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtDBus.framework" id="org.qt-project.QtDBus" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2FluentWinUI3StyleImpl.framework" id="org.qt-project.QtQuickControls2FluentWinUI3StyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickDialogs2.framework" id="org.qt-project.QtQuickDialogs2" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtSvg.framework" id="org.qt-project.QtSvg" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Material.framework" id="org.qt-project.QtQuickControls2Material" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtWidgets.framework" id="org.qt-project.QtWidgets" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlLocalStorage.framework" id="org.qt-project.QtQmlLocalStorage" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlXmlListModel.framework" id="org.qt-project.QtQmlXmlListModel" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtNetwork.framework" id="org.qt-project.QtNetwork" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Impl.framework" id="org.qt-project.QtQuickControls2Impl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtSql.framework" id="org.qt-project.QtSql" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtLabsFolderListModel.framework" id="org.qt-project.QtLabsFolderListModel" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickShapesDesignHelpers.framework" id="org.qt-project.QtQuickShapesDesignHelpers" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtGui.framework" id="org.qt-project.QtGui" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app" id="blue.mindmap.lab" CFBundleShortVersionString="0.1.0" CFBundleVersion="0.1.0"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2MacOSStyleImpl.framework" id="org.qt-project.QtQuickControls2MacOSStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Imagine.framework" id="org.qt-project.QtQuickControls2Imagine" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickVectorImageHelpers.framework" id="org.qt-project.QtQuickVectorImageHelpers" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlWorkerScript.framework" id="org.qt-project.QtQmlWorkerScript" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlMeta.framework" id="org.qt-project.QtQmlMeta" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickVectorImageGenerator.framework" id="org.qt-project.QtQuickVectorImageGenerator" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQmlModels.framework" id="org.qt-project.QtQmlModels" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickVectorImage.framework" id="org.qt-project.QtQuickVectorImage" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2Universal.framework" id="org.qt-project.QtQuickControls2Universal" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2ImagineStyleImpl.framework" id="org.qt-project.QtQuickControls2ImagineStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2IOSStyleImpl.framework" id="org.qt-project.QtQuickControls2IOSStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQml.framework" id="org.qt-project.QtQml" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtOpenGL.framework" id="org.qt-project.QtOpenGL" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickTimeline.framework" id="org.qt-project.QtQuickTimeline" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2.framework" id="org.qt-project.QtQuickControls2" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle path="./Applications/Mindmap Lab.app/Contents/Frameworks/QtQuickControls2UniversalStyleImpl.framework" id="org.qt-project.QtQuickControls2UniversalStyleImpl" CFBundleShortVersionString="6.11" CFBundleVersion="6.11.2"/>
+    <bundle-version>
+        <bundle id="blue.mindmap.lab"/>
+    </bundle-version>
+    <upgrade-bundle>
+        <bundle id="blue.mindmap.lab"/>
+    </upgrade-bundle>
+    <update-bundle/>
+    <atomic-update-bundle/>
+    <strict-identifier>
+        <bundle id="blue.mindmap.lab"/>
+    </strict-identifier>
+    <relocate/>
+</pkg-info>

@@ -6,11 +6,14 @@
 #include <QVariantList>
 #include <QVector>
 #include "theme.h"
+#include "calendar.h"
 
 struct MapNode {
     int id = 0, parent = -1;
     QVector<int> children;
     QString text, notes;
+    QString kind = "text";
+    CalendarData calendar;
     QVariantMap style;
     bool folded = false, task = false, checked = false;
     QPointF manualOffset;
@@ -26,6 +29,8 @@ class Engine : public QObject {
     Q_PROPERTY(int selectedId READ selectedId NOTIFY changed)
     Q_PROPERTY(QVariantList selection READ selection NOTIFY changed)
     Q_PROPERTY(QVariantList outline READ outline NOTIFY outlineChanged)
+    Q_PROPERTY(QVariantMap selectedCalendar READ selectedCalendar NOTIFY changed)
+    Q_PROPERTY(QString selectedKind READ selectedKind NOTIFY changed)
     Q_PROPERTY(QString selectedText READ selectedText NOTIFY changed)
     Q_PROPERTY(QString selectedNotes READ selectedNotes NOTIFY changed)
     Q_PROPERTY(bool selectedTask READ selectedTask NOTIFY changed)
@@ -58,6 +63,14 @@ class Engine : public QObject {
     int selectedId() const { return m_selected; }
     QVariantList selection() const;
     QVariantList outline() const;
+    QString selectedKind() const { return m_nodes.value(m_selected).kind; }
+    QVariantMap selectedCalendar() const;
+    Q_INVOKABLE void addDateNode(QString view);
+    Q_INVOKABLE bool setNodeKind(int id, QString kind);
+    Q_INVOKABLE bool configureDateNode(int id, QString view, QString anchor);
+    Q_INVOKABLE bool shiftDateNode(int id, int direction);
+    Q_INVOKABLE bool setDateEntry(int id, QString date, QString text);
+    Q_INVOKABLE QString dateEntry(int id, QString date) const;
     QString selectedText() const { return m_nodes.value(m_selected).text; }
     QString selectedNotes() const { return m_nodes.value(m_selected).notes; }
     bool selectedTask() const { return m_nodes.value(m_selected).task; }
@@ -124,7 +137,7 @@ class Engine : public QObject {
     void restore(const State &state);
     void checkpoint();
     void rebuild();
-    void add(int parent, int after = -1);
+    void add(int parent, int after = -1, QString kind = "text", QString dateView = "week");
     bool fail(const QString &error);
     // One entry per current node; font15, zero document margin and renderer padding
     // are fixed measurement constants. Text and task changes replace the entry.

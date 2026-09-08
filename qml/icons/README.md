@@ -19,3 +19,5 @@ Lucide icons by Lucide Contributors, selected from https://icon-sets.iconify.des
 - zoom-out: https://icon-sets.iconify.design/lucide/zoom-out/
 - maximize: https://icon-sets.iconify.design/lucide/maximize/
 - scan: https://icon-sets.iconify.design/lucide/scan/
+
+The calendar-days icon used for Date nodes is a locally authored SVG in the same stroke style.

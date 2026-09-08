@@ -102,6 +102,73 @@ class EngineTest : public QObject {
         e.moveManual(branch,-delta.x(),-delta.y());
         for(int id:e.visibleIds()) QCOMPARE(e.nodes().value(id).rect,before.value(id).rect);
     }
+    void nodeTypeConversionPreservesContent() {
+        Engine e; e.select(2); e.toggleTask(); const auto original=e.nodes().value(2);
+        QVERIFY(e.setNodeKind(2,"date")); QVERIFY(e.nodeCount()>2);
+        QCOMPARE(e.nodes().value(2).children,original.children);
+        QCOMPARE(e.nodes().value(2).text,original.text); QVERIFY(!e.nodes().value(2).task);
+        e.undo(); QVERIFY(e.nodes().value(2).task); QCOMPARE(e.nodes().value(2).kind,QString("text"));
+        e.redo(); QVERIFY(e.setDateEntry(2,"2026-09-08","Retained entry"));
+        QVERIFY(e.setNodeKind(2,"text")); QCOMPARE(e.nodes().value(2).text,original.text);
+        QTemporaryDir dir; QVERIFY(e.save(dir.filePath("types.json")));
+        Engine loaded; QVERIFY(loaded.open(dir.filePath("types.json")));
+        QVERIFY(loaded.setNodeKind(2,"date")); QCOMPARE(loaded.dateEntry(2,"2026-09-08"),QString("Retained entry"));
+    }
+    void calendarNumericTotals() {
+        CalendarData c; c.view="month"; c.anchor=QDate(2026,9,8);
+        const auto plainSize=Calendar::size(c); QVERIFY(!Calendar::totals(c).enabled);
+        c.entries={{"2026-09-01","10"},{"2026-09-06","-2.5"},{"2026-09-07","3,25"},
+                   {"2026-09-08","meeting"},{"2026-09-30","0"},{"2026-10-01","999"}};
+        const auto sums=Calendar::totals(c); QVERIFY(sums.enabled);
+        QCOMPARE(sums.weeks.size(),5); QCOMPARE(sums.weeks[0],7.5); QCOMPARE(sums.weeks[1],3.25);
+        QCOMPARE(sums.weeks[4],0.); QCOMPARE(sums.month,10.75);
+        QVERIFY(Calendar::size(c).width()>plainSize.width()); QCOMPARE(Calendar::size(c).height(),plainSize.height()+36);
+        const auto key=Calendar::key(c); c.entries["2026-09-01"]="12"; QVERIFY(Calendar::key(c)!=key);
+        c.view="week"; c.anchor=QDate(2026,9,30);
+        QCOMPARE(Calendar::totals(c).weeks[0],999.); QCOMPARE(Calendar::size(c).height(),114.);
+        double value; QVERIFY(Calendar::numericValue("  +.5  ",value)); QCOMPARE(value,.5);
+        QVERIFY(!Calendar::numericValue("12 hours",value)); QVERIFY(!Calendar::numericValue("1,000.50",value));
+        QVERIFY(!Calendar::numericValue("NaN",value)); QVERIFY(!Calendar::numericValue("",value));
+        Engine e; e.select(2); QVERIFY(e.setNodeKind(2,"date"));
+        QVERIFY(e.configureDateNode(2,"month","2026-09-08"));
+        QVERIFY(e.setDateEntry(2,"2026-09-08","4")); QCOMPARE(Calendar::totals(e.nodes().value(2).calendar).month,4.);
+        e.undo(); QVERIFY(!Calendar::totals(e.nodes().value(2).calendar).enabled);
+        e.redo(); QCOMPARE(Calendar::totals(e.nodes().value(2).calendar).month,4.);
+    }
+    void calendarPeriodsEntriesAndHistory() {
+        Engine e; const int count=e.nodeCount(); e.addDateNode("week"); const int id=e.selectedId();
+        QCOMPARE(e.nodeCount(),count+1); QCOMPARE(e.nodes().value(id).kind,QString("date"));
+        QCOMPARE(e.nodes().value(id).calendar.anchor,QDate::currentDate());
+        QVERIFY(e.configureDateNode(id,"week","2025-12-31"));
+        auto days=Calendar::days(e.nodes().value(id).calendar);
+        QCOMPARE(days.size(),7); QCOMPARE(days.first(),QDate(2025,12,29)); QCOMPARE(days.last(),QDate(2026,1,4));
+        QVERIFY(e.setDateEntry(id,"2026-01-01","Start a new project"));
+        const auto size=e.nodes().value(id).rect.size();
+        QVERIFY(e.setDateEntry(id,"2026-01-01","Revised plan")); QCOMPARE(e.nodes().value(id).rect.size(),size);
+        e.undo(); QCOMPARE(e.dateEntry(id,"2026-01-01"),QString("Start a new project"));
+        e.redo(); QCOMPARE(e.dateEntry(id,"2026-01-01"),QString("Revised plan"));
+        QVERIFY(e.configureDateNode(id,"month","2024-02-15"));
+        days=Calendar::days(e.nodes().value(id).calendar); QCOMPARE(days.size(),35);
+        QVERIFY(days.contains(QDate(2024,2,29))); QVERIFY(!days.first().isValid());
+        e.undo(); QCOMPARE(e.nodes().value(id).calendar.view,QString("week"));
+        QVERIFY(e.configureDateNode(id,"month","2026-01-01"));
+        QVERIFY(e.shiftDateNode(id,1)); QCOMPARE(e.nodes().value(id).calendar.anchor,QDate(2026,2,1));
+        QVERIFY(e.shiftDateNode(id,-1)); QCOMPARE(e.dateEntry(id,"2026-01-01"),QString("Revised plan"));
+        QTemporaryDir dir; const auto path=dir.filePath("calendar.json"); QVERIFY(e.save(path));
+        Engine loaded; QVERIFY(loaded.open(path));
+        QCOMPARE(loaded.nodes().value(id).calendar.entries,e.nodes().value(id).calendar.entries);
+        QCOMPARE(loaded.nodes().value(id).rect.size(),e.nodes().value(id).rect.size());
+        QVERIFY(!e.setDateEntry(id,"2026-02-30","Invalid"));
+        QVERIFY(!e.setDateEntry(id,"2026-01-01",QString(4097,'x')));
+        QCOMPARE(e.dateEntry(id,"2026-01-01"),QString("Revised plan"));
+        QVERIFY(e.setDateEntry(id,"2026-01-01","")); QVERIFY(e.dateEntry(id,"2026-01-01").isEmpty());
+        e.undo(); QCOMPARE(e.dateEntry(id,"2026-01-01"),QString("Revised plan"));
+        QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); auto json=QJsonDocument::fromJson(file.readAll()).object(); file.close();
+        auto nodes=json["nodes"].toArray(); auto n=nodes.last().toObject(); auto c=n["calendar"].toObject();
+        c["anchor"]="bad date"; n["calendar"]=c; nodes[nodes.size()-1]=n; json["nodes"]=nodes;
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write(QJsonDocument(json).toJson()); file.close();
+        QVERIFY(!loaded.open(path)); QCOMPARE(loaded.dateEntry(id,"2026-01-01"),QString("Revised plan"));
+    }
     void seed() {
         Engine e;
         QVERIFY(e.nodeCount() >= 12);

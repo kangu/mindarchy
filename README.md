@@ -44,6 +44,10 @@ On Omarchy use `./run.sh --theme beach-day`.
 
 ## Included
 
+- Persistent window placement on macOS and Omarchy, with disconnected-display fallback; floating Hyprland windows restore through the compositor.
+
+- Date nodes with Monday-first week/month calendars, period navigation, themed assigned days and hover-only entry previews.
+
 - Four MindNode-inspired theme presets with depth-based styling, previews, undo and persistence.
 - Node inspector with eight shapes, fixed-width wrapping, custom colors/strokes, font controls, alignment, bulk styling and reset to theme.
 - Horizontal, Vertical and Compact placement with geometry-aware arrow navigation.
@@ -138,3 +142,8 @@ The application uses `assets/mindmap-blue-icon-concept-v1.png` on every supporte
 - Linux/Omarchy: Qt runtime icon and a matching `blue.mindmap.lab.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
 
 The toolbar uses the same artwork. Native icon assets are committed-source build inputs; regenerating them on macOS uses `python3 packaging/generate-icons.py` (sips/iconutil). No icon-generation tools are needed to build on Linux or Windows.
+
+
+## macOS installer releases
+
+Run `python3 scripts/release-macos.py --version 0.1.0 --unsigned` to build, test and package a self-contained installer for `/Applications/Mindmap Lab.app`. Signed/notarized releases, architecture choices, installation and verification details are in [macOS release workflow](docs/macos-release.md).

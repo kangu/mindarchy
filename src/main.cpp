@@ -1,5 +1,6 @@
 #include "canvas.h"
 #include "engine.h"
+#include "windowplacement.h"
 #include <QCommandLineParser>
 #include <QElapsedTimer>
 #include <QFile>
@@ -21,6 +22,11 @@
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("Mindmap Lab");
+#ifdef MINDMAP_VERSION
+    app.setApplicationVersion(MINDMAP_VERSION);
+#else
+    app.setApplicationVersion("0.1.0");
+#endif
     app.setOrganizationName("MindmapBlue");
     app.setDesktopFileName("blue.mindmap.lab");
     QIcon applicationIcon;
@@ -31,7 +37,9 @@ int main(int argc, char **argv) {
     QCommandLineParser parser;
     parser.setApplicationDescription(
         "Qt Quick/C++ mind-map interaction and performance laboratory");
+    parser.addOption({"no-window-state", "Use default window geometry without saving placement"});
     parser.addHelpOption();
+    parser.addVersionOption();
     parser.addOption(
         {"render-benchmark", "Measure 120 pan frames with the complete QML interface"});
     parser.addOption({"benchmark", "Print layout benchmark JSON and exit"});
@@ -84,6 +92,7 @@ int main(int argc, char **argv) {
     qmlRegisterType<MindCanvas>("MindmapLab", 1, 0, "MindCanvas");
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("engine", &document);
+    qml.rootContext()->setContextProperty("deferWindowShow", true);
     QObject::connect(
         &qml, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
@@ -95,10 +104,13 @@ int main(int argc, char **argv) {
     if (qml.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(qml.rootObjects().first());
+    if(window && !parser.isSet("no-window-state") && !parser.isSet("screenshot") &&
+       !parser.isSet("quit-after") && !parser.isSet("render-benchmark")) new WindowPlacement(window);
 #ifdef Q_OS_MACOS
     void installMacToolbar(QWindow *window);
     if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
 #endif
+    if(window) window->show();
     if (window && parser.isSet("theme")) {
         window->setProperty("inspectorVisible",true);
         if (auto *tabs=window->findChild<QQuickItem *>("inspectorTabs")) tabs->setProperty("currentIndex",2);

@@ -89,6 +89,97 @@ class UiTest : public QObject {
         delete qml;
         qml = nullptr;
     }
+    void convertNodeUsingInspector() {
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+        document->select(2); const auto title=document->selectedText(); const auto count=document->nodeCount();
+        auto choose=[&](QString name) {
+            auto *item=findVisual(window->contentItem(),"node-type-"+name);
+            if(!item) return false; item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space); return true;
+        };
+        QVERIFY(choose("Task")); QTRY_VERIFY(document->selectedTask());
+        auto *completed=window->findChild<QQuickItem *>("taskCompleted"); QVERIFY(completed); QVERIFY(completed->isVisible());
+        completed->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space); QVERIFY(document->selectedChecked());
+        const QString dir=qEnvironmentVariable("MINDMAP_TYPE_SCREENSHOTS");
+        if(!dir.isEmpty()) {QDir().mkpath(dir); QTest::qWait(150); QVERIFY(window->grabWindow().save(dir+"/task.png"));}
+        QVERIFY(choose("Date")); QTRY_COMPARE(document->selectedKind(),QString("date")); QCOMPARE(document->nodeCount(),count);
+        QVERIFY(!document->selectedTask()); QVERIFY(!completed->isVisible());
+        if(!dir.isEmpty()) {canvas->fit(); QTest::qWait(250); QVERIFY(window->grabWindow().save(dir+"/date.png"));}
+        document->undo(); QVERIFY(document->selectedTask()); QVERIFY(document->selectedChecked());
+        QVERIFY(choose("Text")); QTRY_COMPARE(document->selectedKind(),QString("text"));
+        QVERIFY(!document->selectedTask()); QCOMPARE(document->selectedText(),title);
+        auto *options=window->findChild<QQuickItem *>("nodeTypeOptions"); QVERIFY(options); QVERIFY(!options->isVisible());
+        tabs->setProperty("currentIndex",0);
+    }
+    void dateNodeCreateEditHoverAndDrag() {
+        document->addDateNode("month"); canvas->revealNode(document->selectedId());
+        const int id=document->selectedId(); QCOMPARE(document->nodes().value(id).kind,QString("date"));
+        QVERIFY(!canvas->editing()); QVERIFY(document->configureDateNode(id,"month","2026-09-08"));
+        canvas->fit(); QTest::qWait(250);
+        auto *dialog=window->findChild<QObject *>("dateEntryDialog"); QVERIFY(dialog);
+        auto *field=window->findChild<QQuickItem *>("dateEntryText"); QVERIFY(field);
+        auto button=[this](const QString &name) { auto *item=window->findChild<QQuickItem *>(name); if(item) {item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);} return item!=nullptr; };
+        const auto days=Calendar::days(document->nodes().value(id).calendar);
+        const int index=days.indexOf(QDate(2026,9,8)); QVERIFY(index>=0);
+        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index).center())).toPoint(); };
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point());
+        QTRY_VERIFY(dialog->property("opened").toBool()); QVERIFY(!dialog->property("existing").toBool());
+        field->setProperty("text","Design review"); QVERIFY(button("dateEntryCancel"));
+        QTRY_VERIFY(!dialog->property("opened").toBool()); QVERIFY(document->dateEntry(id,"2026-09-08").isEmpty());
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point()); QTRY_VERIFY(dialog->property("opened").toBool());
+        field->setProperty("text","Design review"); QVERIFY(button("dateEntrySave")); QTRY_VERIFY(!dialog->property("opened").toBool());
+        QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Design review"));
+        QTest::mouseMove(window,point()+QPoint(0,40)); QTest::mouseMove(window,point());
+        QTRY_COMPARE(canvas->dateHoverText(),QString("Design review"));
+        const QString dir=qEnvironmentVariable("MINDMAP_DATE_SCREENSHOTS");
+        if(!dir.isEmpty()) {QDir().mkpath(dir); QTest::qWait(600); QVERIFY(window->grabWindow().save(dir+"/month-hover.png"));}
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point()); QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(dialog->property("existing").toBool()); QCOMPARE(field->property("text").toString(),QString("Design review"));
+        field->setProperty("text","Updated review");
+        if(!dir.isEmpty()) {QTest::qWait(100); QVERIFY(window->grabWindow().save(dir+"/edit-entry.png"));}
+        QVERIFY(button("dateEntrySave")); QTRY_VERIFY(!dialog->property("opened").toBool());
+        QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Updated review"));
+        document->setManual(true); QTest::qWait(250); const auto before=document->nodes().value(id).rect;
+        const auto from=point(); QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,from);
+        QTest::mouseMove(window,from+QPoint(35,20),60); QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,from+QPoint(35,20));
+        QVERIFY(!dialog->property("opened").toBool()); QVERIFY(document->nodes().value(id).rect!=before);
+        QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Updated review"));
+        QVERIFY(document->configureDateNode(id,"week","2026-09-08")); canvas->fit(); QTest::qWait(250);
+        if(!dir.isEmpty()) QVERIFY(window->grabWindow().save(dir+"/week.png"));
+        auto clickControl=[&](QRectF control) {
+            QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
+                canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+control.center())).toPoint());
+            QTest::qWait(200);
+        };
+        clickControl(Calendar::next());
+        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,15));
+        QVERIFY(!dialog->property("opened").toBool());
+        clickControl(Calendar::previous());
+        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+        auto *view=window->findChild<QQuickItem *>("dateNodeView"); QVERIFY(view);
+        view->forceActiveFocus(); QTest::keyClick(window,Qt::Key_End);
+        QTRY_COMPARE(document->nodes().value(id).calendar.view,QString("month"));
+        QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Updated review"));
+        if(!dir.isEmpty()) {QTest::qWait(250); QVERIFY(window->grabWindow().save(dir+"/date-inspector.png"));}
+        tabs->setProperty("currentIndex",0);
+        canvas->editDateEntry(id,"2026-09-08"); QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(button("dateEntryRemove")); QTRY_VERIFY(!dialog->property("opened").toBool());
+        QVERIFY(document->dateEntry(id,"2026-09-08").isEmpty());
+        canvas->editDateEntry(id,"2026-09-08"); QTRY_VERIFY(dialog->property("opened").toBool());
+        field->setProperty("text","12.5"); QVERIFY(button("dateEntrySave")); QTRY_VERIFY(!dialog->property("opened").toBool());
+        QCOMPARE(Calendar::totals(document->nodes().value(id).calendar).month,12.5);
+        const auto numericSize=document->nodes().value(id).rect.size();
+        canvas->editDateEntry(id,"2026-09-08"); QTRY_VERIFY(dialog->property("opened").toBool());
+        field->setProperty("text","7.5"); QVERIFY(button("dateEntrySave")); QTRY_VERIFY(!dialog->property("opened").toBool());
+        QCOMPARE(Calendar::totals(document->nodes().value(id).calendar).month,7.5);
+        QCOMPARE(document->nodes().value(id).rect.size(),numericSize);
+        QVERIFY(document->setDateEntry(id,"2026-09-01","10"));
+        QVERIFY(document->setDateEntry(id,"2026-09-16","-2.5"));
+        canvas->fit(); QTest::qWait(250);
+        if(!dir.isEmpty()) QVERIFY(window->grabWindow().save(dir+"/month-sums.png"));
+    }
     void nodePanelAppliesStylesAndProtectsDraft() {
         window->setProperty("inspectorVisible",true);
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); tabs->setProperty("currentIndex",1);

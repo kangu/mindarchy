@@ -130,7 +130,7 @@ QVariantList Engine::outline() const {
     for (int id : m_visible) {
         const auto &n = m_nodes[id];
         result.append(QVariantMap{{"id", id},
-                                  {"text", m_textCache.value(id).plainText},
+                                  {"text", n.kind=="date" ? QString("Date · ")+Calendar::title(n.calendar) : m_textCache.value(id).plainText},
                                   {"depth", n.depth},
                                   {"folded", n.folded},
                                   {"hasChildren", !n.children.isEmpty()},
@@ -231,6 +231,7 @@ void Engine::rebuild() {
             size = measurement.size;
             m_textCache.insert(id, measurement);
         }
+        if(n.kind=="date") size=Calendar::size(n.calendar);
         n.rect = QRectF(QPointF(), size);
         depthSize[n.depth] = std::max(depthSize[n.depth], vertical ? size.height() : size.width());
     }
@@ -305,6 +306,9 @@ NodeAppearance Engine::appearance(int id) const {
     if (s.contains("branchWidth")) a.branchWidth = s["branchWidth"].toDouble();
     if (s.contains("borderStyle")) a.borderStyle = Qt::PenStyle(s["borderStyle"].toInt());
     if (s.contains("branchStroke")) a.branchStroke = Qt::PenStyle(s["branchStroke"].toInt());
+    if(it->kind=="date" && (a.shape==NodeShape::Underline || a.shape==NodeShape::Embedded)) {
+        a.shape=NodeShape::Rounded; a.border=a.branch; a.borderWidth=1; a.fill=canvasColor();
+    }
     return a;
 }
 void Engine::setLayout(QString value) {
@@ -363,7 +367,7 @@ void Engine::select(int id, bool extend) {
     m_selected = id;
     emit changed();
 }
-void Engine::add(int parent, int after) {
+void Engine::add(int parent, int after, QString kind, QString dateView) {
     if (!m_nodes.contains(parent))
         return;
     if (m_nodes.size() >= MaxNodes) {
@@ -383,7 +387,9 @@ void Engine::add(int parent, int after) {
     MapNode n;
     n.id = m_nextId++;
     n.parent = parent;
-    n.text = "New idea";
+    n.kind=kind;
+    n.text = kind=="date" ? "Date" : "New idea";
+    if(kind=="date") { n.calendar.view=dateView; n.calendar.anchor=QDate::currentDate(); }
     m_nodes.insert(n.id, n);
     auto &children = m_nodes[parent].children;
     int index = children.indexOf(after);
@@ -395,7 +401,7 @@ void Engine::add(int parent, int after) {
     m_selected = n.id;
     m_selection = {n.id};
     rebuild();
-    emit editRequested(n.id);
+    if(kind=="text") emit editRequested(n.id);
 }
 void Engine::addChild() { add(m_selected); }
 void Engine::addSibling() {
@@ -444,7 +450,7 @@ void Engine::toggleFold() {
     rebuild();
 }
 void Engine::toggleTask() {
-    if (!m_nodes.contains(m_selected))
+    if (!m_nodes.contains(m_selected) || m_nodes.value(m_selected).kind!="text")
         return;
     checkpoint();
     auto &n = m_nodes[m_selected];
@@ -454,7 +460,7 @@ void Engine::toggleTask() {
     rebuild();
 }
 void Engine::toggleChecked() {
-    if (!m_nodes.contains(m_selected))
+    if (!m_nodes.contains(m_selected) || m_nodes.value(m_selected).kind!="text")
         return;
     checkpoint();
     auto &n = m_nodes[m_selected];
@@ -475,7 +481,7 @@ QSizeF Engine::previewTextSize(int id, const QString &text) const {
     return measurement.size;
 }
 bool Engine::setText(int id, QString text) {
-    if (!m_nodes.contains(id))
+    if (!m_nodes.contains(id) || m_nodes.value(id).kind!="text")
         return false;
     if (m_nodes[id].text == text)
         return true;
@@ -653,7 +659,12 @@ bool Engine::save(QString path) {
         QJsonArray children;
         for (int child : n.children)
             children.append(child);
-        nodes.append(QJsonObject{{"id", id},
+        QJsonObject calendar;
+        if(n.calendar.anchor.isValid()) {
+            QJsonObject entries; for(auto it=n.calendar.entries.begin();it!=n.calendar.entries.end();++it) entries[it.key()]=it.value();
+            calendar={{"view",n.calendar.view},{"anchor",n.calendar.anchor.toString(Qt::ISODate)},{"entries",entries}};
+        }
+        nodes.append(QJsonObject{{"kind",n.kind},{"calendar",calendar},{"id", id},
                                  {"parent", n.parent},
                                  {"children", children},
                                  {"text", n.text},
@@ -725,6 +736,23 @@ bool Engine::open(QString path) {
         MapNode n;
         n.id = o["id"].toInt();
         n.parent = o["parent"].toInt();
+        n.kind=o.contains("kind") ? o["kind"].toString() : QString("text");
+        if(n.kind!="text" && n.kind!="date") return fail("Unsupported node kind.");
+        if(n.kind=="date" || !o["calendar"].toObject().isEmpty()) {
+            if(!o["calendar"].isObject()) return fail("Missing calendar data.");
+            const auto c=o["calendar"].toObject();
+            n.calendar.view=c["view"].toString(); n.calendar.anchor=QDate::fromString(c["anchor"].toString(),Qt::ISODate);
+            if((n.calendar.view!="week" && n.calendar.view!="month") || !n.calendar.anchor.isValid() ||
+                n.calendar.anchor.year()<1 || n.calendar.anchor.year()>9999 || !c["entries"].isObject()) return fail("Invalid calendar settings.");
+            const auto entries=c["entries"].toObject();
+            if(entries.size()>3660) return fail("Calendar entry limit exceeded.");
+            for(auto it=entries.begin();it!=entries.end();++it) {
+                const auto day=QDate::fromString(it.key(),Qt::ISODate);
+                if(!day.isValid() || day.year()<1 || day.year()>9999 || day.toString(Qt::ISODate)!=it.key() || !it.value().isString() ||
+                   it.value().toString().trimmed().isEmpty() || it.value().toString().size()>4096) return fail("Invalid calendar entry.");
+                n.calendar.entries.insert(it.key(),it.value().toString());
+            }
+        }
         n.text = o["text"].toString();
         n.notes = o["notes"].toString();
         if (o.contains("style") && !o["style"].isObject()) return fail("Invalid node style.");
@@ -735,7 +763,7 @@ bool Engine::open(QString path) {
         n.checked = o["checked"].toBool();
         n.manualOffset = {o["x"].toDouble(), o["y"].toDouble()};
         if (candidate.contains(n.id) || n.text.size() > MaxText || n.notes.size() > MaxText ||
-            (n.checked && !n.task) || std::abs(n.manualOffset.x()) > 1e6 ||
+            (n.checked && !n.task) || (n.kind=="date" && (n.task || n.checked)) || std::abs(n.manualOffset.x()) > 1e6 ||
             std::abs(n.manualOffset.y()) > 1e6)
             return fail("Duplicate ID or invalid node content.");
         QSet<int> unique;
@@ -994,4 +1022,58 @@ bool Engine::applyThemeRecipe(QString id) {
     m_themeId=id; m_layout=layout; m_spacing=spacing; m_branchStyle=branch; m_manual=false;
     rebuild();
     return true;
+}
+
+QVariantMap Engine::selectedCalendar() const {
+    const auto n=m_nodes.value(m_selected); QVariantList days;
+    if(n.kind=="date") for(const auto &date:Calendar::days(n.calendar)) if(date.isValid())
+        days.append(QVariantMap{{"date",date.toString(Qt::ISODate)},
+            {"label",date.toString("ddd d MMM yyyy")+(n.calendar.entries.contains(date.toString(Qt::ISODate)) ? " · assigned" : "")}});
+    return {{"view",n.calendar.view},{"anchor",n.calendar.anchor.toString(Qt::ISODate)},
+            {"title",n.kind=="date" ? Calendar::title(n.calendar) : QString()}, {"days",days}};
+}
+bool Engine::setNodeKind(int id, QString kind) {
+    if(!m_nodes.contains(id) || (kind!="text" && kind!="task" && kind!="date")) return fail("Choose Text, Task or Date.");
+    const QString storageKind=kind=="task" ? "text" : kind;
+    const bool task=kind=="task";
+    if(m_nodes.value(id).kind==storageKind && m_nodes.value(id).task==task) return true;
+    checkpoint();
+    auto &node=m_nodes[id]; node.kind=storageKind; node.task=task;
+    if(!task) node.checked=false;
+    if(kind=="date" && !node.calendar.anchor.isValid()) node.calendar.anchor=QDate::currentDate();
+    rebuild(); return true;
+}
+void Engine::addDateNode(QString view) {
+    if(view!="week" && view!="month") { fail("Choose week or month."); return; }
+    add(m_nodes.contains(m_selected) ? m_selected : 1,-1,"date",view);
+}
+bool Engine::configureDateNode(int id, QString view, QString anchor) {
+    const auto date=QDate::fromString(anchor,Qt::ISODate);
+    if(!m_nodes.contains(id) || m_nodes[id].kind!="date" || (view!="week" && view!="month") ||
+       !date.isValid() || date.toString(Qt::ISODate)!=anchor || date.year()<1 || date.year()>9999)
+        return fail("Choose a valid calendar date (YYYY-MM-DD) and week or month.");
+    auto &c=m_nodes[id].calendar;
+    if(c.view==view && c.anchor==date) return true;
+    checkpoint(); m_nodes[id].calendar.view=view; m_nodes[id].calendar.anchor=date; rebuild(); return true;
+}
+bool Engine::shiftDateNode(int id, int direction) {
+    if(!m_nodes.contains(id) || m_nodes[id].kind!="date" || (direction!=-1 && direction!=1)) return false;
+    const auto c=m_nodes[id].calendar;
+    const auto date=c.view=="month" ? Calendar::start(c).addMonths(direction) : c.anchor.addDays(direction*7);
+    return configureDateNode(id,c.view,date.toString(Qt::ISODate));
+}
+QString Engine::dateEntry(int id,QString date) const { return m_nodes.value(id).calendar.entries.value(date); }
+bool Engine::setDateEntry(int id,QString date,QString text) {
+    const auto day=QDate::fromString(date,Qt::ISODate);
+    if(!m_nodes.contains(id) || m_nodes[id].kind!="date" || !day.isValid() || day.toString(Qt::ISODate)!=date ||
+       day.year()<1 || day.year()>9999 || text.size()>4096) return fail("Invalid date or entry (maximum 4,096 characters).");
+    if(text.trimmed().isEmpty()) text.clear();
+    const auto previous=m_nodes[id].calendar.entries.value(date);
+    if(previous==text) return true;
+    if(!text.isEmpty() && !m_nodes[id].calendar.entries.contains(date) && m_nodes[id].calendar.entries.size()>=3660)
+        return fail("A Date node supports up to 3,660 entries.");
+    checkpoint();
+    if(text.isEmpty()) m_nodes[id].calendar.entries.remove(date);
+    else m_nodes[id].calendar.entries.insert(date,text);
+    rebuild(); return true;
 }

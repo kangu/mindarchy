@@ -20,6 +20,8 @@ class MindCanvas : public QQuickItem {
     Q_PROPERTY(bool editing READ editing WRITE setEditing NOTIFY editingChanged)
     Q_PROPERTY(int editingId READ editingId NOTIFY editingChanged)
     Q_PROPERTY(QRectF editingRect READ editingRect NOTIFY viewChanged)
+    Q_PROPERTY(QString dateHoverText READ dateHoverText NOTIFY interactionChanged)
+    Q_PROPERTY(QPointF dateHoverPosition READ dateHoverPosition NOTIFY interactionChanged)
     Q_PROPERTY(QString interactionHint READ interactionHint NOTIFY interactionChanged)
   public:
     explicit MindCanvas(QQuickItem *parent = nullptr);
@@ -36,6 +38,10 @@ class MindCanvas : public QQuickItem {
     int editingId() const { return m_editingId; }
     QRectF editingRect() const;
     QRectF nodeRect(int id) const { return displayRect(id); }
+    QString dateHoverText() const { return m_dateHoverText; }
+    QPointF dateHoverPosition() const { return m_dateHoverPosition; }
+    Q_INVOKABLE void revealNode(int id) { ensureVisible(id); }
+    Q_INVOKABLE void editDateEntry(int id, QString date);
     QString interactionHint() const { return m_hint; }
     void setEditing(bool value);
     QPointF mapToWorld(QPointF p) const { return (p - m_pan) / m_zoom; }
@@ -63,6 +69,7 @@ class MindCanvas : public QQuickItem {
     void editRequested(int id, QString text);
     void exportFinished(QString path, bool success);
     void commitRequested();
+    void dateEditRequested(int id, QString date, QString text);
 
   protected:
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
@@ -72,6 +79,7 @@ class MindCanvas : public QQuickItem {
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
     void hoverMoveEvent(QHoverEvent *) override;
+    void hoverLeaveEvent(QHoverEvent *) override;
     void wheelEvent(QWheelEvent *) override;
     void keyPressEvent(QKeyEvent *) override;
     void keyReleaseEvent(QKeyEvent *) override;
@@ -112,6 +120,7 @@ class MindCanvas : public QQuickItem {
     void documentChanged();
     void ensureVisible(int id);
     int hit(QPointF screen, bool excludeDrag = false) const;
+    int taskHit(QPointF screen) const;
     QRectF displayRect(int id) const;
     QColor nodeColor(int id) const;
     void updateDrop(QPointF screen);
@@ -132,10 +141,13 @@ class MindCanvas : public QQuickItem {
     QHash<int, QRectF> m_previous, m_target, m_manualPreview;
     bool m_animating = false;
     int m_hovered = -1, m_pressedId = -1, m_dropParent = -1, m_before = -1, m_editingId = -1;
+    int m_hoveredTask = -1, m_pressedTask = -1;
     bool m_dragging = false, m_panning = false, m_marquee = false, m_space = false,
          m_extend = false;
     QPointF m_press, m_last, m_dragDelta;
     QSet<int> m_dragIds;
     QRectF m_marqueeRect, m_editPreview;
+    QString m_dateHoverText;
+    QPointF m_dateHoverPosition;
     QString m_hint = "Click to select · double-click to edit · Tab adds a child";
 };
