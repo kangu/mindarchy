@@ -93,7 +93,7 @@ cmake --build build-macos --parallel 4
 ./run.sh
 ```
 
-Windows builds remain unverified.
+Windows x64 builds with MSVC 2022 and Qt 6.11.2. The local Inno Setup workflow produces a self-contained per-user installer; see the [local Windows build instructions](docs/platforms/windows.md).
 
 ## Tests and measurements
 
@@ -138,11 +138,15 @@ Toolbar actions now use local [Lucide icons from Iconify](https://icon-sets.icon
 The application uses `assets/mindarchy-icon.png`, derived from the primary logo in `assets/minarchy-logo-concept.png`, on every supported platform:
 
 - macOS: `build-macos/mindarchy.app`, with an ICNS resource and bundle identifier `blue.mindmap.lab`. Open the bundle in Finder or use `./run.sh`.
-- Windows: multi-resolution ICO embedded through CMake RC or qmake RC_ICONS. Windows packaging is configured but not yet built/tested on Windows.
+- Windows: multi-resolution ICO embedded through CMake RC or qmake RC_ICONS. The Windows installer is built and tested in a Windows 11 ARM64 VM using x64 emulation.
 - Linux/Omarchy: Qt runtime icon and a matching `blue.mindmap.lab.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
 
 The toolbar uses the same artwork. Native icon assets are committed-source build inputs; regenerating them on macOS uses `python3 packaging/generate-icons.py` (sips/iconutil and Swift/AppKit). The macOS icon uses 85% artwork size with transparent margins, including the runtime Dock icon. No icon-generation tools are needed to build on Linux or Windows.
 
+
+## Windows installer releases
+
+Build locally with PowerShell and the installed Inno Setup compiler; no GitHub remote or CI is needed. Run `scripts/release-windows.ps1 -QtDir C:\Qt\6.11.2\msvc2022_64` to build, test, deploy Qt and compile the per-user EXE installer. See [Windows prerequisites, commands and platform behavior](docs/platforms/windows.md).
 
 ## macOS installer releases
 

@@ -1,3 +1,4 @@
+#include "appfont.h"
 #include "drawing.h"
 #include <QPainterPath>
 #include <cmath>
@@ -120,7 +121,7 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius, qreal detail) {
 }
 void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style) {
     painter.setRenderHint(QPainter::Antialiasing); painter.setRenderHint(QPainter::TextAntialiasing);
-    QFont font("sans-serif"); font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
+    QFont font(mindarchyTextFamily()); font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
     painter.drawText(QRectF(39,10,216,28),Qt::AlignCenter,Calendar::title(data));
     font.setPixelSize(18); painter.setFont(font);
     painter.drawText(Calendar::previous(),Qt::AlignCenter,QStringLiteral("‹"));

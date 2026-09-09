@@ -1,3 +1,4 @@
+#include "../src/windowmenubar.h"
 #include "shelltheme.h"
 #include "documentrecovery.h"
 #include "../src/canvas.h"
@@ -246,7 +247,10 @@ class UiTest : public QObject {
         QVERIFY(document->save(dir.filePath("My project.omm")));
         QTRY_COMPARE(name->property("text").toString(), QString("My project"));
         QTRY_VERIFY(!edited->isVisible());
-        QTRY_VERIFY(qAbs(name->mapToScene(QPointF(0, name->height()/2)).y() - 30) < 1);
+        auto *toolbar = window->findChild<QQuickItem *>("mainToolbar");
+        QVERIFY(toolbar);
+        QTRY_VERIFY(qAbs(name->mapToScene(QPointF(0, name->height()/2)).y()
+            - toolbar->mapToScene(QPointF(0, toolbar->height()/2)).y()) < 1);
         canvas->beginEdit(1);
         QTRY_VERIFY(canvas->editing());
         QVERIFY(!window->property("documentEdited").toBool());
@@ -374,6 +378,9 @@ class UiTest : public QObject {
         QVERIFY2(!qml->rootObjects().isEmpty(), "The full application QML must load");
         window = qobject_cast<QQuickWindow *>(qml->rootObjects().first());
         QVERIFY(window);
+#ifdef Q_OS_WIN
+        new WindowMenuBar(window);
+#endif
         canvas = window->findChild<MindCanvas *>("mindCanvas");
         editor = window->findChild<QQuickItem *>("titleEditor");
         QVERIFY(canvas);
@@ -395,6 +402,45 @@ class UiTest : public QObject {
         QVERIFY(canvas->hasActiveFocus());
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
+    }
+    void windowsHeaderReservesWindowControls() {
+#ifndef Q_OS_WIN
+        QSKIP("Windows integrated frame");
+#else
+        QVERIFY(!window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        QVERIFY(window->flags().testFlag(Qt::CustomizeWindowHint));
+        QVERIFY(!window->flags().testFlag(Qt::WindowTitleHint));
+        QVERIFY(!window->flags().testFlag(Qt::FramelessWindowHint));
+        auto *controls = window->findChild<QQuickItem *>("windowControls");
+        QVERIFY(controls); QVERIFY(controls->isVisible());
+        QCOMPARE(controls->width(), 138.0);
+        auto *viewport = window->findChild<QQuickItem *>("toolbarViewport");
+        auto *drag = window->findChild<QQuickItem *>("headerDragArea");
+        QVERIFY(viewport); QVERIFY(drag); QVERIFY(drag->isEnabled());
+        QVERIFY(window->width() - viewport->x() - viewport->width() >= 138);
+        QVERIFY(!viewport->property("interactive").toBool());
+#endif
+    }
+    void windowsMenuOnlyAppearsOnAlt() {
+#ifndef Q_OS_WIN
+        QSKIP("Windows menu behavior");
+#else
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QCOMPARE(window->property("windowsMenuHeight").toDouble(), 0.0);
+        QTest::keyClick(window, Qt::Key_Alt);
+        QVERIFY(window->property("windowsMenuVisible").toBool());
+        QVERIFY(window->property("windowsMenuHeight").toDouble() > 0);
+        QTest::keyClick(window, Qt::Key_Alt);
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QVERIFY(canvas->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Alt);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QVERIFY(canvas->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Alt);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(350, 200));
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+#endif
     }
     void systemThemePrefersStateDirectoryAndHandlesMigrationLive() {
         QTemporaryDir dir;
@@ -738,7 +784,8 @@ class UiTest : public QObject {
         QVERIFY(tabs);
         tabs->setProperty("currentIndex", 2);
         for (const QString &id : {QString("beach-day"), QString("holographic"),
-                                  QString("retro"), QString("arcade")}) {
+                                  QString("retro"), QString("arcade"),
+                                  QString("paper"), QString("forest"), QString("midnight")}) {
             auto *card = findVisual(window->contentItem(), "theme-" + id);
             QVERIFY(card);
             // Activating a keyboard-focused Button uses its actual clicked signal path.
@@ -830,7 +877,8 @@ class UiTest : public QObject {
     }
     void inlineEditingAcrossThemes() {
         for (const QString &theme : {QString("beach-day"), QString("holographic"),
-                                     QString("retro"), QString("arcade")}) {
+                                     QString("retro"), QString("arcade"),
+                                  QString("paper"), QString("forest"), QString("midnight")}) {
             document->setThemeId(theme);
             document->select(1);
             canvas->zoomAt({canvas->width()/2, canvas->height()/2}, 1 / canvas->zoom());

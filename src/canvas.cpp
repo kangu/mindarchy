@@ -1,3 +1,4 @@
+#include "appfont.h"
 #include "canvas.h"
 #include "searchmatch.h"
 #include "drawing.h"
@@ -354,7 +355,7 @@ void MindCanvas::refresh() {
                 QPainter painter(&image); paintCalendar(painter,n.calendar,appearance);
             } else {
             QTextDocument doc;
-            QFont font("sans-serif", 11);
+            QFont font(mindarchyTextFamily(), 11);
             font.setPixelSize(15);
             doc.setDefaultFont(font);
             doc.setDocumentMargin(0);

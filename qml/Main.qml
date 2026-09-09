@@ -10,13 +10,68 @@ ApplicationWindow {
     minimumWidth: 600; minimumHeight: 640
     visible: typeof deferWindowShow === "undefined" || !deferWindowShow
     readonly property bool integratedMacToolbar: Qt.platform.os === "osx"
-    flags: integratedMacToolbar
-        ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
-        : Qt.Window
+    readonly property bool integratedWindowsToolbar: Qt.platform.os === "windows"
+    readonly property bool integratedToolbar: integratedMacToolbar || integratedWindowsToolbar
+    // Keep the native resize frame without a separate caption or caption overlay.
+    flags: integratedWindowsToolbar
+        ? Qt.Window | Qt.CustomizeWindowHint | Qt.WindowSystemMenuHint
+        : integratedMacToolbar
+          ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
+          : Qt.Window
+    readonly property real windowsCaptionWidth: integratedWindowsToolbar && visibility !== Window.FullScreen ? 138 : 0
     // The toolbar reserves horizontal space for the native window controls.
     // Avoid ApplicationWindow's automatic inset below the macOS title bar.
-    Binding { target: window; property: "topPadding"; value: 0; when: window.integratedMacToolbar }
+    Binding { target: window; property: "topPadding"; value: 0; when: window.integratedToolbar }
     title: controller.documentName
+    property bool windowsMenuVisible: false
+    property var windowsMenuPreviousFocus: null
+    readonly property real windowsMenuHeight: windowsMenus.height
+    readonly property bool windowsMenuPopupOpen: windowsMenus.item ? windowsMenus.item.popupOpen : false
+    function showWindowsMenu() {
+        if (Qt.platform.os !== "windows") return
+        windowsMenuPreviousFocus = activeFocusItem
+        windowsMenuVisible = true
+        if (windowsMenus.item) windowsMenus.item.itemAt(0).forceActiveFocus()
+    }
+    function hideWindowsMenu(restoreFocus) {
+        windowsMenuVisible = false
+        if (windowsMenus.item) windowsMenus.item.closeMenus()
+        if (restoreFocus && windowsMenuPreviousFocus) windowsMenuPreviousFocus.forceActiveFocus()
+        windowsMenuPreviousFocus = null
+    }
+    menuBar: Loader {
+        id: windowsMenus
+        active: Qt.platform.os === "windows"
+        visible: active && window.windowsMenuVisible
+        height: visible && item ? item.implicitHeight : 0
+        sourceComponent: MenuBar {
+            id: windowsMenuContent
+            readonly property bool popupOpen: fileMenu.opened || helpMenu.opened
+            function closeMenus() { fileMenu.close(); helpMenu.close() }
+            function menuClosed() { Qt.callLater(function() { if (!popupOpen) window.hideWindowsMenu(false) }) }
+            Menu {
+                id: fileMenu
+                title: qsTr("&File")
+                onClosed: windowsMenuContent.menuClosed()
+                MenuItem { text: qsTr("&New"); onTriggered: { window.hideWindowsMenu(true); controller.newDocumentRequested() } }
+                MenuItem { text: qsTr("&Open…"); onTriggered: { window.hideWindowsMenu(true); openDialog.open() } }
+                MenuItem { text: qsTr("&Save"); onTriggered: { window.hideWindowsMenu(true); window.saveDocument(false) } }
+                MenuSeparator {}
+                MenuItem { text: qsTr("&Close window"); onTriggered: { window.hideWindowsMenu(true); window.requestClose(true, false) } }
+                MenuItem { text: qsTr("E&xit Mindarchy"); onTriggered: { window.hideWindowsMenu(true); controller.quitRequested() } }
+            }
+            Menu {
+                id: helpMenu
+                title: qsTr("&Help")
+                onClosed: windowsMenuContent.menuClosed()
+                MenuItem {
+                    text: qsTr("Keyboard &Shortcuts")
+                    onTriggered: { window.hideWindowsMenu(true); windowsShortcuts.show(); windowsShortcuts.raise(); windowsShortcuts.requestActivate() }
+                }
+            }
+        }
+    }
+    KeyboardShortcuts { id: windowsShortcuts; transientParent: window }
     color: (ShellTheme.colors["#111920"] || "#111920")
     property var controller: engine
     property bool outlineVisible: false
@@ -146,7 +201,7 @@ ApplicationWindow {
     palette.placeholderText: muted
     palette.mid: (ShellTheme.colors["#34434c"] || "#34434c")
     palette.highlightedText: (ShellTheme.colors["#ffffff"] || "#ffffff")
-    font.family: "Sans Serif"
+    font.family: Qt.platform.os === "windows" ? "Segoe UI" : "Sans Serif"
     font.pixelSize: 13
 
     function localPath(url) {
@@ -351,20 +406,60 @@ ApplicationWindow {
         anchors.fill: parent; spacing: 0
         Rectangle {
             objectName: "mainToolbar"
-            Layout.fillWidth: true; implicitHeight: 60; color: (ShellTheme.colors["#19242d"] || "#19242d")
+            Layout.fillWidth: true; implicitHeight: 60
+            color: ShellTheme.colors["#19242d"] || "#19242d"
             MouseArea {
+                objectName: "headerDragArea"
                 anchors.fill: parent
-                enabled: window.integratedMacToolbar
+                enabled: window.integratedToolbar
                 acceptedButtons: Qt.LeftButton
                 onPressed: window.startSystemMove()
                 onDoubleClicked: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
             }
+            Row {
+                objectName: "windowControls"
+                anchors.right: parent.right
+                height: parent.height
+                visible: window.windowsCaptionWidth > 0
+                Repeater {
+                    model: 3
+                    Button {
+                        required property int index
+                        objectName: ["minimizeWindow", "maximizeWindow", "closeWindow"][index]
+                        width: 46; height: 60
+                        hoverEnabled: true
+                        text: index === 0 ? "Minimize" : index === 1
+                            ? (window.visibility === Window.Maximized ? "Restore" : "Maximize") : "Close"
+                        background: Rectangle {
+                            color: parent.down ? (parent.index === 2 ? "#b3261e" : "#455560")
+                                : parent.hovered ? (parent.index === 2 ? "#c42b1c" : "#344650") : "transparent"
+                        }
+                        contentItem: Text {
+                            text: parent.index === 0 ? "\ue921" : parent.index === 1
+                                ? (window.visibility === Window.Maximized ? "\ue923" : "\ue922") : "\ue8bb"
+                            font.family: "Segoe MDL2 Assets"; font.pixelSize: 11
+                            color: parent.index === 2 && parent.hovered ? "white" : window.ink
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: text
+                        onClicked: {
+                            if (index === 0) window.showMinimized()
+                            else if (index === 1) {
+                                if (window.visibility === Window.Maximized) window.showNormal()
+                                else window.showMaximized()
+                            } else window.close()
+                        }
+                    }
+                }
+            }
             Flickable {
-                id: toolbarViewport
+                id: toolbarViewport; objectName: "toolbarViewport"
                 anchors.fill: parent
                 anchors.leftMargin: window.integratedMacToolbar && window.visibility !== Window.FullScreen ? 96 : 12
-                anchors.rightMargin: 12
-                interactive: !window.integratedMacToolbar || contentWidth > width
+                anchors.rightMargin: 12 + window.windowsCaptionWidth
+                interactive: contentWidth > width
                 contentWidth: toolbarRow.width; contentHeight: height; clip: true
                 flickableDirection: Flickable.HorizontalFlick
                 Item {
@@ -578,7 +673,7 @@ ApplicationWindow {
                             height: Math.max(22, inlineEditor.height - y)
                             clip: true; textMargin: 0
                             textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
-                            font.family: "sans-serif"; font.pixelSize: 15
+                            font.family: Qt.platform.os === "windows" ? "Segoe UI" : "sans-serif"; font.pixelSize: 15
                             color: inlineEditor.nodeAppearance.text || "#f1fff9"; selectionColor: "#438b78"
                             onTextChanged: { if (canvas.editing) canvas.updateEditingText(text) }
                             Text {

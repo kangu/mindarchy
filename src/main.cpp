@@ -1,4 +1,8 @@
 #include "shelltheme.h"
+#ifdef Q_OS_WIN
+#include "windowsdialogs.h"
+#include "windowmenubar.h"
+#endif
 #include "viewportstate.h"
 #include "canvas.h"
 #include "preview.h"
@@ -55,7 +59,14 @@ int main(int argc, char **argv) {
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
-    for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") qputenv("QT_QPA_PLATFORM","offscreen");
+    for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") {
+        qputenv("QT_QPA_PLATFORM","offscreen");
+#ifdef Q_OS_WIN
+        // Unlike the native Windows QPA plugin, offscreen needs a font path.
+        if (!qEnvironmentVariableIsSet("QT_QPA_FONTDIR"))
+            qputenv("QT_QPA_FONTDIR", (qEnvironmentVariable("WINDIR", "C:/Windows") + "/Fonts").toUtf8());
+#endif
+    }
     DocumentApplication app(argc, argv);
     app.setApplicationName("Mindarchy");
 #ifdef MINDMAP_VERSION
@@ -138,7 +149,7 @@ int main(int argc, char **argv) {
     files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
     const bool sessionEnabled = !parser.isSet("nodes") && !parser.isSet("screenshot") &&
         !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state");
-    const bool recoveryEnabled = sessionEnabled && QGuiApplication::platformName()=="cocoa";
+    const bool recoveryEnabled = sessionEnabled && (QGuiApplication::platformName()=="cocoa" || QGuiApplication::platformName()=="windows");
     QString recoveryFile=parser.value("recover");
     if(!recoveryFile.isEmpty() && (!recoveryEnabled ||
        QFileInfo(recoveryFile).absolutePath()!=QFileInfo(DocumentSession::defaultDirectory()).absoluteFilePath() ||
@@ -193,7 +204,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("engine", &document);
     qml.rootContext()->setContextProperty("deferWindowShow", true);
-    qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa");
+    qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa" || QGuiApplication::platformName() == "windows");
     QObject::connect(
         &qml, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
@@ -272,6 +283,12 @@ int main(int argc, char **argv) {
             defaults->sync();
         });
     }
+#ifdef Q_OS_WIN
+    if (window && QGuiApplication::platformName() == "windows") {
+        installWindowsDialogs(&document, window);
+        new WindowMenuBar(window);
+    }
+#endif
 #ifdef Q_OS_MACOS
     void installMacHelpMenu(QWindow *);
     if (window && QGuiApplication::platformName() == "cocoa")
@@ -435,6 +452,6 @@ int main(int argc, char **argv) {
         });
     }
     if (parser.isSet("quit-after"))
-        QTimer::singleShot(parser.value("quit-after").toInt(), &app, &QCoreApplication::quit);
+        QTimer::singleShot(parser.value("quit-after").toInt(), &app, [&app] { app.exit(0); });
     return app.exec();
 }

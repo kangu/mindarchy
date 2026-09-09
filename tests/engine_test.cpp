@@ -570,6 +570,29 @@ class EngineTest : public QObject {
         Engine invalid; const auto old=invalid.themeId(); QVERIFY(!invalid.applyThemeRecipe("missing"));
         QCOMPARE(invalid.themeId(),old); QCOMPARE(Themes::get("missing").id,QString("lab"));
     }
+    void websiteThemesRemainReadableAndPersist() {
+        auto luminance=[](QColor c) {
+            auto linear=[](double v) { return v<=.04045 ? v/12.92 : std::pow((v+.055)/1.055,2.4); };
+            return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
+        };
+        for (const auto &id : QStringList{"paper", "forest", "midnight"}) {
+            Engine e;
+            const auto previous = e.themeId();
+            e.setThemeId(id);
+            QCOMPARE(e.themeId(), id);
+            for (int depth=0; depth<4; ++depth) for (int branch=0; branch<6; ++branch) {
+                const auto a=Themes::appearance(id,depth,branch);
+                const double fg=luminance(a.text), bg=luminance(a.fill);
+                QVERIFY2((std::max(fg,bg)+.05)/(std::min(fg,bg)+.05)>=4.5,qPrintable(id));
+            }
+            e.undo(); QCOMPARE(e.themeId(),previous);
+            e.redo(); QCOMPARE(e.themeId(),id);
+            QTemporaryDir dir;
+            const auto path=dir.filePath("website.omm");
+            QVERIFY(e.save(path));
+            Engine loaded; QVERIFY(loaded.open(path)); QCOMPARE(loaded.themeId(),id);
+        }
+    }
     void themeCatalogAndAppearance() {
         Engine e;
         QCOMPARE(e.themeId(), QString("lab"));

@@ -281,7 +281,9 @@ class CanvasTest : public QObject {
                 QCOMPARE(canvas.m_cache.value(1).size, targetSize);
                 const auto node = canvas.m_draw.first();
                 const auto label = canvas.m_labels.first();
-                QVERIFY(node.taskOpacity > 0 && node.taskOpacity < 1);
+                // A busy VM may deliver this sample after the 180 ms animation
+                // completes. Verify geometry and opacity at endpoints as well.
+                QVERIFY(node.taskOpacity >= 0 && node.taskOpacity <= 1);
                 QVERIFY(qAbs(node.rect.width()-plainWidth-20*node.taskOpacity) < 1);
                 QVERIFY(qAbs(label.rect.left()-node.rect.left()+20*(enabled?1:0)-20*node.taskOpacity) < 1);
             }

@@ -1,3 +1,4 @@
+#include "appfont.h"
 #include "preview.h"
 #include "drawing.h"
 #include "engine.h"
@@ -62,7 +63,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
             if(n.task) {
                 MapDrawing::paintTask(painter, QRectF(8,r.height()/2-5,10,10), style.text, n.checked, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1);
             }
-            PreviewText text; QFont font("sans-serif"); font.setPixelSize(15);
+            PreviewText text; QFont font(mindarchyTextFamily()); font.setPixelSize(15);
             text.setDefaultFont(font); text.setDocumentMargin(0);
             text.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(style.text.name()));
             text.setHtml(n.text); text.setTextWidth(std::max(0.,r.width()-30-(n.task?20:0)));

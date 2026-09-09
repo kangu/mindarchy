@@ -1,3 +1,4 @@
+#include "appfont.h"
 #include "engine.h"
 #include "searchmatch.h"
 #include <QTime>
@@ -154,7 +155,7 @@ QVariantList Engine::outline() const {
 }
 bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth) {
     QTextDocument doc;
-    QFont font("sans-serif", 11);
+    QFont font(mindarchyTextFamily(), 11);
     font.setPixelSize(15);
     doc.setDefaultFont(font);
     doc.setDocumentMargin(0);
@@ -993,7 +994,7 @@ QStringList Engine::fontFamilies() const { return QFontDatabase::families(); }
 QVariantMap Engine::selectedStyle() const {
     auto values = [this](int id) {
         const auto n=m_nodes.value(id); const auto a=appearance(id);
-        QTextDocument doc; QFont font("sans-serif"); font.setPixelSize(15);
+        QTextDocument doc; QFont font(mindarchyTextFamily()); font.setPixelSize(15);
         doc.setDefaultFont(font); doc.setHtml(n.text);
         QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         const auto f=cursor.charFormat().font().resolve(font);
@@ -1034,7 +1035,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
     for(int id:m_selection) {
         auto &n=next[id];
         for(auto it=visual.begin();it!=visual.end();++it) n.style.insert(it.key(),it.value());
-        QTextDocument doc; QFont base("sans-serif"); base.setPixelSize(15); doc.setDefaultFont(base);
+        QTextDocument doc; QFont base(mindarchyTextFamily()); base.setPixelSize(15); doc.setDefaultFont(base);
         doc.setDocumentMargin(0); doc.setHtml(n.text);
         if(patch.contains("fontSize")) {
             // Imported point sizes take precedence over pixel sizes during HTML

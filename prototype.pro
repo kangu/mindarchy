@@ -26,3 +26,9 @@ unix:!macx {
     icon.path = $$PREFIX/share/icons/hicolor/512x512/apps
     INSTALLS += icon
 }
+
+win32 {
+    SOURCES += src/windowsdialogs.cpp
+    HEADERS += src/windowsdialogs.h
+    LIBS += -lcomctl32 -lole32 -lshell32
+}

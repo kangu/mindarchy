@@ -1,0 +1,8 @@
+Mindarchy uses the dynamically linked Qt libraries. Qt license texts are included
+in licenses/Qt. Qt source code for the matching release is available at
+https://download.qt.io/official_releases/qt/ . The Qt version is recorded by the
+release build. Users may replace the compatible Qt DLLs in this application
+folder with their own builds. Qt is a trademark of The Qt Company Ltd.
+
+Microsoft Visual C++ runtime DLLs are redistributed with the application under
+the terms accompanying the Microsoft Visual Studio build tools.

@@ -1,4 +1,5 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/KeyboardShortcuts.qml</file>
     <file>qml/icons/inspector-map.svg</file>
     <file>qml/icons/inspector-node.svg</file>
     <file>qml/icons/inspector-themes.svg</file>

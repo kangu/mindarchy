@@ -23,6 +23,10 @@ const QVector<MapTheme> &allThemes() {
          {"#b3634c", "#477a78", "#827043", "#74668c", "#567249", "#526b8d"}},
         {"nocturne", "Nocturne", "#111a2b",
          {"#8ab8ef", "#6bc8c0", "#b39be8", "#e8b976", "#91c792", "#e69aad"}},
+        // Match the website's appearance examples, including its dark-mode accents.
+        {"paper", "Paper", "#fbfaf6", {"#3e6b50", "#9c492d", "#375d80"}},
+        {"forest", "Forest", "#203b32", {"#cbe2b5", "#f5b399", "#b7d8fb"}},
+        {"midnight", "Midnight", "#253443", {"#c4d8f0", "#f5b399", "#b7d8fb"}},
     };
     return themes;
 }
@@ -85,6 +89,11 @@ NodeAppearance appearance(const QString &themeId, int depth, int branchIndex) {
                                 foreground.greenF()*amount+background.greenF()*(1-amount),
                                 foreground.blueF()*amount+background.blueF()*(1-amount));
     };
+    if (theme.id == "paper" || theme.id == "forest" || theme.id == "midnight") {
+        // The website keeps the same quiet outlined style at every depth.
+        return {theme.canvas, color, color, color, NodeShape::Rounded, 1.5, 11,
+                Qt::SolidLine, Qt::SolidLine, 1.5};
+    }
     if(theme.id=="canopy") {
         if(depth==0) return {"#29483a","#29483a","#fffdf1",color,NodeShape::Pill,0,24};
         if(depth==1) return {tint(color,theme.canvas,.15),color,"#26362e",color,NodeShape::Rounded,1.5,14};
