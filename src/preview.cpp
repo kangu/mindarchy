@@ -65,7 +65,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
             PreviewText text; QFont font("sans-serif"); font.setPixelSize(15);
             text.setDefaultFont(font); text.setDocumentMargin(0);
             text.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(style.text.name()));
-            text.setHtml(n.text); text.setTextWidth(std::max(20.,r.width()-30-(n.task?20:0)));
+            text.setHtml(n.text); text.setTextWidth(std::max(0.,r.width()-30-(n.task?20:0)));
             painter.translate(15+(n.task?20:0),std::max(8.,(r.height()-text.size().height())/2));
             QAbstractTextDocumentLayout::PaintContext context; context.palette.setColor(QPalette::Text,style.text);
             text.documentLayout()->draw(&painter,context);

@@ -13,7 +13,7 @@ struct NodeAppearance {
     qreal borderWidth = 0;
     qreal radius = 10;
     Qt::PenStyle borderStyle = Qt::SolidLine, branchStroke = Qt::SolidLine;
-    qreal branchWidth = 1.5;
+    qreal branchWidth = 2;
 };
 
 struct MapTheme {

@@ -1,3 +1,4 @@
+#include <optional>
 #pragma once
 #include <QHash>
 #include <QObject>
@@ -118,6 +119,7 @@ class Engine : public QObject {
     Q_INVOKABLE bool applyThemeRecipe(QString id);
     Q_INVOKABLE void select(int id, bool extend = false);
     Q_INVOKABLE void addChild();
+    void addChildFromPointer(int parent, std::optional<QPointF> position = {});
     Q_INVOKABLE void addSibling();
     Q_INVOKABLE void removeSelected();
     Q_INVOKABLE void toggleFold();
@@ -171,7 +173,7 @@ class Engine : public QObject {
     void restore(const State &state);
     void checkpoint();
     void rebuild();
-    void add(int parent, int after = -1, QString kind = "text", QString dateView = "week");
+    void add(int parent, int after = -1, QString kind = "text", QString dateView = "week", std::optional<QPointF> position = {}, bool emptyText = false);
     bool fail(const QString &error);
     // One entry per current node; font15, zero document margin and renderer padding
     // are fixed measurement constants. Text and task changes replace the entry.

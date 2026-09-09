@@ -17,7 +17,7 @@ ApplicationWindow {
     // Avoid ApplicationWindow's automatic inset below the macOS title bar.
     Binding { target: window; property: "topPadding"; value: 0; when: window.integratedMacToolbar }
     title: controller.documentName
-    color: "#111920"
+    color: (ShellTheme.colors["#111920"] || "#111920")
     property var controller: engine
     property bool outlineVisible: false
     property bool inspectorVisible: width >= 1000
@@ -98,18 +98,26 @@ ApplicationWindow {
         var saved = controller.save(path)
         if (shouldClose) { if (saved) approveClose(); else cancelClose() }
     }
-    readonly property color ink: "#e0e9ee"
-    readonly property color muted: "#81939f"
-    readonly property color accent: "#70d8c4"
-    palette.window: "#172129"
+    readonly property color ink: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee")
+    readonly property color muted: (ShellTheme.colors["#81939f"] || "#81939f")
+    readonly property color accent: (ShellTheme.colors["#70d8c4"] || "#70d8c4")
+    palette.window: (ShellTheme.colors["#172129"] || "#172129")
     palette.windowText: ink
-    palette.base: "#111b23"
-    palette.alternateBase: "#1e2c36"
+    palette.base: (ShellTheme.colors["#111b23"] || "#111b23")
+    palette.alternateBase: (ShellTheme.colors["#1e2c36"] || "#1e2c36")
     palette.text: ink
-    palette.button: "#253540"
+    palette.button: (ShellTheme.colors["#253540"] || "#253540")
     palette.buttonText: ink
-    palette.highlight: "#317d73"
-    palette.highlightedText: "#ffffff"
+    palette.highlight: (ShellTheme.colors["#317d73"] || "#317d73")
+    palette.dark: (ShellTheme.colors["#253540"] || "#253540")
+    palette.light: (ShellTheme.colors["#2a3d48"] || "#2a3d48")
+    palette.midlight: (ShellTheme.colors["#32434d"] || "#32434d")
+    palette.brightText: ink
+    palette.toolTipBase: (ShellTheme.colors["#172129"] || "#172129")
+    palette.toolTipText: ink
+    palette.placeholderText: muted
+    palette.mid: (ShellTheme.colors["#34434c"] || "#34434c")
+    palette.highlightedText: (ShellTheme.colors["#ffffff"] || "#ffffff")
     font.family: "Sans Serif"
     font.pixelSize: 13
 
@@ -123,7 +131,9 @@ ApplicationWindow {
         if (dateDialog.opened) return false
         if (!canvas.editing) return true
         if (editor.inputMethodComposing) return false
-        if (!canvas.commitEditing(editor.text)) { editor.forceActiveFocus(); return false }
+        // A rich-text editor serializes plain text as HTML even without user edits.
+        if (editor.text === editor.initialText) canvas.endEdit()
+        else if (!canvas.commitEditing(editor.text)) { editor.forceActiveFocus(); return false }
         canvas.forceActiveFocus()
         if (next === "child") controller.addChild()
         if (next === "sibling") controller.addSibling()
@@ -152,11 +162,11 @@ ApplicationWindow {
         focusPolicy: Qt.NoFocus
         background: Rectangle {
             radius: 6
-            color: parent.down ? "#35505a" : parent.hovered ? "#2a3d48" : "#22313b"
-            border.color: parent.checked ? window.accent : "#32434d"
+            color: parent.down ? (ShellTheme.colors["#35505a"] || "#35505a") : parent.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : (ShellTheme.colors["#22313b"] || "#22313b")
+            border.color: parent.checked ? window.accent : (ShellTheme.colors["#32434d"] || "#32434d")
             opacity: parent.enabled ? 1 : 0.4
         }
-        contentItem: Text { text: parent.text; color: parent.enabled ? window.ink : "#647783"; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+        contentItem: Text { text: parent.text; color: parent.enabled ? window.ink : (ShellTheme.colors["#647783"] || "#647783"); font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
     }
     component IconButton: Button {
         id: iconButton
@@ -171,16 +181,14 @@ ApplicationWindow {
         ToolTip.text: text
         background: Rectangle {
             radius: 7
-            color: iconButton.down ? "#35505a" : iconButton.checked ? "#29463f" : iconButton.hovered ? "#2a3d48" : "transparent"
+            color: iconButton.down ? (ShellTheme.colors["#35505a"] || "#35505a") : iconButton.checked ? (ShellTheme.colors["#29463f"] || "#29463f") : iconButton.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent"
             border.width: iconButton.activeFocus || iconButton.checked ? 1 : 0
             border.color: window.accent
         }
-        contentItem: Image {
-            source: "qrc:/qml/icons/" + iconButton.iconName + ".svg"
-            sourceSize: Qt.size(24,24)
-            fillMode: Image.PreserveAspectFit
-            opacity: iconButton.enabled ? 1 : 0.3
-        }
+        icon.source: iconButton.iconName.length ? "qrc:/qml/icons/" + iconButton.iconName + ".svg" : ""
+        icon.color: window.ink
+        icon.width: 24; icon.height: 24
+        display: AbstractButton.IconOnly
     }
     component ToolbarButton: IconButton {
         implicitWidth: window.width < 800 ? 32 : 36
@@ -194,7 +202,7 @@ ApplicationWindow {
         signal chosen(string value)
         Layout.fillWidth: true
         implicitHeight: 42
-        radius: 8; color: "#122029"; border.color: "#2a3943"
+        radius: 8; color: (ShellTheme.colors["#122029"] || "#122029"); border.color: (ShellTheme.colors["#2a3943"] || "#2a3943")
         RowLayout {
             anchors.fill: parent; anchors.margins: 3; spacing: 3
             Repeater {
@@ -213,7 +221,7 @@ ApplicationWindow {
                     Keys.onLeftPressed: { if(index>0) { mapOptions.itemAt(index-1).forceActiveFocus(); bar.chosen(bar.options[index-1].value) } }
                     Keys.onRightPressed: { if(index+1<bar.options.length) { mapOptions.itemAt(index+1).forceActiveFocus(); bar.chosen(bar.options[index+1].value) } }
                     contentItem: Image {
-                        source: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c5d3da" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="' + modelData.path + '"/></svg>')
+                        source: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + window.ink + '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="' + modelData.path + '"/></svg>')
                         sourceSize: Qt.size(24,24); fillMode: Image.PreserveAspectFit
                         opacity: bar.enabled ? 1 : 0.3
                     }
@@ -222,7 +230,7 @@ ApplicationWindow {
         }
     }
     component Caption: Label { color: window.muted; font.pixelSize: 10; font.letterSpacing: 1.3; font.bold: true }
-    component Rule: Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#2a3943" }
+    component Rule: Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
 
     Shortcut { sequences: [StandardKey.Close]; onActivated: window.requestClose(true, false) }
     Shortcut { sequences: [StandardKey.Quit]; onActivated: controller.quitRequested() }
@@ -248,7 +256,7 @@ ApplicationWindow {
             Label { text: "Your changes will be lost if you don’t save them."; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             RowLayout {
                 Layout.fillWidth: true
-                Button { objectName: "closeDiscard"; text: "Discard"; palette.buttonText: "#f08b83"; onClicked: window.approveClose() }
+                Button { objectName: "closeDiscard"; text: "Discard"; palette.buttonText: (ShellTheme.colors["#f08b83"] || "#f08b83"); onClicked: window.approveClose() }
                 Item { Layout.fillWidth: true }
                 Button { objectName: "closeCancel"; text: "Cancel"; onClicked: window.cancelClose() }
                 Button { objectName: "closeSave"; text: "Save"; highlighted: true; onClicked: window.saveBeforeClosing() }
@@ -276,7 +284,7 @@ ApplicationWindow {
         anchors.fill: parent; spacing: 0
         Rectangle {
             objectName: "mainToolbar"
-            Layout.fillWidth: true; implicitHeight: 60; color: "#19242d"
+            Layout.fillWidth: true; implicitHeight: 60; color: (ShellTheme.colors["#19242d"] || "#19242d")
             MouseArea {
                 anchors.fill: parent
                 enabled: window.integratedMacToolbar
@@ -301,12 +309,6 @@ ApplicationWindow {
                         id: documentActions; objectName: "documentActions"
                         anchors.left: parent.left; height: parent.height
                         width: implicitWidth; spacing: window.width < 800 ? 4 : 6
-                        Image {
-                            source: "qrc:/assets/icons/mindarchy-64.png"
-                            sourceSize: Qt.size(64, 64)
-                            Layout.preferredWidth: 32; Layout.preferredHeight: 32
-                            fillMode: Image.PreserveAspectFit
-                        }
                         Item {
                             id: documentTitleArea
                             visible: window.width >= 1100
@@ -354,7 +356,7 @@ ApplicationWindow {
                         height: parent.height; width: implicitWidth; spacing: window.width < 800 ? 4 : 6
                         ToolbarButton { iconName: "undo-2"; text: "Undo"; enabled: controller.canUndo; onClicked: { if (!window.commitEditor("")) return; controller.undo() } }
                         ToolbarButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
-                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c" }
+                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c") }
                         ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
                         ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
                         ToolbarButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
@@ -380,7 +382,7 @@ ApplicationWindow {
                             ToolbarButton { iconName: "zoom-in"; text: "Zoom in"; onClicked: canvas.zoomIn() }
                             ToolbarButton { iconName: "maximize"; text: "Fit map"; onClicked: canvas.fit() }
                         }
-                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
+                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c"); Layout.leftMargin: 4; Layout.rightMargin: 4 }
                         ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
                         ToolbarButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
                     }
@@ -389,13 +391,13 @@ ApplicationWindow {
         }
         Rectangle {
             visible: controller.error.length > 0
-            Layout.fillWidth: true; implicitHeight: visible ? errorLabel.implicitHeight + 20 : 0; color: "#563832"
-            Label { id: errorLabel; anchors.fill: parent; anchors.margins: 10; text: controller.error; color: "#ffd3c7"; wrapMode: Text.Wrap }
+            Layout.fillWidth: true; implicitHeight: visible ? errorLabel.implicitHeight + 20 : 0; color: (ShellTheme.colors["#563832"] || "#563832")
+            Label { id: errorLabel; anchors.fill: parent; anchors.margins: 10; text: controller.error; color: (ShellTheme.colors["#ffd3c7"] || "#ffd3c7"); wrapMode: Text.Wrap }
         }
         RowLayout {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
             Rectangle {
-                visible: window.outlineVisible; Layout.preferredWidth: 224; Layout.fillHeight: true; color: "#17232c"
+                visible: window.outlineVisible; Layout.preferredWidth: 224; Layout.fillHeight: true; color: (ShellTheme.colors["#17232c"] || "#17232c")
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: 16; spacing: 14
                     RowLayout { Layout.fillWidth: true; Caption { text: "DOCUMENT" }
@@ -409,8 +411,8 @@ ApplicationWindow {
                         delegate: Rectangle {
                             required property var modelData
                             width: outline.width; height: 32; radius: 5
-                            color: controller.selectedId === modelData.id ? "#29463f" : rowMouse.containsMouse ? "#22323d" : "transparent"
-                            Label { anchors.left: parent.left; anchors.leftMargin: 8 + Math.min(modelData.depth, 7) * 10; anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; text: (modelData.folded ? "▸ " : "· ") + modelData.text; textFormat: Text.PlainText; elide: Text.ElideRight; color: controller.selectedId === modelData.id ? window.accent : "#a5b5bf"; font.pixelSize: 12 }
+                            color: controller.selectedId === modelData.id ? (ShellTheme.colors["#29463f"] || "#29463f") : rowMouse.containsMouse ? (ShellTheme.colors["#22323d"] || "#22323d") : "transparent"
+                            Label { anchors.left: parent.left; anchors.leftMargin: 8 + Math.min(modelData.depth, 7) * 10; anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; text: (modelData.folded ? "▸ " : "· ") + modelData.text; textFormat: Text.PlainText; elide: Text.ElideRight; color: controller.selectedId === modelData.id ? window.accent : (ShellTheme.colors["#a5b5bf"] || "#a5b5bf"); font.pixelSize: 12 }
                             MouseArea { id: rowMouse; anchors.fill: parent; hoverEnabled: true; onClicked: function(mouse) { if (!window.commitEditor("")) return; controller.select(modelData.id, !!(mouse.modifiers & Qt.ShiftModifier)); canvas.forceActiveFocus() }
                 onDoubleClicked: canvas.beginEdit(modelData.id) }
                         }
@@ -419,7 +421,7 @@ ApplicationWindow {
                     Label { text: "Tab to grow a branch.\nReturn to add a sibling."; color: window.muted; font.pixelSize: 11; lineHeight: 1.5 }
                 }
             }
-            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: "#2a3943" }
+            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
             Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
                 MindCanvas {
@@ -453,7 +455,7 @@ ApplicationWindow {
                             property string initialText: ""
                             x: inlineEditor.textInset
                             y: Math.max(8, (inlineEditor.height - contentHeight) / 2)
-                            width: Math.max(20, inlineEditor.width - inlineEditor.textInset - 15)
+                            width: Math.max(1, inlineEditor.width - inlineEditor.textInset - 15)
                             height: Math.max(22, inlineEditor.height - y)
                             clip: true; textMargin: 0
                             textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
@@ -481,9 +483,9 @@ ApplicationWindow {
                     }
                 }
             }
-            Rectangle { visible: window.inspectorVisible; Layout.preferredWidth: 1; Layout.fillHeight: true; color: "#2a3943" }
+            Rectangle { visible: window.inspectorVisible; Layout.preferredWidth: 1; Layout.fillHeight: true; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
             Rectangle {
-                visible: window.inspectorVisible; Layout.preferredWidth: 274; Layout.fillHeight: true; color: "#19252e"
+                visible: window.inspectorVisible; Layout.preferredWidth: 274; Layout.fillHeight: true; color: (ShellTheme.colors["#19252e"] || "#19252e")
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: 20; spacing: 15
                     Caption { text: "INSPECTOR" }
@@ -546,7 +548,7 @@ ApplicationWindow {
                                 Caption { text: controller.selection.length === 1 ? "SELECTED NODE · " + controller.selectedId : controller.selection.length + " NODES SELECTED" }
                                 Rectangle {
                                     Layout.fillWidth: true; implicitHeight: typeGroup.height
-                                    color: "#122029"; radius: 8; border.color: "#2a3943"
+                                    color: (ShellTheme.colors["#122029"] || "#122029"); radius: 8; border.color: (ShellTheme.colors["#2a3943"] || "#2a3943")
                                     Column {
                                         id: typeGroup; width: parent.width; spacing: 0
                                         MapOptionBar {
@@ -570,7 +572,7 @@ ApplicationWindow {
                                             visible: controller.selectedKind === "date" || controller.selectedTask
                                             height: visible ? typeOptions.implicitHeight + 24 : 0
                                             enabled: controller.selection.length === 1
-                                            Rectangle { x: 12; width: parent.width-24; height: 1; color: "#2a3943" }
+                                            Rectangle { x: 12; width: parent.width-24; height: 1; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
                                             ColumnLayout {
                                                 id: typeOptions; x: 12; y: 12; width: parent.width-24; spacing: 8
                                                 Caption { visible: controller.selectedTask; text: "TASK" }
@@ -624,7 +626,7 @@ ApplicationWindow {
     Rectangle {
         visible: window.exportStatus.length > 0
         anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 80
-        width: exportMessage.implicitWidth + 28; height: 38; radius: 8; color: "#29463f"
+        width: exportMessage.implicitWidth + 28; height: 38; radius: 8; color: (ShellTheme.colors["#29463f"] || "#29463f")
         Label { id: exportMessage; anchors.centerIn: parent; text: window.exportStatus; color: window.ink }
     }
     Timer { id: exportTimer; interval: 5000; onTriggered: window.exportStatus = "" }

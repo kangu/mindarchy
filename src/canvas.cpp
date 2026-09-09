@@ -358,7 +358,7 @@ void MindCanvas::refresh() {
             doc.setDocumentMargin(0);
             doc.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(appearance.text.name()));
             doc.setHtml(n.text);
-            doc.setTextWidth(std::max(20., labelRect.width() - 30 - (n.task ? 20 : 0)));
+            doc.setTextWidth(std::max(0., labelRect.width() - 30 - (n.task ? 20 : 0)));
             QPainter painter(&image);
             painter.setRenderHint(QPainter::TextAntialiasing);
             painter.translate(15 + (n.task ? 20 : 0),
@@ -463,6 +463,22 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             painter.setPen(QPen(QColor("#f3cc79"),2./m_zoom));
             painter.drawLine(m_dropLine);
         }
+        const auto handle=creationHandleRect();
+        if(!handle.isEmpty()) {
+            const int id=m_creatingParent>=0 ? m_creatingParent : m_hovered;
+            QColor branch=m_engine->appearance(id).branch;
+            QColor shadow=QColor::fromRgbF(branch.redF()*.45+m_canvasColor.redF()*.55,
+                branch.greenF()*.45+m_canvasColor.greenF()*.55,branch.blueF()*.45+m_canvasColor.blueF()*.55);
+            const auto center=mapToWorld(handle.center());
+            painter.setPen(QPen(shadow,2/m_zoom));
+            if(m_creationDragged) painter.drawPolyline(creationPreview());
+            else painter.drawLine(creationAnchor(id),center);
+            painter.setPen(Qt::NoPen); painter.setBrush(m_engine->appearance(id).text);
+            painter.drawEllipse(center,12/m_zoom,12/m_zoom);
+            painter.setPen(QPen(m_canvasColor,2/m_zoom,Qt::SolidLine,Qt::RoundCap));
+            painter.drawLine(center-QPointF(5/m_zoom,0),center+QPointF(5/m_zoom,0));
+            painter.drawLine(center-QPointF(0,5/m_zoom),center+QPointF(0,5/m_zoom));
+        }
         painter.end();
         auto *node = static_cast<QSGSimpleTextureNode *>(old);
         if (!node) {
@@ -564,6 +580,20 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         line(vertices, r.topRight(), r.bottomRight(), 1. / m_zoom, c);
         line(vertices, r.bottomRight(), r.bottomLeft(), 1. / m_zoom, c);
         line(vertices, r.bottomLeft(), r.topLeft(), 1. / m_zoom, c);
+    }
+    const auto handle=creationHandleRect();
+    if(!handle.isEmpty()) {
+        const int id=m_creatingParent>=0 ? m_creatingParent : m_hovered;
+        const auto style=m_engine->appearance(id);
+        const auto branch=style.branch;
+        const QColor shadow=QColor::fromRgbF(branch.redF()*.45+m_canvasColor.redF()*.55,
+            branch.greenF()*.45+m_canvasColor.greenF()*.55,branch.blueF()*.45+m_canvasColor.blueF()*.55);
+        const auto center=mapToWorld(handle.center());
+        if(m_creationDragged) strokePath(vertices,creationPreview(),2/m_zoom,shadow,Qt::SolidLine);
+        else line(vertices,creationAnchor(id),center,2/m_zoom,shadow);
+        box(vertices,QRectF(center-QPointF(12/m_zoom,12/m_zoom),QSizeF(24/m_zoom,24/m_zoom)),style.text,12/m_zoom);
+        line(vertices,center-QPointF(5/m_zoom,0),center+QPointF(5/m_zoom,0),2/m_zoom,m_canvasColor);
+        line(vertices,center-QPointF(0,5/m_zoom),center+QPointF(0,5/m_zoom),2/m_zoom,m_canvasColor);
     }
     auto *g = scene->shapes->geometry();
     g->allocate(vertices.size());
@@ -773,6 +803,41 @@ int MindCanvas::taskHit(QPointF screen) const {
     }
     return -1;
 }
+QPointF MindCanvas::creationAnchor(int id, std::optional<QPointF> toward) const {
+    const auto r=displayRect(id);
+    if(m_engine->layout()=="Vertical") return {r.center().x(),r.bottom()};
+    if(m_engine->layout()=="Compact") return {r.left()+12,r.bottom()};
+    const int parent=m_engine->nodes().value(id).parent;
+    const bool left=toward ? toward->x()<r.center().x() :
+        m_engine->manual() && parent>=0 && r.center().x()<displayRect(parent).center().x();
+    return {left ? r.left() : r.right(),
+            m_engine->appearance(id).shape==NodeShape::Underline ? r.bottom() : r.center().y()};
+}
+QRectF MindCanvas::creationHandleRect() const {
+    const int id=m_creatingParent>=0 ? m_creatingParent : m_hovered;
+    if(!m_engine || !m_target.contains(id) || m_dragging || m_panning || m_marquee) return {};
+    if(m_creatingParent>=0 && m_creationDragged)
+        return {mapFromWorld(m_creationEnd)-QPointF(12,12),QSizeF(24,24)};
+    const auto anchor=creationAnchor(id);
+    auto center=mapFromWorld(anchor);
+    if(m_engine->layout()!="Horizontal") center.ry()+=18;
+    else center.rx()+=anchor.x()<displayRect(id).center().x() ? -18 : 18;
+    return {center-QPointF(12,12),QSizeF(24,24)};
+}
+QPolygonF MindCanvas::creationPreview() const {
+    if(m_creatingParent<0 || !m_creationDragged || !m_target.contains(m_creatingParent)) return {};
+    return edgePath(creationAnchor(m_creatingParent,m_creationEnd),m_creationEnd,
+                    m_engine->branchStyle()=="Angular" || m_engine->layout()=="Compact",
+                    m_engine->layout()!="Horizontal",m_zoom*(window()?window()->effectiveDevicePixelRatio():1));
+}
+void MindCanvas::cancelCreation() {
+    m_creatingParent=-1; m_creationDragged=false;
+    unsetCursor(); emit interactionChanged(); refresh();
+}
+void MindCanvas::mouseUngrabEvent() {
+    if(m_creatingParent>=0) cancelCreation();
+    QQuickItem::mouseUngrabEvent();
+}
 void MindCanvas::mousePressEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
@@ -784,6 +849,12 @@ void MindCanvas::mousePressEvent(QMouseEvent *e) {
         }
     }
     forceActiveFocus();
+    if(e->button()==Qt::LeftButton && !m_space && creationHandleRect().contains(e->position())) {
+        m_creatingParent=m_hovered; m_creationDragged=false;
+        m_press=m_last=e->position(); m_creationEnd=mapToWorld(m_press);
+        m_dateHoverText.clear(); setCursor(Qt::CrossCursor);
+        emit interactionChanged(); refresh(); e->accept(); return;
+    }
     m_press = m_last = e->position();
     m_pressedId = hit(m_press);
     m_extend = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
@@ -898,6 +969,11 @@ void MindCanvas::mouseMoveEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
     QPointF p = e->position();
+    if(m_creatingParent>=0) {
+        m_creationDragged |= QLineF(m_press,p).length()>=QGuiApplication::styleHints()->startDragDistance();
+        m_creationEnd=mapToWorld(p); m_last=p;
+        emit interactionChanged(); refresh(); e->accept(); return;
+    }
     if (m_panning) {
         m_pan += p - m_last;
         refreshView();
@@ -927,6 +1003,19 @@ void MindCanvas::mouseMoveEvent(QMouseEvent *e) {
 void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
+    if(m_creatingParent>=0) {
+        const int parent=m_creatingParent;
+        const bool dragged=m_creationDragged;
+        const bool accepted=e->button()==Qt::LeftButton && boundingRect().contains(e->position()) &&
+            (dragged || creationHandleRect().contains(e->position()));
+        const QPointF destination=mapToWorld(e->position());
+        cancelCreation();
+        if(accepted) {
+            m_animating=false; m_animationTimer.stop();
+            m_engine->addChildFromPointer(parent,dragged ? std::optional<QPointF>(destination) : std::nullopt);
+        }
+        e->accept(); return;
+    }
     if (m_dragging) {
         updateDrop(e->position());
         int id = m_pressedId, parent = m_dropParent, before = m_before;
@@ -979,6 +1068,7 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     e->accept();
 }
 void MindCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
+    if(creationHandleRect().contains(e->position())) { e->accept(); return; }
     if (editing()) {
         emit commitRequested();
         if (editing()) {
@@ -1008,6 +1098,13 @@ void MindCanvas::editDateEntry(int id,QString date) {
 void MindCanvas::hoverMoveEvent(QHoverEvent *e) {
     const int task = taskHit(e->position());
     int id=task >= 0 ? task : hit(e->position()); QString text; bool actionable=task >= 0;
+    const auto handle=creationHandleRect();
+    if(!handle.isEmpty() && handle.adjusted(-4,-4,4,4).contains(e->position())) {
+        id=m_hovered; actionable=true;
+    } else if(id<0 && m_target.contains(m_hovered)) {
+        const QRectF nodeScreen(mapFromWorld(displayRect(m_hovered).topLeft()),displayRect(m_hovered).size()*m_zoom);
+        if(nodeScreen.united(handle).contains(e->position())) id=m_hovered;
+    }
     if(m_engine && id>=0 && m_engine->nodes().value(id).kind=="date") {
         const auto n=m_engine->nodes().value(id); const auto days=Calendar::days(n.calendar);
         const QPointF local=mapToWorld(e->position())-displayRect(id).topLeft();
@@ -1036,6 +1133,10 @@ void MindCanvas::wheelEvent(QWheelEvent *e) {
     e->accept();
 }
 void MindCanvas::keyPressEvent(QKeyEvent *e) {
+    if(m_creatingParent>=0) {
+        if(e->key()==Qt::Key_Escape) cancelCreation();
+        e->accept(); return;
+    }
     if (!m_engine || editing()) {
         e->ignore();
         return;

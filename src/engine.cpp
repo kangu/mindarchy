@@ -48,6 +48,7 @@ bool validNodeStyle(const QVariantMap &s) {
 } // namespace
 Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
     if(content==InitialContent::Blank) {
+        m_themeId = "beach-day";
         MapNode root; root.id=1; root.text="Central idea";
         m_nodes.insert(1,root); m_nextId=2;
         rebuild(); m_savedBytes = documentBytes(); return;
@@ -171,7 +172,7 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
     const double idealWidth = doc.idealWidth();
     if (!std::isfinite(idealWidth))
         return false;
-    const double width = fixedWidth > 0 ? std::max(20., fixedWidth - 30 - (task ? 20 : 0)) : std::clamp(idealWidth, 72.0, 260.0);
+    const double width = fixedWidth > 0 ? std::max(20., fixedWidth - 30 - (task ? 20 : 0)) : std::min(std::ceil(idealWidth), 260.0);
     doc.setTextWidth(width);
     const QSizeF measured = doc.size();
     const double height = std::max(22.0, measured.height()) + 20;
@@ -398,7 +399,9 @@ void Engine::select(int id, bool extend) {
     m_selected = id;
     emit changed();
 }
-void Engine::add(int parent, int after, QString kind, QString dateView) {
+void Engine::add(int parent, int after, QString kind, QString dateView, std::optional<QPointF> position, bool emptyText) {
+    if (position && (!std::isfinite(position->x()) || !std::isfinite(position->y()) ||
+        std::abs(position->x()) > 1e5 || std::abs(position->y()) > 1e5)) return;
     if (!m_nodes.contains(parent))
         return;
     if (m_nodes.size() >= MaxNodes) {
@@ -420,7 +423,7 @@ void Engine::add(int parent, int after, QString kind, QString dateView) {
     n.parent = parent;
     n.kind=kind;
     n.task=kind=="text" && m_nodes.value(parent).task;
-    n.text = kind=="date" ? "Date" : !m_nodes.value(parent).meetingSection.isEmpty() ? "" : "New idea";
+    n.text = kind=="date" ? "Date" : emptyText || !m_nodes.value(parent).meetingSection.isEmpty() ? "" : "New idea";
     if(kind=="date") { n.calendar.view=dateView; n.calendar.anchor=QDate::currentDate(); }
     m_nodes.insert(n.id, n);
     auto &children = m_nodes[parent].children;
@@ -433,9 +436,19 @@ void Engine::add(int parent, int after, QString kind, QString dateView) {
     m_selected = n.id;
     m_selection = {n.id};
     rebuild();
+    if (position && m_manual) {
+        QPointF delta = *position - m_nodes[n.id].rect.center();
+        if (m_layout=="Horizontal" && parent>1 &&
+            m_nodes[parent].rect.center().x()<m_nodes[1].rect.center().x()) delta.setX(-delta.x());
+        m_nodes[n.id].manualOffset += delta;
+        rebuild();
+    }
     if(kind=="text") emit editRequested(n.id);
 }
 void Engine::addChild() { add(m_selected); }
+void Engine::addChildFromPointer(int parent, std::optional<QPointF> position) {
+    add(parent, -1, "text", "week", position, true);
+}
 void Engine::addSibling() {
     if (!m_nodes.contains(m_selected))
         return;
@@ -710,7 +723,7 @@ QByteArray Engine::documentBytes() const {
     return QJsonDocument(obj).toJson();
 }
 bool Engine::hasUnsavedChanges() const {
-    return m_documentPath.isEmpty() || edited();
+    return edited();
 }
 QString Engine::documentName() const {
     return m_documentPath.isEmpty() ? QStringLiteral("New mindmap") : QFileInfo(m_documentPath).completeBaseName();

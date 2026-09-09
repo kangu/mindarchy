@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -38,7 +39,7 @@ Dialog {
                 }
             }
         }
-        Label { visible: controller.error.length>0; text: controller.error; color: "#efaa96"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { visible: controller.error.length>0; text: controller.error; color: (ShellTheme.colors["#efaa96"] || "#efaa96"); wrapMode: Text.Wrap; Layout.fillWidth: true }
         RowLayout {
             Layout.fillWidth: true
             Button { objectName: "dateEntryRemove"; text: "Remove"; visible: dialog.existing

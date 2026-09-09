@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -26,11 +27,11 @@ Dialog {
     }
     function openColor(color) { choose(color); open() }
     onSelectedColorChanged: hex.text = selectedColor.toString()
-    background: Rectangle { color: "#17232c"; radius: 12; border.color: "#40545f" }
-    header: Label { text: picker.title; color: "#e0e9ee"; font.pixelSize: 17; font.bold: true; padding: 20; bottomPadding: 0 }
+    background: Rectangle { color: (ShellTheme.colors["#17232c"] || "#17232c"); radius: 12; border.color: (ShellTheme.colors["#40545f"] || "#40545f") }
+    header: Label { text: picker.title; color: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee"); font.pixelSize: 17; font.bold: true; padding: 20; bottomPadding: 0 }
     contentItem: ColumnLayout {
         spacing: 12
-        Label { text: "PRESETS"; color: "#94a9b7"; font.pixelSize: 10; font.letterSpacing: 1.3 }
+        Label { text: "PRESETS"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.3 }
         GridLayout {
             columns: 8; rowSpacing: 6; columnSpacing: 6; Layout.fillWidth: true
             Repeater {
@@ -46,13 +47,13 @@ Dialog {
                     background: Rectangle {
                         color: parent.modelData; radius: 5
                         border.width: parent.hovered || parent.activeFocus || Qt.colorEqual(picker.selectedColor, parent.modelData) ? 2 : 1
-                        border.color: parent.hovered || parent.activeFocus ? "#70d8c4" : "#627782"
+                        border.color: parent.hovered || parent.activeFocus ? (ShellTheme.colors["#70d8c4"] || "#70d8c4") : (ShellTheme.colors["#627782"] || "#627782")
                     }
                     ToolTip.visible: hovered; ToolTip.text: modelData
                 }
             }
         }
-        Label { text: "CUSTOM COLOR"; color: "#94a9b7"; font.pixelSize: 10; font.letterSpacing: 1.3 }
+        Label { text: "CUSTOM COLOR"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.3 }
         Rectangle {
             id: colorArea; objectName: "colorSpectrum"
             Layout.fillWidth: true; implicitHeight: 130
@@ -102,22 +103,22 @@ Dialog {
         }
         RowLayout {
             Layout.fillWidth: true
-            Label { text: "Opacity"; color: "#d5e1e9" }
+            Label { text: "Opacity"; color: (ShellTheme.colors["#d5e1e9"] || "#d5e1e9") }
             Slider { objectName: "colorOpacity"; Layout.fillWidth: true; from: 0; to: 1; value: picker.alpha
                 Accessible.name: "Opacity"; onMoved: picker.alpha = value }
-            Label { text: Math.round(picker.alpha*100) + "%"; color: "#94a9b7"; Layout.preferredWidth: 36 }
+            Label { text: Math.round(picker.alpha*100) + "%"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); Layout.preferredWidth: 36 }
         }
         RowLayout {
             Layout.fillWidth: true
             Rectangle {
-                implicitWidth: 36; implicitHeight: 36; color: "#c3cbd0"; radius: 5
-                Rectangle { anchors.fill: parent; color: picker.selectedColor; radius: 5; border.color: "#718896" }
+                implicitWidth: 36; implicitHeight: 36; color: (ShellTheme.colors["#c3cbd0"] || "#c3cbd0"); radius: 5
+                Rectangle { anchors.fill: parent; color: picker.selectedColor; radius: 5; border.color: (ShellTheme.colors["#718896"] || "#718896") }
             }
             TextField {
                 id: hex; objectName: "colorHex"; Layout.fillWidth: true; selectByMouse: true
                 Accessible.name: "Hex color, RRGGBB or AARRGGBB"
                 placeholderText: "#RRGGBB or #AARRGGBB"
-                color: picker.validHex ? "#e0e9ee" : "#ef8585"
+                color: picker.validHex ? (ShellTheme.colors["#e0e9ee"] || "#e0e9ee") : (ShellTheme.colors["#ef8585"] || "#ef8585")
                 onTextEdited: { if (picker.validHex) picker.choose(text) }
             }
         }

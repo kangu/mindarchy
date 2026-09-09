@@ -1,3 +1,4 @@
+#include "shelltheme.h"
 #include "viewportstate.h"
 #include "canvas.h"
 #include "preview.h"
@@ -167,6 +168,8 @@ int main(int argc, char **argv) {
         }
         document.setThemeId(parser.value("theme"));
     }
+    ShellTheme shellTheme;
+    qmlRegisterSingletonInstance("Mindarchy", 1, 0, "ShellTheme", &shellTheme);
     qmlRegisterUncreatableType<Engine>("Mindarchy", 1, 0, "Engine", "Provided by application");
     qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
     QQmlApplicationEngine qml;

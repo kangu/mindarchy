@@ -12,6 +12,26 @@
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void pointerChildInheritsTaskAndPersistsMirroredPosition() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        engine.setManual(true); engine.toggleTask();
+        const QPointF left(-200,100);
+        engine.addChildFromPointer(1,left);
+        const int parent=engine.selectedId();
+        QVERIFY(engine.selectedTask()); QCOMPARE(engine.nodes().value(parent).rect.center(),left);
+        engine.addChildFromPointer(parent,QPointF(-400,100));
+        engine.select(parent); engine.toggleFold();
+        const QPointF target(-450,220);
+        engine.addChildFromPointer(parent,target);
+        const int child=engine.selectedId();
+        QVERIFY(engine.selectedTask()); QVERIFY(!engine.nodes().value(parent).folded);
+        QVERIFY(QLineF(engine.nodes().value(child).rect.center(),target).length()<.001);
+        engine.undo(); QVERIFY(!engine.nodes().contains(child)); QVERIFY(engine.nodes().value(parent).folded);
+        engine.redo(); QVERIFY(engine.nodes().contains(child));
+        QTemporaryDir dir; const auto path=dir.filePath("pointer.omm");
+        QVERIFY(engine.save(path)); Engine reopened; QVERIFY(reopened.open(path));
+        QVERIFY(QLineF(reopened.nodes().value(child).rect.center(),target).length()<.001);
+    }
     void meetingTemplatePreservesChildrenAndPersists() {
         Engine e(nullptr,Engine::InitialContent::Blank);
         e.setText(1,"Product review"); e.addChild(); const int existing=e.selectedId(); e.setText(existing,"Existing note"); e.select(1);
@@ -187,7 +207,11 @@ class EngineTest : public QObject {
         Engine e(nullptr, Engine::InitialContent::Blank);
         QCOMPARE(e.documentName(), QString("New mindmap"));
         QVERIFY(!e.edited());
+        QVERIFY(!e.hasUnsavedChanges());
+        e.setText(1, "Changed new document");
         QVERIFY(e.hasUnsavedChanges());
+        e.undo();
+        QVERIFY(!e.hasUnsavedChanges());
         const QString path = dir.filePath("map.omm");
         QVERIFY(e.save(path));
         QCOMPARE(e.documentName(), QString("map"));
@@ -210,6 +234,8 @@ class EngineTest : public QObject {
     }
     void blankDocumentStartsWithOneEditableRoot() {
         Engine e(nullptr,Engine::InitialContent::Blank);
+        QCOMPARE(e.themeId(),QString("beach-day"));
+        QVERIFY(!e.hasUnsavedChanges());
         QCOMPARE(e.nodeCount(),1); QCOMPARE(e.selectedId(),1);
         QCOMPARE(e.selectedText(),QString("Central idea"));
         QVERIFY(!e.canUndo()); QVERIFY(!e.canRedo());

@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -18,15 +19,17 @@ ColumnLayout {
         ToolTip.text: text
         background: Rectangle {
             radius: 6
-            color: parent.down ? "#35505a" : parent.checked ? "#29463f" : parent.hovered ? "#2a3d48" : "transparent"
+            color: parent.down ? (ShellTheme.colors["#35505a"] || "#35505a") : parent.checked ? (ShellTheme.colors["#29463f"] || "#29463f") : parent.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent"
             border.width: parent.checked || parent.activeFocus ? 1 : 0
-            border.color: "#70d8c4"
+            border.color: (ShellTheme.colors["#70d8c4"] || "#70d8c4")
         }
-        contentItem: Image { source: "icons/" + parent.iconName + ".svg"; fillMode: Image.PreserveAspectFit; opacity: parent.enabled ? 1 : .4 }
+        icon.source: "icons/" + iconName + ".svg"
+        icon.color: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee")
+        display: AbstractButton.IconOnly
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 4
-        Label { text: "DATE"; Layout.fillWidth: true; color: "#94a9b7"; font.pixelSize: 10; font.letterSpacing: 1.5 }
+        Label { text: "DATE"; Layout.fillWidth: true; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.5 }
         Action {
             objectName: "dateNodeWeek"; iconName: "calendar-week"; text: "Week"; checked: panel.settings.view==="week"
             onClicked: { if(panel.commitEditor("")) controller.configureDateNode(controller.selectedId,"week",panel.settings.anchor) }

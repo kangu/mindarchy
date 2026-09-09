@@ -161,3 +161,11 @@ Cmd+W closes the active window after any save confirmation and removes it from s
 ## Mindarchy rename compatibility
 
 The application, executable, artwork resources and release packages now use Mindarchy. The repository directory is unchanged. The internal `blue.mindmap.lab` application/launcher identity, `blue.mindmap.omm` document type, and `mindmap-lab` v1 JSON format remain stable so existing file associations and documents continue to work. Window preferences and the session registry retain their historical storage namespace through `src/appidentity.h`; existing window geometry and reopened documents are preserved. Archived release artifacts retain their original names; the release workflow produces new `Mindarchy` packages.
+
+### Live Omarchy shell theme
+
+On Linux, Mindarchy reads `$XDG_CONFIG_HOME/omarchy/current/theme/colors.toml` (normally `~/.config/omarchy/current/theme/colors.toml`). Background, foreground, accent, and error colors drive the application shell, including panels, controls, icons, dialogs, and tooltips. Document themes, preview thumbnails, color presets, and viewport settings remain independent.
+
+Filesystem watches apply valid palette changes live, with a one-second recovery check for replaced directories or symlinks. Missing or invalid initial palettes use the built-in shell; an interrupted theme switch keeps the last valid palette until the replacement is ready. No Omarchy hooks, restart, or document writes are required. Automatic detection is Linux-only.
+
+The supported palette format and replacement behavior follow [Omarchy's theme setter](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-theme-set).

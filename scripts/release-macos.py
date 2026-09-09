@@ -167,8 +167,15 @@ def main():
             found_version = run([executable, '--version'], env=clean, capture=True, timeout=30)
             assert args.version in found_version, 'Payload executable version mismatch'
             screenshot = release / 'payload-smoke.png'
-            run([executable, '--screenshot', screenshot, '--quit-after', '1800'], env=clean, timeout=30)
+            # Use a saved document so automated shutdown cannot open the new-document save confirmation.
+            run([executable, '--document', PROJECT / 'examples/Welcome.omm',
+                 '--screenshot', screenshot, '--quit-after', '3000'], env=clean, timeout=30)
             assert screenshot.is_file(), 'Packaged QML interface did not produce a screenshot'
+            # Verify the shipped first-launch experience as well as opening an existing file.
+            first_launch = release / 'first-launch.png'
+            run([executable, '--new', '--screenshot', first_launch, '--quit-after', '3000'],
+                env=clean, timeout=30)
+            assert first_launch.is_file(), 'Packaged first launch did not produce a screenshot'
             preview_png = release / 'document-preview.png'
             run([executable, '--render-preview', PROJECT / 'examples/Welcome.omm',
                  '--preview-output', preview_png], env=clean, timeout=30)

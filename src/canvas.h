@@ -82,6 +82,7 @@ class MindCanvas : public QQuickItem {
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
+    void mouseUngrabEvent() override;
     void hoverMoveEvent(QHoverEvent *) override;
     void hoverLeaveEvent(QHoverEvent *) override;
     void wheelEvent(QWheelEvent *) override;
@@ -132,6 +133,13 @@ class MindCanvas : public QQuickItem {
     qreal taskProgress(int id) const;
     QColor nodeColor(int id) const;
     void updateDrop(QPointF screen);
+    QRectF creationHandleRect() const;
+    QPointF creationAnchor(int id, std::optional<QPointF> toward = {}) const;
+    QPolygonF creationPreview() const;
+    void cancelCreation();
+    int m_creatingParent = -1;
+    bool m_creationDragged = false;
+    QPointF m_creationEnd;
     QColor m_canvasColor = QColor("#111920");
     Engine *m_engine = nullptr;
     double m_zoom = 1.;

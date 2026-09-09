@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -8,7 +9,7 @@ ColumnLayout {
     required property var commitEditor
     readonly property bool meeting: controller.selectedMeeting.date !== undefined
     spacing: 8
-    Label { text: panel.meeting ? "MEETING DETAILS" : "TEMPLATE"; color: "#94a9b7"; font.pixelSize: 10; font.letterSpacing: 1.5 }
+    Label { text: panel.meeting ? "MEETING DETAILS" : "TEMPLATE"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.5 }
     Button {
         objectName: "applyMeetingTemplate"; visible: !panel.meeting; Layout.fillWidth: true
         text: "Meeting Notes"; enabled: controller.selection.length===1

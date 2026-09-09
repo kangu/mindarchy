@@ -6,6 +6,7 @@ The prototype stores local versioned JSON documents. Large test fixtures are ava
 
 - Click a node to select it; Shift-click extends the selection.
 - Double-click or Ctrl/Command-Return edits the selected title.
+- Hover a node to reveal its  handle. Click it to create an empty child and start typing. Drag it to preview a branch, then release: Manual placement keeps the child at the drop point; automatic placement arranges it in the tree. Escape or releasing outside the canvas cancels the drag. Creation is one undoable action.
 - Tab creates a child; Return creates a sibling (a child when the root is selected).
 - Arrow keys navigate the tree; Shift-arrow extends selection.
 - Delete/Backspace deletes the selected branch. Undo restores it.

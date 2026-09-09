@@ -8,6 +8,90 @@
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void creationPreviewRenders() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        QQuickWindow window; window.resize(1000,700);
+        auto *canvas=new MindCanvas(window.contentItem()); canvas->setSize({1000,700});
+        canvas->setEngine(&engine); canvas->fit();
+        canvas->m_hovered=1; canvas->m_creatingParent=1; canvas->m_creationDragged=true;
+        canvas->m_creationEnd=canvas->mapToWorld({750,180}); canvas->refresh();
+        window.show(); QVERIFY(QTest::qWaitForWindowExposed(&window)); QTest::qWait(150);
+        const auto image=window.grabWindow(); QVERIFY(!image.isNull());
+        if(const auto path=qEnvironmentVariable("MINDARCHY_CREATION_SCREENSHOT"); !path.isEmpty())
+            QVERIFY(image.save(path));
+    }
+    void hoverHandleCreatesChildWithClick() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        QQuickWindow window; window.resize(1000,700);
+        auto *canvas=new MindCanvas(window.contentItem()); canvas->setSize({1000,700});
+        canvas->setEngine(&engine); canvas->fit(); window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTest::mouseMove(&window,canvas->mapFromWorld(engine.nodes().value(1).rect.center()).toPoint());
+        QTRY_COMPARE(canvas->hoveredId(),1);
+        const auto handle=canvas->creationHandleRect();
+        QCOMPARE(handle.size(),QSizeF(24,24));
+        QTest::mouseMove(&window,handle.center().toPoint());
+        QCOMPARE(canvas->hoveredId(),1);
+        QTest::mouseClick(&window,Qt::LeftButton,Qt::NoModifier,handle.center().toPoint());
+        QCOMPARE(engine.nodeCount(),2);
+        const int child=engine.selectedId();
+        QCOMPARE(engine.nodes().value(child).parent,1);
+        QVERIFY(engine.selectedText().isEmpty()); QVERIFY(canvas->editing());
+        canvas->endEdit(); engine.undo(); QCOMPARE(engine.nodeCount(),1);
+        engine.redo(); QCOMPARE(engine.nodeCount(),2);
+    }
+    void dragCreationPositionsOnlyInManualLayout() {
+        for (const QString layout : {QString("Horizontal"),QString("Vertical"),QString("Compact")}) {
+            for(bool manual : {false,true}) {
+                if(manual && layout=="Compact") continue;
+                Engine engine(nullptr,Engine::InitialContent::Blank);
+                engine.setLayout(layout); engine.setManual(manual);
+                QQuickWindow window; window.resize(1000,700);
+                auto *canvas=new MindCanvas(window.contentItem()); canvas->setSize({1000,700});
+                canvas->setEngine(&engine); canvas->fit(); window.show();
+                QVERIFY(QTest::qWaitForWindowExposed(&window));
+                QTest::mouseMove(&window,canvas->mapFromWorld(engine.nodes().value(1).rect.center()).toPoint());
+                QTRY_COMPARE(canvas->hoveredId(),1);
+                const auto handle=canvas->creationHandleRect().center().toPoint();
+                const QPoint drop(180,180); const auto worldDrop=canvas->mapToWorld(drop);
+                QTest::mousePress(&window,Qt::LeftButton,Qt::NoModifier,handle);
+                QTest::mouseMove(&window,drop,30);
+                QCOMPARE(engine.nodeCount(),1);
+                QVERIFY(canvas->m_creationDragged);
+                QVERIFY(!canvas->creationPreview().isEmpty());
+                QCOMPARE(canvas->creationPreview().last(),worldDrop);
+                if(const auto screenshot=qEnvironmentVariable("MINDARCHY_CREATION_SCREENSHOT");
+                   !screenshot.isEmpty() && manual && layout=="Horizontal") {
+                    QTest::qWait(50); QVERIFY(window.grabWindow().save(screenshot));
+                }
+                QTest::mouseRelease(&window,Qt::LeftButton,Qt::NoModifier,drop);
+                QCOMPARE(engine.nodeCount(),2);
+                const auto child=engine.nodes().value(engine.selectedId());
+                QCOMPARE(child.parent,1);
+                if(manual) QVERIFY(QLineF(child.rect.center(),worldDrop).length()<.001);
+                else { QCOMPARE(child.manualOffset,QPointF()); QVERIFY(QLineF(child.rect.center(),worldDrop).length()>10); }
+                canvas->endEdit(); engine.undo(); QCOMPARE(engine.nodeCount(),1);
+                engine.redo(); QCOMPARE(engine.nodeCount(),2);
+                if(manual) QVERIFY(QLineF(engine.nodes().value(engine.selectedId()).rect.center(),worldDrop).length()<.001);
+            }
+        }
+    }
+    void escapeCancelsDraggedChildWithoutEditingDocument() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        QQuickWindow window; window.resize(1000,700);
+        auto *canvas=new MindCanvas(window.contentItem()); canvas->setSize({1000,700});
+        canvas->setEngine(&engine); canvas->fit(); window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTest::mouseMove(&window,canvas->mapFromWorld(engine.nodes().value(1).rect.center()).toPoint());
+        QTRY_COMPARE(canvas->hoveredId(),1);
+        const auto handle=canvas->creationHandleRect().center().toPoint();
+        QTest::mousePress(&window,Qt::LeftButton,Qt::NoModifier,handle);
+        QTest::mouseMove(&window,QPoint(700,200),30);
+        QTest::keyClick(&window,Qt::Key_Escape);
+        QTest::mouseRelease(&window,Qt::LeftButton,Qt::NoModifier,QPoint(700,200));
+        QCOMPARE(engine.nodeCount(),1); QVERIFY(!engine.edited()); QVERIFY(!engine.canUndo());
+        QVERIFY(canvas->creationPreview().isEmpty());
+    }
     void viewportPersistsPerFileOutsideDocument() {
         QTemporaryDir dir;
         const auto path = dir.filePath("first.omm"), second = dir.filePath("second.omm");

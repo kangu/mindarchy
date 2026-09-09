@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 
 Button {
@@ -12,9 +13,9 @@ Button {
     Accessible.name: theme.name + (checked ? ", current theme" : ", apply theme")
     background: Rectangle {
         radius: 9
-        color: card.down ? "#334653" : "#23323c"
+        color: card.down ? (ShellTheme.colors["#334653"] || "#334653") : (ShellTheme.colors["#23323c"] || "#23323c")
         border.width: card.checked || card.activeFocus ? 2 : 1
-        border.color: card.checked || card.activeFocus ? "#70d8c4" : "#3a4b57"
+        border.color: card.checked || card.activeFocus ? (ShellTheme.colors["#70d8c4"] || "#70d8c4") : (ShellTheme.colors["#3a4b57"] || "#3a4b57")
     }
     contentItem: Item {
         Canvas {
@@ -111,14 +112,14 @@ Button {
         Row {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.bottomMargin: card.hasRecipe ? 35 : 7; anchors.leftMargin: 7; anchors.rightMargin: 7
             spacing: 7
-            Label { text: card.checked ? "✓" : ""; color: "#70d8c4"; width: 12 }
-            Label { text: card.theme.name; color: "#e0e9ee"; font.pixelSize: 12; font.bold: card.checked }
+            Label { text: card.checked ? "✓" : ""; color: (ShellTheme.colors["#70d8c4"] || "#70d8c4"); width: 12 }
+            Label { text: card.theme.name; color: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee"); font.pixelSize: 12; font.bold: card.checked }
         }
         Label {
             visible: card.hasRecipe
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 7
             text: card.hasRecipe ? card.theme.recipe.name + " · " + card.theme.recipe.layout : ""
-            color: "#a7bdcb"; font.pixelSize: 10; elide: Text.ElideRight
+            color: (ShellTheme.colors["#94a9b7"] || "#a7bdcb"); font.pixelSize: 10; elide: Text.ElideRight
         }
     }
 }

@@ -1,3 +1,4 @@
+#include "shelltheme.h"
 #include "../src/canvas.h"
 #include "../src/engine.h"
 #include <QGuiApplication>
@@ -12,6 +13,7 @@
 
 class UiTest : public QObject {
     Q_OBJECT
+    QTemporaryDir shellThemeDirectory;
     Engine *document = nullptr;
     QQmlApplicationEngine *qml = nullptr;
     QQuickWindow *window = nullptr;
@@ -177,6 +179,38 @@ class UiTest : public QObject {
         QCOMPARE(loaded.selectedText(), QString("Saved by toolbar"));
         QVERIFY(window->isVisible());
     }
+    void mouseHandleStartsTypingInNewChild() {
+        document->select(-1);
+        const int parent=2, before=document->nodeCount();
+        const auto rect=canvas->nodeRect(parent);
+        const auto anchor=canvas->mapFromWorld({rect.right(),rect.center().y()});
+        QTest::mouseMove(window,canvas->mapToScene(canvas->mapFromWorld(rect.center())).toPoint());
+        QTRY_COMPARE(canvas->hoveredId(),parent);
+        QTest::mouseMove(window,canvas->mapToScene(anchor+QPointF(18,0)).toPoint());
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(anchor+QPointF(18,0)).toPoint());
+        QCOMPARE(document->nodeCount(),before+1);
+        QCOMPARE(document->nodes().value(document->selectedId()).parent,parent);
+        QTRY_VERIFY(editor->hasActiveFocus());
+        type("Created with mouse");
+        QTest::keyClick(window,Qt::Key_Escape);
+        QTextDocument text; text.setHtml(document->selectedText());
+        QCOMPARE(text.toPlainText(),QString("Created with mouse"));
+    }
+    void untouchedNewDocumentClosesWithoutPrompt() {
+        Engine blank(nullptr,Engine::InitialContent::Blank);
+        window->setProperty("controller",QVariant::fromValue(&blank));
+        canvas->beginEdit(1);
+        QTRY_VERIFY(editor->hasActiveFocus());
+        QVERIFY(!blank.edited());
+        QVERIFY(QMetaObject::invokeMethod(window,"requestClose",Q_ARG(QVariant,false),Q_ARG(QVariant,false)));
+        QTRY_VERIFY(!window->isVisible());
+        QVERIFY(!blank.edited());
+        auto *dialog=window->findChild<QObject *>("closeConfirmation");
+        QVERIFY(dialog); QVERIFY(!dialog->property("visible").toBool());
+        window->setProperty("controller",QVariant::fromValue(document));
+        window->setProperty("allowClose",false);
+        window->show();
+    }
     void closeConfirmationCanCancelOrSave() {
         QTemporaryDir dir;
         QVERIFY(!window->close());
@@ -199,6 +233,8 @@ class UiTest : public QObject {
         window->show();
     }
     void initTestCase() {
+        auto *shellTheme = new ShellTheme(shellThemeDirectory.path(), this);
+        qmlRegisterSingletonInstance("Mindarchy", 1, 0, "ShellTheme", shellTheme);
         qmlRegisterUncreatableType<Engine>("Mindarchy", 1, 0, "Engine", "Provided by application");
         qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
         document = new Engine(this);
@@ -229,6 +265,45 @@ class UiTest : public QObject {
         QVERIFY(canvas->hasActiveFocus());
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
+    }
+    void systemThemeUpdatesShellLive() {
+        const QString root=shellThemeDirectory.path();
+        auto writeTheme=[&](QString directory,QByteArray background,QByteArray foreground) {
+            QDir().mkpath(directory);
+            QFile file(directory+"/colors.toml");
+            if(!file.open(QIODevice::WriteOnly)) return false;
+            return file.write("background = '"+background+"'\nforeground = '"+foreground+"'\naccent = '#7aa2f7'\n")>0;
+        };
+        auto *toolbar=window->findChild<QQuickItem *>("mainToolbar"); QVERIFY(toolbar);
+        const auto documentTheme=document->themeId();
+        const auto mapPath=root+"/map.omm";
+        QVERIFY(document->save(mapPath));
+        QFile mapFile(mapPath); QVERIFY(mapFile.open(QIODevice::ReadOnly));
+        const auto before=mapFile.readAll(); mapFile.close();
+        const auto zoom=canvas->zoom();
+        QVERIFY(writeTheme(root+"/theme","#1a1b26","#a9b1d6"));
+        QTRY_COMPARE_WITH_TIMEOUT(toolbar->property("color").value<QColor>(),QColor("#1a1b26"),2500);
+        QCOMPARE(window->property("ink").value<QColor>(),QColor("#a9b1d6"));
+        // Omarchy removes the current directory and renames a freshly generated one.
+        QVERIFY(writeTheme(root+"/next-theme","#faf4ed","#575279"));
+        QVERIFY(QDir(root+"/theme").removeRecursively());
+        QVERIFY(QDir().rename(root+"/next-theme",root+"/theme"));
+        QTRY_COMPARE_WITH_TIMEOUT(toolbar->property("color").value<QColor>(),QColor("#faf4ed"),2500);
+        QCOMPARE(window->property("ink").value<QColor>(),QColor("#575279"));
+        if (const auto screenshot=qEnvironmentVariable("MINDARCHY_TEST_SCREENSHOT"); !screenshot.isEmpty()) {
+            QTest::qWait(100); QVERIFY(window->grabWindow().save(screenshot));
+        }
+        QCOMPARE(document->themeId(),documentTheme);
+        QVERIFY(!document->hasUnsavedChanges());
+        QVERIFY(document->save(mapPath));
+        QVERIFY(mapFile.open(QIODevice::ReadOnly)); QCOMPARE(mapFile.readAll(),before); mapFile.close();
+        QCOMPARE(canvas->zoom(),zoom);
+        QFile malformed(root+"/theme/colors.toml"); QVERIFY(malformed.open(QIODevice::WriteOnly));
+        malformed.write("background = 'invalid'"); malformed.close();
+        QTest::qWait(1200);
+        QCOMPARE(toolbar->property("color").value<QColor>(),QColor("#faf4ed"));
+        QVERIFY(writeTheme(root+"/theme","#1a1b26","#a9b1d6"));
+        QTRY_COMPARE_WITH_TIMEOUT(toolbar->property("color").value<QColor>(),QColor("#1a1b26"),2500);
     }
     void resizingWindowPreservesUserZoom() {
         const auto originalSize=window->size();

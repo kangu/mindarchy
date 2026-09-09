@@ -1,4 +1,5 @@
 import QtQuick
+import Mindarchy 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -19,14 +20,14 @@ ColumnLayout {
     }
     component Section: Label {
         Layout.fillWidth: true; topPadding: 10
-        color: "#94a9b7"; font.pixelSize: 10; font.letterSpacing: 1.5
+        color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.5
     }
     component Choice: ColumnLayout {
         required property string label
         required property string field
         required property var choices
         spacing: 4; Layout.fillWidth: true
-        Label { text: parent.label + (panel.mixed(parent.field) ? " · Mixed" : ""); color: "#d5e1e9" }
+        Label { text: parent.label + (panel.mixed(parent.field) ? " · Mixed" : ""); color: (ShellTheme.colors["#d5e1e9"] || "#d5e1e9") }
         ComboBox {
             id: combo; objectName: "style-" + parent.field
             Layout.fillWidth: true; model: parent.choices; textRole: "label"; valueRole: "value"
@@ -42,7 +43,7 @@ ColumnLayout {
         property int maximum: 20
         property int factor: maximum === 20 ? 10 : 1
         Layout.fillWidth: true
-        Label { Layout.fillWidth: true; text: parent.label + (panel.mixed(parent.field) ? " · Mixed" : ""); color: "#d5e1e9" }
+        Label { Layout.fillWidth: true; text: parent.label + (panel.mixed(parent.field) ? " · Mixed" : ""); color: (ShellTheme.colors["#d5e1e9"] || "#d5e1e9") }
         SpinBox {
             objectName: "style-" + parent.field; Layout.preferredWidth: 112
             from: parent.minimum * parent.factor; to: parent.maximum * parent.factor; editable: true
@@ -57,12 +58,12 @@ ColumnLayout {
         required property string label
         required property string field
         Layout.fillWidth: true
-        Label { Layout.fillWidth: true; text: fieldRow.label; color: "#d5e1e9" }
+        Label { Layout.fillWidth: true; text: fieldRow.label; color: (ShellTheme.colors["#d5e1e9"] || "#d5e1e9") }
         Button {
             objectName: "style-" + fieldRow.field + "-picker"
             implicitWidth: 36; implicitHeight: 32
             Accessible.name: fieldRow.label + " color"
-            contentItem: Rectangle { color: panel.values[fieldRow.field] || "transparent"; radius: 4; border.color: "#718896"
+            contentItem: Rectangle { color: panel.values[fieldRow.field] || "transparent"; radius: 4; border.color: (ShellTheme.colors["#718896"] || "#718896")
                 Label { anchors.centerIn: parent; text: panel.mixed(fieldRow.field) ? "…" : ""; color: "white" }
             }
             onClicked: { if (!panel.commitEditor("")) return; picker.openColor(panel.values[fieldRow.field]) }
