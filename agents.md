@@ -1,3 +1,3 @@
-## Persist documentation after finishing working on tasks
+## Run after each task
 - Persist inside docs/progress folder the Implementation Summary dumped in the terminal for the current task. Between the Initial Prompt and the Implementation Summary, also include the Plan that was followed to perform the implementation, then the proposed Next Steps.
   The filename should be the normalized iso datetime timestamp plus the extracted relevant title for the feature/task that was worked on.

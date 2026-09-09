@@ -735,6 +735,7 @@ bool Engine::save(QString path) {
     m_documentPath = localPath(path);
     m_error.clear();
     emit changed();
+    emit documentSaved();
     return true;
 }
 bool Engine::open(QString path) {

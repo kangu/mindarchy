@@ -1,3 +1,4 @@
+#include "viewportstate.h"
 #include "canvas.h"
 #include "preview.h"
 #include <QFileOpenEvent>
@@ -187,6 +188,12 @@ int main(int argc, char **argv) {
     if (qml.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(qml.rootObjects().first());
+    QSettings viewportSettings("Mindarchy", "Mindarchy");
+    std::unique_ptr<ViewportState> viewportState;
+    if (sessionEnabled && window) {
+        if (auto *canvas = window->findChild<MindCanvas *>("mindCanvas"))
+            viewportState = std::make_unique<ViewportState>(canvas, &document, &viewportSettings);
+    }
     QTimer sessionPoll;
     if (session && window) {
         QObject::connect(&document, &Engine::windowCloseApproved, &app, [&](bool forget) {
@@ -277,7 +284,7 @@ int main(int argc, char **argv) {
         if(freshDocument) {
             freshDocument=false;
             if(document.open(path) && window)
-                if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas")) canvas->fit();
+                if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas")) canvas->initializeView();
         } else openInNewInstance(path);
     };
     for(const auto &path:app.pendingFiles) app.openFile(path);
@@ -286,7 +293,7 @@ int main(int argc, char **argv) {
     if(window) window->setVisible(true);
     if(window && !startedWithFile && !parser.isSet("nodes") && !parser.isSet("render-benchmark")) {
         QTimer::singleShot(0,window,[window] {
-            if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas")) {
+            if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas"); canvas && canvas->engine()->documentPath().isEmpty()) {
                 canvas->fit(); canvas->beginEdit(1);
             }
         });

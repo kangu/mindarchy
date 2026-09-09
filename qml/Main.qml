@@ -19,7 +19,7 @@ ApplicationWindow {
     title: controller.documentName
     color: "#111920"
     property var controller: engine
-    property bool outlineVisible: width >= 1100
+    property bool outlineVisible: false
     property bool inspectorVisible: width >= 1000
     property string exportStatus: ""
     readonly property bool documentEdited: controller.edited ||
@@ -258,7 +258,7 @@ ApplicationWindow {
 
     FileDialog {
         id: openDialog; title: "Open Mindarchy document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
-        onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.fit(); canvas.forceActiveFocus() }
+        onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.initializeView(); canvas.forceActiveFocus() }
     }
     FileDialog {
         id: saveDialog; title: "Save Mindarchy document"; fileMode: FileDialog.SaveFile
@@ -309,7 +309,7 @@ ApplicationWindow {
                         }
                         Item {
                             id: documentTitleArea
-                            visible: window.width >= 950
+                            visible: window.width >= 1100
                             readonly property bool canReveal: { controller.documentName; return window.integratedMacToolbar && controller.documentPath().length > 0 }
                             implicitWidth: Math.min(180, documentNameLabel.implicitWidth) + 20
                             implicitHeight: documentTitleColumn.implicitHeight
@@ -364,6 +364,23 @@ ApplicationWindow {
                         id: panelActions; objectName: "panelActions"
                         anchors.right: parent.right; height: parent.height
                         width: implicitWidth; spacing: window.width < 800 ? 4 : 6
+                        RowLayout {
+                            id: zoomControls; objectName: "zoomControls"; spacing: 4
+                            ToolbarButton { iconName: "zoom-out"; text: "Zoom out"; onClicked: canvas.zoomOut() }
+                            ToolbarButton {
+                                objectName: "zoomPercentage"
+                                iconName: ""; text: "Actual size (100%)"; Layout.preferredWidth: 60
+                                onClicked: canvas.resetZoom()
+                                contentItem: Text {
+                                    text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"
+                                    color: window.ink; font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                            ToolbarButton { iconName: "zoom-in"; text: "Zoom in"; onClicked: canvas.zoomIn() }
+                            ToolbarButton { iconName: "maximize"; text: "Fit map"; onClicked: canvas.fit() }
+                        }
+                        Rectangle { implicitWidth: 1; implicitHeight: 24; color: "#34434c"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
                         ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
                         ToolbarButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
                     }
@@ -461,25 +478,6 @@ ApplicationWindow {
                                 else if (event.key === Qt.Key_Tab) { window.commitEditor("child"); event.accepted = true }
                             }
                         }
-                    }
-                }
-                Rectangle {
-                    anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 20
-                    width: zoomControls.implicitWidth + 16; height: 44; radius: 9; color: "#1c2b35"; border.color: "#34454f"
-                    Row { id: zoomControls; anchors.centerIn: parent; spacing: 5
-                        IconButton { iconName: "zoom-out"; text: "Zoom out"; width: 32; onClicked: canvas.zoomOut() }
-                        IconButton {
-                            objectName: "zoomPercentage"
-                            iconName: ""; text: "Actual size (100%)"; width: 60
-                            onClicked: canvas.resetZoom()
-                            contentItem: Text {
-                                text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"
-                                color: window.ink; font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        IconButton { iconName: "zoom-in"; text: "Zoom in"; width: 32; onClicked: canvas.zoomIn() }
-                        IconButton { iconName: "maximize"; text: "Fit map"; onClicked: canvas.fit() }
                     }
                 }
             }
@@ -629,9 +627,6 @@ ApplicationWindow {
         width: exportMessage.implicitWidth + 28; height: 38; radius: 8; color: "#29463f"
         Label { id: exportMessage; anchors.centerIn: parent; text: window.exportStatus; color: window.ink }
     }
-    onWidthChanged: resizeTimer.restart()
-    onHeightChanged: resizeTimer.restart()
-    Timer { id: resizeTimer; interval: 100; onTriggered: { if (!canvas.editing) canvas.fit() } }
     Timer { id: exportTimer; interval: 5000; onTriggered: window.exportStatus = "" }
-    Component.onCompleted: Qt.callLater(function() { canvas.fit(); canvas.forceActiveFocus() })
+    Component.onCompleted: Qt.callLater(function() { canvas.initializeView(); canvas.forceActiveFocus() })
 }

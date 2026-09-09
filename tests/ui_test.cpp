@@ -230,12 +230,44 @@ class UiTest : public QObject {
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
     }
+    void resizingWindowPreservesUserZoom() {
+        const auto originalSize=window->size();
+        const bool outline=window->property("outlineVisible").toBool();
+        const bool inspector=window->property("inspectorVisible").toBool();
+        canvas->resetZoom();
+        canvas->zoomIn();
+        canvas->panBy(135,-80);
+        const double zoom=canvas->zoom();
+        const auto center=canvas->mapToWorld({canvas->width()/2,canvas->height()/2});
+        auto checkView=[&] {
+            QCOMPARE(canvas->zoom(),zoom);
+            QVERIFY(QLineF(canvas->mapToWorld({canvas->width()/2,canvas->height()/2}),center).length()<.000001);
+        };
+        for (const QSize size : {QSize(950,650),QSize(1380,900),QSize(700,750)}) {
+            window->resize(size);
+            QTest::qWait(250);
+            checkView();
+        }
+        window->setProperty("outlineVisible",!outline);
+        window->setProperty("inspectorVisible",!inspector);
+        QTest::qWait(250);
+        checkView();
+        window->setProperty("outlineVisible",outline);
+        window->setProperty("inspectorVisible",inspector);
+        window->resize(originalSize);
+    }
     void toolbarGroupsAndNewDocument() {
         auto *left=window->findChild<QQuickItem *>("documentActions");
         auto *center=window->findChild<QQuickItem *>("editingActions");
         auto *right=window->findChild<QQuickItem *>("panelActions");
         auto *button=window->findChild<QQuickItem *>("newDocumentButton");
         QVERIFY(left); QVERIFY(center); QVERIFY(right); QVERIFY(button);
+        auto *zoom=window->findChild<QQuickItem *>("zoomControls"); QVERIFY(zoom);
+        QVERIFY(zoom->mapToScene(QPointF(0,zoom->height())).y()<=canvas->mapToScene(QPointF()).y());
+        auto *percentage=window->findChild<QQuickItem *>("zoomPercentage"); QVERIFY(percentage);
+        canvas->zoomIn();
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,percentage->mapToScene(QPointF(percentage->width()/2,percentage->height()/2)).toPoint());
+        QCOMPARE(canvas->zoom(),1.);
         auto x=[](QQuickItem *item) {return item->mapToScene(QPointF()).x();};
         QVERIFY(x(left)+left->width()<x(center));
         QVERIFY(x(center)+center->width()<x(right));
@@ -250,7 +282,9 @@ class UiTest : public QObject {
             window->resize(width,900); QTest::qWait(100);
             QVERIFY(x(left)+left->width()<x(center));
             QVERIFY(x(center)+center->width()<x(right));
-            QVERIFY(x(left)>=0); QVERIFY(x(right)+right->width()<=window->width());
+            QVERIFY(x(left)>=0);
+            if(width>=950) QVERIFY(x(right)+right->width()<=window->width());
+            else QVERIFY(right->parentItem()->width()>=x(right)+right->width()-x(left));
         }
         window->resize(originalSize);
     }

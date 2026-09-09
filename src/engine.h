@@ -140,6 +140,7 @@ class Engine : public QObject {
     Q_INVOKABLE bool save(QString path);
     Q_INVOKABLE bool open(QString path);
   signals:
+    void documentSaved();
     void nativeCloseRequested();
     void nativeSaveRequested();
     void nativeFolderMenuRequested(double x, double y);

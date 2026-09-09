@@ -606,6 +606,8 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
 }
 void MindCanvas::geometryChange(const QRectF &a, const QRectF &b) {
     QQuickItem::geometryChange(a, b);
+    // Resizing (including panel toggles) preserves user zoom and the world-space center.
+    // Never fit here: fit is an explicit action or document initialization.
     m_pan += QPointF((a.width() - b.width()) / 2, (a.height() - b.height()) / 2);
     refresh();
 }
@@ -618,6 +620,14 @@ void MindCanvas::zoomAt(QPointF p, double factor) {
 void MindCanvas::zoomIn() { zoomAt({width() / 2, height() / 2}, 1.25); }
 void MindCanvas::zoomOut() { zoomAt({width() / 2, height() / 2}, .8); }
 void MindCanvas::resetZoom() { zoomAt({width() / 2, height() / 2}, 1. / m_zoom); }
+bool MindCanvas::restoreView(double zoom, QPointF center) {
+    if (!std::isfinite(zoom) || zoom < .00001 || zoom > 4. ||
+        !std::isfinite(center.x()) || !std::isfinite(center.y())) return false;
+    m_zoom = zoom;
+    m_pan = QPointF(width()/2, height()/2) - center * zoom;
+    refresh();
+    return true;
+}
 void MindCanvas::fit() {
     if (!m_engine || width() < 10 || height() < 10)
         return;

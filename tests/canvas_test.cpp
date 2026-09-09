@@ -1,4 +1,6 @@
 #include "canvas.h"
+#include "viewportstate.h"
+#include <QTemporaryDir>
 #include "engine.h"
 #include "drawing.h"
 #include <QQuickWindow>
@@ -6,6 +8,37 @@
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void viewportPersistsPerFileOutsideDocument() {
+        QTemporaryDir dir;
+        const auto path = dir.filePath("first.omm"), second = dir.filePath("second.omm");
+        QSettings settings(dir.filePath("views.ini"), QSettings::IniFormat);
+        Engine engine; QVERIFY(engine.save(path));
+        QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); const auto bytes=file.readAll(); file.close();
+        QPointF center;
+        double zoom;
+        {
+            MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&engine);
+            ViewportState state(&canvas,&engine,&settings);
+            canvas.initializeView(); canvas.zoomIn(); canvas.panBy(213,-127);
+            center=canvas.mapToWorld({500,350}); zoom=canvas.zoom();
+        }
+        QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(),bytes); file.close();
+        QVERIFY(engine.open(path));
+        MindCanvas canvas; canvas.setSize({800,600}); canvas.setEngine(&engine);
+        ViewportState state(&canvas,&engine,&settings); canvas.initializeView();
+        QCOMPARE(canvas.zoom(),zoom); QVERIFY(QLineF(canvas.mapToWorld({400,300}),center).length()<.000001);
+        canvas.setSize({1200,900});
+        QVERIFY(QLineF(canvas.mapToWorld({600,450}),center).length()<.000001);
+        QVERIFY(engine.save(second)); canvas.panBy(50,30); state.flush();
+        QVERIFY(engine.open(path)); canvas.initializeView();
+        QCOMPARE(canvas.zoom(),zoom); QVERIFY(QLineF(canvas.mapToWorld({600,450}),center).length()<.000001);
+        settings.setValue(ViewportState::keyFor(path),QVariantList{0.,0.,0.});
+        // A separate new canvas must fall back to fitting an invalid stored view.
+        Engine other; QVERIFY(other.open(path));
+        MindCanvas fallback; fallback.setSize({1000,700}); fallback.setEngine(&other);
+        ViewportState invalid(&fallback,&other,&settings); fallback.initializeView();
+        QVERIFY(fallback.zoom()>0); QVERIFY(std::isfinite(fallback.panX()));
+    }
     void automaticReorderAcceptsDistantEdgeDrops() {
         Engine engine; engine.loadFixture(15); engine.setManual(false);
         MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&engine);

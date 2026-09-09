@@ -51,6 +51,8 @@ class MindCanvas : public QQuickItem {
     Q_INVOKABLE void formatText(QObject *editor, QString command);
     Q_INVOKABLE QVariantMap appearanceForNode(int id) const;
     Q_INVOKABLE void fit();
+    Q_INVOKABLE void initializeView() { emit viewInitializing(); fit(); emit viewInitialized(); }
+    bool restoreView(double zoom, QPointF center);
     Q_INVOKABLE void zoomIn();
     Q_INVOKABLE void zoomOut();
     Q_INVOKABLE void resetZoom();
@@ -61,6 +63,8 @@ class MindCanvas : public QQuickItem {
     Q_INVOKABLE bool commitEditing(QString text);
     Q_INVOKABLE bool exportPng(QString path);
   signals:
+    void viewInitializing();
+    void viewInitialized();
     void engineChanged();
     void viewChanged();
     void metricsChanged();
