@@ -55,6 +55,7 @@ class Engine : public QObject {
     Q_PROPERTY(int connectionCount READ connectionCount NOTIFY changed)
     Q_PROPERTY(QString themeId READ themeId WRITE setThemeId NOTIFY changed)
     Q_PROPERTY(QVariantList themes READ themes CONSTANT)
+    Q_PROPERTY(QVariantList nodeTemplates READ nodeTemplates CONSTANT)
     Q_PROPERTY(QVariantMap selectedStyle READ selectedStyle NOTIFY changed)
     Q_PROPERTY(QStringList fontFamilies READ fontFamilies CONSTANT)
     Q_PROPERTY(QColor canvasColor READ canvasColor NOTIFY changed)
@@ -78,7 +79,11 @@ class Engine : public QObject {
     QVariantMap selectedCalendar() const;
     QVariantMap selectedMeeting() const { return m_nodes.value(m_selected).meeting; }
     QString selectedEntryPrompt() const;
-    Q_INVOKABLE bool applyMeetingTemplate();
+    Q_INVOKABLE QVariantList searchNodes(QString query) const;
+    bool revealSearchNode(int id);
+    QVariantList nodeTemplates() const;
+    Q_INVOKABLE QVariantMap templateCalendar(QString anchor = {}, int monthOffset = 0) const;
+    Q_INVOKABLE bool addNodeTemplate(QString templateId, QString weekDate);
     Q_INVOKABLE bool updateMeeting(QString date, QString time, QString attendees);
     Q_INVOKABLE void addDateNode(QString view);
     Q_INVOKABLE bool setNodeKind(int id, QString kind);
@@ -141,6 +146,9 @@ class Engine : public QObject {
     Q_INVOKABLE QString documentPath() const { return m_documentPath; }
     Q_INVOKABLE bool save(QString path);
     Q_INVOKABLE bool open(QString path);
+    quint64 recoveryRevision() const { return m_documentRevision; }
+    bool saveRecovery(const QString &path, const QVariantMap &ui);
+    bool openRecovery(const QString &path, QVariantMap *ui = nullptr);
   signals:
     void documentSaved();
     void nativeCloseRequested();
@@ -155,6 +163,7 @@ class Engine : public QObject {
     void editRequested(int id);
 
   private:
+    bool addMeetingTemplate();
     struct State {
         QHash<int, MapNode> nodes;
         QVector<QPair<int, int>> connections;
@@ -163,6 +172,7 @@ class Engine : public QObject {
         int selected, nextId;
         QSet<int> selection;
     };
+    bool loadDocumentBytes(const QByteArray &bytes, const QString &path);
     QByteArray documentBytes() const;
     QByteArray m_savedBytes;
     quint64 m_documentRevision = 0;

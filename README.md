@@ -123,7 +123,7 @@ GPU rendering uses Qt's backend abstraction. Native Wayland/OpenGL was verified 
 
 This is a test vehicle, not complete MindNode parity. It has one root, a 10,000-node limit and maximum depth 512. Layout still recomputes the visible tree, although text measurements are cached. Undo uses bounded copy-on-write snapshots (40 entries / 200,000 retained node records), not a final delta-command implementation. Inactive text uses cached raster labels; a final editor should evaluate scalable text rendering. Raster budgets may omit labels in extreme scenes.
 
-Titles/notes are bounded to 16,384 characters and imports to 20 MB. Oversized title geometry is rejected before replacing the document. Relationships are simple untitled connectors. Left/right balanced maps, images/attachments, custom theme editing/import, MindNode file interchange, clipboard branch interchange, SQLite/autorecovery, collaboration, screen-reader parity, native printing and production installers remain outside this prototype. Trackpad/IME/device behavior requires human testing on target hardware.
+Titles/notes are bounded to 16,384 characters and imports to 20 MB. Oversized title geometry is rejected before replacing the document. Relationships are simple untitled connectors. Left/right balanced maps, images/attachments, custom theme editing/import, MindNode file interchange, clipboard branch interchange, SQLite, collaboration, screen-reader parity, native printing and production installers remain outside this prototype. Trackpad/IME/device behavior requires human testing on target hardware.
 
 ## Product documents
 
@@ -152,11 +152,15 @@ Document format, Finder previews, and Linux associations: [OMM documents](docs/o
 
 ## Startup documents
 
-Normal startup reopens the saved documents from the previous session, each in its own window. Missing, unreadable, or invalid documents are skipped. With nothing to restore, the app starts with one blank, editable central node. Explicit file opens and New bypass session restoration; launching while other windows are running does not duplicate them. Unsaved changes still use the Save/Discard/Cancel close flow and are not stored in session metadata.
+Normal startup reopens the saved documents from the previous session, each in its own window. Missing, unreadable, or invalid documents are skipped. With nothing to restore, the app starts with one blank, editable central node. Explicit file opens and New bypass session restoration; launching while other windows are running does not duplicate them. On macOS, recovery snapshots also reopen unsaved documents and drafts (see below). On other platforms, unsaved changes still use the Save/Discard/Cancel close flow.
 
 Session metadata lives in the platform application-data directory under `session/documents.ini`. Per-window locks coordinate separate processes and recover stale entries after a crash. Screenshot, benchmark, and timed test runs do not read or modify the saved session.
 
-Cmd+W closes the active window after any save confirmation and removes it from session restoration. Cmd+Q coordinates all running document windows: each confirms in turn, and all remain open until every confirmation succeeds. Cancel or a failed save aborts the quit. A successful quit preserves the saved paths of those windows for the next startup; discarded unsaved changes are not restored.
+Cmd+W closes the active window after any save confirmation and removes it from session restoration. On macOS, Cmd+Q atomically checkpoints every window to recovery storage, without a Save dialog. All windows stay open until every checkpoint succeeds; a failed write cancels quitting and displays an error. Relaunching restores those windows, original filenames, unsaved status, unfinished node text/notes/date entries, viewport and per-window placement. Unavailable displays use the existing placement fallback.
+
+Recovery copies live at `~/Library/Application Support/MindmapBlue/Mindmap Lab/session/<window-id>.recovery`, with owner-only file permissions. They are private JSON envelopes containing document JSON, the last saved baseline, original path and UI drafts; they do not change the user's `.omm` file. The historical directory name is intentional. These are durable Application Support files rather than purgeable temporary files. Each active macOS window checks for changes every second and writes only changed snapshots. Atomic replacement retains the previous complete snapshot on write failure. Crashes recover the latest completed snapshot; changes within the last second (or while the UI thread/storage is blocked) may not yet be captured. Uncommitted IME composition is committed when quitting, but a crash can interrupt composition. Explicitly closing/discarding a window removes its recovery copy. Invalid recovery files are retained on disk and reported rather than deleted. Recovery storage is local to this computer, not a substitute for backups.
+
+On Omarchy, the existing coordinated Save/Discard/Cancel quit flow remains in use.
 
 ## Mindarchy rename compatibility
 
@@ -164,8 +168,8 @@ The application, executable, artwork resources and release packages now use Mind
 
 ### Live Omarchy shell theme
 
-On Linux, Mindarchy reads `$XDG_CONFIG_HOME/omarchy/current/theme/colors.toml` (normally `~/.config/omarchy/current/theme/colors.toml`). Background, foreground, accent, and error colors drive the application shell, including panels, controls, icons, dialogs, and tooltips. Document themes, preview thumbnails, color presets, and viewport settings remain independent.
+On Linux, Mindarchy reads `$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (normally `~/.local/state/omarchy/current/theme/colors.toml`) on current Omarchy releases, falling back to the older `$XDG_CONFIG_HOME/omarchy/current/theme/colors.toml` location when the state directory is absent. Background, foreground, accent, and error colors drive the application shell, including panels, controls, icons, dialogs, and tooltips. Document themes, preview thumbnails, color presets, and viewport settings remain independent.
 
 Filesystem watches apply valid palette changes live, with a one-second recovery check for replaced directories or symlinks. Missing or invalid initial palettes use the built-in shell; an interrupted theme switch keeps the last valid palette until the replacement is ready. No Omarchy hooks, restart, or document writes are required. Automatic detection is Linux-only.
 
-The supported palette format and replacement behavior follow [Omarchy's theme setter](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-theme-set).
+Both the current named `red` color and older `color1` palette key are supported. The supported palette format and replacement behavior follow [Omarchy's theme setter](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-theme-set).

@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "searchmatch.h"
 #include <QTime>
 #include <QElapsedTimer>
 #include <QFile>
@@ -289,8 +290,16 @@ void Engine::rebuild() {
             auto &n = m_nodes[id];
             double cross =
                 start[id] + (span[id] - (vertical ? n.rect.width() : n.rect.height())) * .5;
-            n.rect.moveTopLeft(vertical ? QPointF(cross, depthPos[n.depth])
-                                        : QPointF(depthPos[n.depth], cross));
+            // Each subtree owns a disjoint cross-axis band (span/start), so
+            // shortening its primary-axis gap cannot overlap other branches.
+            // Preserve the old base coordinates for persisted manual offsets.
+            double along = depthPos[n.depth];
+            if (!m_manual) {
+                const auto parent = m_nodes.value(n.parent).rect;
+                along = n.parent < 0 ? 0 : (vertical ? parent.bottom() : parent.right()) + gap * 2;
+            }
+            n.rect.moveTopLeft(vertical ? QPointF(cross, along)
+                                        : QPointF(along, cross));
             double cursor = start[id];
             if (!n.folded)
                 for (int child : n.children) {
@@ -751,14 +760,48 @@ bool Engine::save(QString path) {
     emit documentSaved();
     return true;
 }
+bool Engine::saveRecovery(const QString &path, const QVariantMap &ui) {
+    const QJsonObject snapshot{{"format","mindarchy-recovery"},{"version",1},
+        {"originalPath",m_documentPath},{"document",QJsonDocument::fromJson(documentBytes()).object()},
+        {"baseline",QString::fromLatin1(m_savedBytes.toBase64())},{"ui",QJsonObject::fromVariantMap(ui)}};
+    const auto bytes=QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    // Avoid needless writes while idle. QSaveFile preserves the previous good
+    // snapshot if opening, writing, or atomic replacement fails.
+    QFile previous(path);
+    if(previous.open(QIODevice::ReadOnly) && previous.size()==bytes.size() && previous.readAll()==bytes) return true;
+    previous.close();
+    QSaveFile file(path);
+    if(!file.open(QIODevice::WriteOnly)) return fail("Could not save recovery: "+file.errorString());
+    file.setPermissions(QFileDevice::ReadOwner|QFileDevice::WriteOwner);
+    if(file.write(bytes)!=bytes.size() || !file.commit()) return fail("Could not save recovery: "+file.errorString());
+    return true;
+}
+bool Engine::openRecovery(const QString &path, QVariantMap *ui) {
+    QFile file(path);
+    if(!file.open(QIODevice::ReadOnly) || file.size()>64*1024*1024) return fail("Cannot read recovery snapshot.");
+    const auto envelope=QJsonDocument::fromJson(file.readAll()).object();
+    if(envelope["format"]!="mindarchy-recovery" || envelope["version"].toInt()!=1 ||
+       !envelope["document"].isObject() || !envelope["originalPath"].isString() || !envelope["baseline"].isString())
+        return fail("Invalid recovery snapshot.");
+    const auto baseline=QByteArray::fromBase64(envelope["baseline"].toString().toLatin1());
+    if(!QJsonDocument::fromJson(baseline).isObject()) return fail("Invalid recovery baseline.");
+    if(!loadDocumentBytes(QJsonDocument(envelope["document"].toObject()).toJson(),envelope["originalPath"].toString())) return false;
+    m_savedBytes=baseline; m_checkedRevision=~quint64(0);
+    if(ui) *ui=envelope["ui"].toObject().toVariantMap();
+    emit changed();
+    return true;
+}
 bool Engine::open(QString path) {
     QFile file(localPath(path));
     if (!file.open(QIODevice::ReadOnly))
         return fail(file.errorString());
     if (file.size() > 20 * 1024 * 1024)
         return fail("Document exceeds the 20 MB prototype limit.");
+    return loadDocumentBytes(file.readAll(), localPath(path));
+}
+bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     QJsonParseError parse;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parse);
+    QJsonDocument doc = QJsonDocument::fromJson(bytes, &parse);
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
         return fail("Invalid JSON document.");
     QJsonObject obj = doc.object();
@@ -1184,39 +1227,28 @@ QString Engine::selectedEntryPrompt() const {
     if(role=="actions") return "What needs to be done?";
     return {};
 }
-bool Engine::applyMeetingTemplate() {
-    const int id=m_selected;
-    if(!m_nodes.contains(id)) return fail("Select a node first.");
-    if(!m_nodes[id].meeting.isEmpty()) return true;
-    if(m_nodes.size()+8>MaxNodes) return fail("Not enough room for the meeting sections.");
+bool Engine::addMeetingTemplate() {
+    const int parent=m_selected;
+    if(!m_nodes.contains(parent) || m_selection.size()!=1) return fail("Select one parent node first.");
+    if(m_nodes.size()+9>MaxNodes) return fail("Not enough room for the meeting template.");
     int depth=0;
-    for(int p=id;m_nodes.contains(p) && m_nodes[p].parent>=0;p=m_nodes[p].parent) ++depth;
-    int deepest=depth;
-    QVector<QPair<int,int>> pending{{id,depth}};
-    while(!pending.isEmpty()) {
-        const auto item=pending.takeLast(); deepest=std::max(deepest,item.second);
-        for(int child:m_nodes[item.first].children) pending.append({child,item.second+1});
-    }
-    if(std::max(depth+2,deepest+1)>MaxDepth) return fail("Meeting sections would exceed maximum tree depth.");
+    for(int p=parent;m_nodes[p].parent>=0;p=m_nodes[p].parent) ++depth;
+    if(depth+3>MaxDepth) return fail("The meeting template would exceed maximum tree depth.");
     checkpoint();
-    const auto existing=m_nodes[id].children;
-    m_nodes[id].children.clear(); m_nodes[id].kind="text"; m_nodes[id].task=false; m_nodes[id].checked=false; m_nodes[id].folded=false;
-    m_nodes[id].meeting={{"date",QDate::currentDate().toString(Qt::ISODate)},{"time",""},{"attendees",""}};
+    MapNode meeting; meeting.id=m_nextId++; meeting.parent=parent; meeting.text="Meeting Notes";
+    meeting.meeting={{"date",QDate::currentDate().toString(Qt::ISODate)},{"time",""},{"attendees",""}};
     int note=0;
     for(const QString role : {QString("agenda"),QString("notes"),QString("decisions"),QString("actions")}) {
-        MapNode section; section.id=m_nextId++; section.parent=id; section.meetingSection=role;
+        MapNode section; section.id=m_nextId++; section.parent=meeting.id; section.meetingSection=role;
         section.text=role.left(1).toUpper()+role.mid(1); section.task=role=="actions";
         if(role=="decisions") section.style.insert("textColor","#3da995");
-        if(role=="notes") {
-            section.children=existing;
-            for(int child:existing) m_nodes[child].parent=section.id;
-        }
-        MapNode entry; entry.id=m_nextId++; entry.parent=section.id; entry.task=section.task; entry.text="";
+        MapNode entry; entry.id=m_nextId++; entry.parent=section.id; entry.task=section.task;
         section.children.append(entry.id);
         if(role=="notes") note=entry.id;
-        m_nodes[id].children.append(section.id);
+        meeting.children.append(section.id);
         m_nodes.insert(section.id,section); m_nodes.insert(entry.id,entry);
     }
+    m_nodes.insert(meeting.id,meeting); m_nodes[parent].children.append(meeting.id); m_nodes[parent].folded=false;
     m_selected=note; m_selection={note}; rebuild(); emit editRequested(note); return true;
 }
 bool Engine::updateMeeting(QString date,QString time,QString attendees) {
@@ -1227,4 +1259,90 @@ bool Engine::updateMeeting(QString date,QString time,QString attendees) {
     const QVariantMap details{{"date",date},{"time",time},{"attendees",attendees}};
     if(m_nodes[m_selected].meeting==details) return true;
     checkpoint(); m_nodes[m_selected].meeting=details; rebuild(); return true;
+}
+
+
+QVariantList Engine::nodeTemplates() const {
+    return {QVariantMap{{"id","weekly-tasks"},{"name","Weekly task list"},
+        {"description","Monday–Friday, with an empty task for each day."}},
+        QVariantMap{{"id","meeting-notes"},{"name","Meeting Notes"},
+        {"description","Agenda, Notes, Decisions, and Actions, each with an empty entry."}}};
+}
+QVariantMap Engine::templateCalendar(QString anchor, int monthOffset) const {
+    QDate date=anchor.isEmpty() ? QDate::currentDate() : QDate::fromString(anchor,Qt::ISODate);
+    if(!date.isValid() || monthOffset < -1 || monthOffset > 1) return {};
+    const QDate month=QDate(date.year(),date.month(),1).addMonths(monthOffset);
+    if(month.year()<2 || month.year()>9998) return {};
+    const QDate first=month.addDays(1-month.dayOfWeek());
+    QVariantList weeks;
+    for(int row=0;row<6;++row) {
+        const auto monday=first.addDays(row*7);
+        if(monday>month.addMonths(1).addDays(-1)) break;
+        int year; const int week=monday.weekNumber(&year);
+        QVariantList days;
+        for(int day=0;day<7;++day) {
+            const auto d=monday.addDays(day);
+            days.append(QVariantMap{{"day",d.day()},{"inMonth",d.month()==month.month()}});
+        }
+        weeks.append(QVariantMap{{"number",week},{"year",year},{"monday",monday.toString(Qt::ISODate)},
+            {"label",QString("Week %1 · %2 – %3").arg(week).arg(monday.toString("d MMM yyyy"),monday.addDays(4).toString("d MMM yyyy"))},
+            {"days",days}});
+    }
+    const auto today=QDate::currentDate();
+    return {{"anchor",month.toString(Qt::ISODate)},{"title",month.toString("MMMM yyyy")},{"weeks",weeks},
+        {"currentMonday",today.addDays(1-today.dayOfWeek()).toString(Qt::ISODate)}};
+}
+bool Engine::addNodeTemplate(QString templateId, QString weekDate) {
+    if(templateId=="meeting-notes") return addMeetingTemplate();
+    if(templateId!="weekly-tasks") return fail("Choose a supported node template.");
+    if(!m_nodes.contains(m_selected) || m_selection.size()!=1) return fail("Select one parent node first.");
+    const auto date=QDate::fromString(weekDate,Qt::ISODate);
+    if(!date.isValid() || date.year()<2 || date.year()>9998) return fail("Choose a valid calendar week.");
+    if(m_nodes.size()+11>MaxNodes) return fail("Not enough room for the weekly task list.");
+    int depth=0;
+    for(int p=m_selected;m_nodes[p].parent>=0;p=m_nodes[p].parent) ++depth;
+    if(depth+3>MaxDepth) return fail("The weekly task list would exceed maximum tree depth.");
+    const auto monday=date.addDays(1-date.dayOfWeek());
+    checkpoint();
+    const int parent=m_selected;
+    MapNode week; week.id=m_nextId++; week.parent=parent; week.task=true;
+    week.text=QString("Week %1 · %2 – %3").arg(monday.weekNumber())
+        .arg(monday.toString("d MMM yyyy"),monday.addDays(4).toString("d MMM yyyy"));
+    int firstTask=0;
+    for(int i=0;i<5;++i) {
+        MapNode day; day.id=m_nextId++; day.parent=week.id; day.task=true;
+        day.text=monday.addDays(i).toString("dddd · d MMM");
+        MapNode task; task.id=m_nextId++; task.parent=day.id; task.task=true;
+        day.children.append(task.id); week.children.append(day.id);
+        m_nodes.insert(day.id,day); m_nodes.insert(task.id,task);
+        if(i==0) firstTask=task.id;
+    }
+    m_nodes.insert(week.id,week); m_nodes[parent].children.append(week.id); m_nodes[parent].folded=false;
+    m_selected=firstTask; m_selection={firstTask}; rebuild(); emit editRequested(firstTask); return true;
+}
+
+
+QVariantList Engine::searchNodes(QString query) const {
+    if(query.trimmed().isEmpty()) return {};
+    QVector<QPair<int,int>> matches;
+    QVector<int> pending{1};
+    while(!pending.isEmpty()) {
+        const int id=pending.takeLast(); const auto &node=m_nodes[id];
+        for(auto it=node.children.crbegin();it!=node.children.crend();++it) pending.append(*it);
+        QString text=m_textCache.value(id).plainText+" "+node.notes;
+        if(node.kind=="date") text+=" "+Calendar::title(node.calendar)+" "+node.calendar.entries.values().join(' ');
+        const auto match=Search::match(text,query);
+        if(match.found) matches.append({match.score,id});
+    }
+    std::stable_sort(matches.begin(),matches.end(),[](auto a,auto b){return a.first<b.first;});
+    QVariantList result; for(auto match:matches) result.append(match.second); return result;
+}
+bool Engine::revealSearchNode(int id) {
+    if(!m_nodes.contains(id)) return false;
+    QVector<int> folded;
+    for(int p=m_nodes[id].parent;p>=0;p=m_nodes[p].parent) if(m_nodes[p].folded) folded.append(p);
+    if(!folded.isEmpty()) {
+        checkpoint(); for(int p:folded) m_nodes[p].folded=false; rebuild();
+    }
+    select(id); return true;
 }

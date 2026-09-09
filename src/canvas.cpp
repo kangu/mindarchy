@@ -1,4 +1,5 @@
 #include "canvas.h"
+#include "searchmatch.h"
 #include "drawing.h"
 using namespace MapDrawing;
 #include <QAbstractTextDocumentLayout>
@@ -331,7 +332,8 @@ void MindCanvas::refresh() {
             labelRect.setSize(m_target.value(id).size());
             labelRect.translate(20 * (taskOpacity - (n.task ? 1 : 0)), 0);
         }
-        const QString labelKey=n.kind=="date" ? Calendar::key(n.calendar)+appearance.branch.name(QColor::HexArgb) : n.text;
+        const QString labelKey=(n.kind=="date" ? Calendar::key(n.calendar)+appearance.branch.name(QColor::HexArgb) : n.text)
+            + (id==m_searchResult ? "\nsearch:"+m_searchQuery+appearance.fill.name(QColor::HexArgb)+m_canvasColor.name(QColor::HexArgb) : QString());
         auto it = m_cache.find(id);
         if (it == m_cache.end() || it->text != labelKey || it->size != labelRect.size() ||
             it->bucket != bucket || it->task != n.task || it->textColor != appearance.text) {
@@ -365,6 +367,22 @@ void MindCanvas::refresh() {
                               std::max(8., (labelRect.height() - doc.size().height()) / 2));
             QAbstractTextDocumentLayout::PaintContext ctx;
             ctx.palette.setColor(QPalette::Text, appearance.text);
+            if(id==m_searchResult && !m_searchQuery.isEmpty()) {
+                QSet<int> positions;
+                for(const auto &term:m_searchQuery.split(' ',Qt::SkipEmptyParts))
+                    positions.unite(Search::match(doc.toPlainText(),term).positions);
+                const QColor surface=appearance.fill.alpha()>0 ? appearance.fill : m_canvasColor;
+                const bool light=surface.lightnessF()>0.5;
+                for(int position:positions) {
+                    QAbstractTextDocumentLayout::Selection selection;
+                    selection.cursor=QTextCursor(&doc);
+                    selection.cursor.setPosition(position);
+                    selection.cursor.setPosition(position+1,QTextCursor::KeepAnchor);
+                    selection.format.setBackground(QColor(light ? "#6040a8" : "#ffe08a"));
+                    selection.format.setForeground(QColor(light ? "#ffffff" : "#25212b"));
+                    ctx.selections.append(selection);
+                }
+            }
             doc.documentLayout()->draw(&painter, ctx);
             painter.end();
             }
@@ -473,7 +491,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             painter.setPen(QPen(shadow,2/m_zoom));
             if(m_creationDragged) painter.drawPolyline(creationPreview());
             else painter.drawLine(creationAnchor(id),center);
-            painter.setPen(Qt::NoPen); painter.setBrush(m_engine->appearance(id).text);
+            painter.setPen(Qt::NoPen); painter.setBrush(creationHandleColor());
             painter.drawEllipse(center,12/m_zoom,12/m_zoom);
             painter.setPen(QPen(m_canvasColor,2/m_zoom,Qt::SolidLine,Qt::RoundCap));
             painter.drawLine(center-QPointF(5/m_zoom,0),center+QPointF(5/m_zoom,0));
@@ -591,7 +609,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         const auto center=mapToWorld(handle.center());
         if(m_creationDragged) strokePath(vertices,creationPreview(),2/m_zoom,shadow,Qt::SolidLine);
         else line(vertices,creationAnchor(id),center,2/m_zoom,shadow);
-        box(vertices,QRectF(center-QPointF(12/m_zoom,12/m_zoom),QSizeF(24/m_zoom,24/m_zoom)),style.text,12/m_zoom);
+        box(vertices,QRectF(center-QPointF(12/m_zoom,12/m_zoom),QSizeF(24/m_zoom,24/m_zoom)),creationHandleColor(),12/m_zoom);
         line(vertices,center-QPointF(5/m_zoom,0),center+QPointF(5/m_zoom,0),2/m_zoom,m_canvasColor);
         line(vertices,center-QPointF(0,5/m_zoom),center+QPointF(0,5/m_zoom),2/m_zoom,m_canvasColor);
     }
@@ -812,6 +830,20 @@ QPointF MindCanvas::creationAnchor(int id, std::optional<QPointF> toward) const 
         m_engine->manual() && parent>=0 && r.center().x()<displayRect(parent).center().x();
     return {left ? r.left() : r.right(),
             m_engine->appearance(id).shape==NodeShape::Underline ? r.bottom() : r.center().y()};
+}
+QColor MindCanvas::creationHandleColor() const {
+    // This control belongs to the canvas, not to an individual node's palette.
+    const QColor dark("#25212b"), light("#fff8ed");
+    auto luminance=[](QColor c) {
+        auto linear=[](double v) { return v<=.04045 ? v/12.92 : std::pow((v+.055)/1.055,2.4); };
+        return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
+    };
+    const double background=luminance(m_canvasColor);
+    auto contrast=[&](QColor c) {
+        const double value=luminance(c);
+        return (std::max(value,background)+.05)/(std::min(value,background)+.05);
+    };
+    return contrast(dark)>=contrast(light) ? dark : light;
 }
 QRectF MindCanvas::creationHandleRect() const {
     const int id=m_creatingParent>=0 ? m_creatingParent : m_hovered;
@@ -1143,6 +1175,25 @@ void MindCanvas::keyPressEvent(QKeyEvent *e) {
     }
     bool cmd = e->modifiers() & (Qt::ControlModifier | Qt::MetaModifier),
          shift = e->modifiers() & Qt::ShiftModifier;
+    // Qt maps the macOS Command key to ControlModifier. Use the same
+    // viewport step at every zoom level, including key auto-repeat.
+    // Move the artwork opposite to the desired viewport travel; this keyboard
+    // path is independent of wheel events and natural-scrolling preferences.
+    if (cmd && !shift && !(e->modifiers() & Qt::AltModifier)) {
+        QPointF delta;
+        switch (e->key()) {
+        case Qt::Key_Left: delta={40,0}; break;
+        case Qt::Key_Right: delta={-40,0}; break;
+        case Qt::Key_Up: delta={0,40}; break;
+        case Qt::Key_Down: delta={0,-40}; break;
+        default: break;
+        }
+        if (!delta.isNull()) {
+            panBy(delta.x(),delta.y());
+            e->accept();
+            return;
+        }
+    }
     bool handled = true;
     if (cmd && e->key() == Qt::Key_Z) {
         if (shift)
@@ -1188,10 +1239,7 @@ void MindCanvas::keyPressEvent(QKeyEvent *e) {
             setCursor(Qt::OpenHandCursor);
             break;
         case Qt::Key_F:
-            if (cmd)
-                fit();
-            else
-                m_engine->toggleFold();
+            if (!cmd) m_engine->toggleFold();
             break;
         case Qt::Key_T:
             m_engine->toggleTask();
@@ -1267,3 +1315,19 @@ void MindCanvas::refreshView() {
     } else
         refresh();
 }
+
+
+void MindCanvas::focusSearchResult(int id, QString query) {
+    if(!m_engine || !m_engine->revealSearchNode(id)) return;
+    m_animating=false; m_animationTimer.stop();
+    m_searchResult=id; m_searchQuery=query;
+    m_pan=QPointF(width()/2,height()/2)-m_engine->nodes().value(id).rect.center()*m_zoom;
+    refresh(); emit searchResultFocused();
+}
+QRectF MindCanvas::searchResultRect() const {
+    if(!m_engine || !m_engine->nodes().contains(m_searchResult)) return {};
+    const auto rect=displayRect(m_searchResult);
+    return {mapFromWorld(rect.topLeft()),rect.size()*m_zoom};
+}
+
+void MindCanvas::clearSearchHighlight() { m_searchResult=-1; m_searchQuery.clear(); refresh(); }

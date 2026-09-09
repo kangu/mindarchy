@@ -34,6 +34,34 @@ ApplicationWindow {
         event.accepted = false
         requestClose(false, false)
     }
+    function recoveryDraft() {
+        return {
+            selectedId: controller.selectedId,
+            editingId: canvas.editing ? canvas.editingId : -1,
+            text: canvas.editing ? editor.text : "",
+            cursor: canvas.editing ? editor.cursorPosition : 0,
+            notesId: notes.loadedId, notes: notes.text,
+            date: dateDialog.recoveryDraft(),
+            outline: outlineVisible, inspector: inspectorVisible
+        }
+    }
+    function restoreRecoveryDraft(state) {
+        if (state.selectedId > 0) controller.select(state.selectedId)
+        if (state.outline !== undefined) outlineVisible = state.outline
+        if (state.inspector !== undefined) inspectorVisible = state.inspector
+        if (state.editingId > 0) {
+            canvas.beginEdit(state.editingId)
+            editor.text = state.text
+            editor.cursorPosition = Math.min(state.cursor, editor.length)
+        }
+        if (state.notesId === notes.loadedId) notes.text = state.notes
+        if (state.date) dateDialog.restoreRecoveryDraft(state.date)
+    }
+    function prepareRecoveryQuit() {
+        Qt.inputMethod.commit()
+        quitPending = true
+        window.contentItem.enabled = false
+    }
     function requestClose(forget, quitting) {
         if (quitPending) return
         quitPending = quitting
@@ -190,6 +218,11 @@ ApplicationWindow {
         icon.width: 24; icon.height: 24
         display: AbstractButton.IconOnly
     }
+    component ZoomMenuItem: MenuItem {
+        width: parent.width
+        highlighted: hovered || activeFocus
+        icon.color: window.ink
+    }
     component ToolbarButton: IconButton {
         implicitWidth: window.width < 800 ? 32 : 36
         implicitHeight: implicitWidth
@@ -232,6 +265,34 @@ ApplicationWindow {
     component Caption: Label { color: window.muted; font.pixelSize: 10; font.letterSpacing: 1.3; font.bold: true }
     component Rule: Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
 
+    property bool searchOpen: false
+    property int searchIndex: -1
+    property string searchQuery: ""
+    readonly property var searchResults: { controller.outline; return controller.searchNodes(window.searchQuery) }
+    onSearchResultsChanged: { if (searchIndex >= searchResults.length) searchIndex = -1 }
+    function openSearch() {
+        if (!window.commitEditor("")) return
+        searchOpen = true
+        searchField.forceActiveFocus(); searchField.selectAll()
+    }
+    Timer {
+        id: searchDelay; interval: 300
+        onTriggered: {
+            if (!window.searchOpen) return
+            window.searchQuery=searchField.text
+            window.searchIndex=-1
+            window.nextSearchResult()
+        }
+    }
+    function nextSearchResult() {
+        searchDelay.stop()
+        if (searchQuery !== searchField.text) { searchQuery=searchField.text; searchIndex=-1 }
+        if (!searchResults.length) { canvas.clearSearchHighlight(); return }
+        searchIndex = (searchIndex + 1) % searchResults.length
+        canvas.focusSearchResult(searchResults[searchIndex], searchQuery)
+        searchField.forceActiveFocus()
+    }
+    Shortcut { sequences: [StandardKey.Find]; onActivated: window.openSearch() }
     Shortcut { sequences: [StandardKey.Close]; onActivated: window.requestClose(true, false) }
     Shortcut { sequences: [StandardKey.Quit]; onActivated: controller.quitRequested() }
     Shortcut { sequences: [StandardKey.New]; onActivated: controller.newDocumentRequested() }
@@ -262,6 +323,12 @@ ApplicationWindow {
                 Button { objectName: "closeSave"; text: "Save"; highlighted: true; onClicked: window.saveBeforeClosing() }
             }
         }
+    }
+
+    NodeTemplateDialog {
+        id: nodeTemplateDialog
+        parent: Overlay.overlay
+        controller: window.controller
     }
 
     FileDialog {
@@ -358,6 +425,7 @@ ApplicationWindow {
                         ToolbarButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c") }
                         ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
+                        ToolbarButton { objectName: "nodeTemplatesButton"; iconName: "calendar-week"; text: "Add node template"; enabled: controller.selection.length === 1; onClicked: { if (window.commitEditor("")) nodeTemplateDialog.open() } }
                         ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
                         ToolbarButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
                         ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
@@ -366,21 +434,58 @@ ApplicationWindow {
                         id: panelActions; objectName: "panelActions"
                         anchors.right: parent.right; height: parent.height
                         width: implicitWidth; spacing: window.width < 800 ? 4 : 6
+                        ToolbarButton { objectName: "searchButton"; iconName: "search"; text: "Search mind map"; checked: window.searchOpen; onClicked: window.openSearch() }
                         RowLayout {
-                            id: zoomControls; objectName: "zoomControls"; spacing: 4
-                            ToolbarButton { iconName: "zoom-out"; text: "Zoom out"; onClicked: canvas.zoomOut() }
+                            visible: window.searchOpen; spacing: 4
+                            TextField {
+                                id: searchField; objectName: "mindmapSearchField"
+                                Layout.preferredWidth: 180; placeholderText: "Search mind map…"; selectByMouse: true
+                                Accessible.name: "Search mind map"
+                                onTextChanged: { window.searchIndex=-1; canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; searchDelay.restart() }
+                                onAccepted: window.nextSearchResult()
+                                Keys.onEscapePressed: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() }
+                            }
+                            Label { objectName: "searchResultCount"; text: searchField.text.trim().length ? (window.searchResults.length ? (window.searchIndex+1) + " / " + window.searchResults.length : "No matches") : ""; color: window.muted }
+                            ToolButton { text: "×"; Accessible.name: "Close search"; onClicked: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() } }
+                        }
+                        RowLayout {
+                            id: zoomControls; objectName: "zoomControls"; spacing: 0
                             ToolbarButton {
-                                objectName: "zoomPercentage"
-                                iconName: ""; text: "Actual size (100%)"; Layout.preferredWidth: 60
-                                onClicked: canvas.resetZoom()
-                                contentItem: Text {
-                                    text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"
-                                    color: window.ink; font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                id: zoomButton; objectName: "zoomPercentage"
+                                iconName: ""; text: "Zoom options"; Layout.preferredWidth: 76
+                                checked: zoomMenu.visible
+                                ToolTip.visible: (hovered || activeFocus) && !zoomMenu.visible
+                                onClicked: zoomMenu.visible ? zoomMenu.close() : zoomMenu.open()
+                                contentItem: RowLayout {
+                                    spacing: 6
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"
+                                        color: window.ink; font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                    }
+                                    Text { text: "▾"; color: window.ink; font.pixelSize: 12 }
+                                }
+                                Popup {
+                                    id: zoomMenu; objectName: "zoomMenu"
+                                    focus: true
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                    onOpened: zoomInItem.forceActiveFocus()
+                                    y: zoomButton.height + 4; x: zoomButton.width - width
+                                    width: 200; padding: 4
+                                    background: Rectangle {
+                                        radius: 8; color: window.palette.window
+                                        border.color: (ShellTheme.colors["#34434c"] || "#34434c")
+                                    }
+                                    contentItem: Column {
+                                        ZoomMenuItem { id: zoomInItem; objectName: "zoomInAction"; text: "Zoom In"; icon.source: "qrc:/qml/icons/zoom-in.svg"; onClicked: canvas.zoomIn(); KeyNavigation.down: zoomOutItem; KeyNavigation.up: zoomFitItem }
+                                        ZoomMenuItem { id: zoomOutItem; objectName: "zoomOutAction"; text: "Zoom Out"; icon.source: "qrc:/qml/icons/zoom-out.svg"; onClicked: canvas.zoomOut(); KeyNavigation.down: zoomActualItem; KeyNavigation.up: zoomInItem }
+                                        MenuSeparator { width: parent.width }
+                                        ZoomMenuItem { id: zoomActualItem; objectName: "zoomActualSizeAction"; text: "Actual Size (100%)"; icon.source: "qrc:/qml/icons/scan.svg"; onClicked: { canvas.resetZoom(); zoomMenu.close() } KeyNavigation.down: zoomFitItem; KeyNavigation.up: zoomOutItem }
+                                        ZoomMenuItem { id: zoomFitItem; objectName: "zoomFitAction"; text: "Fit Map"; icon.source: "qrc:/qml/icons/maximize.svg"; onClicked: { canvas.fit(); zoomMenu.close() } KeyNavigation.down: zoomInItem; KeyNavigation.up: zoomActualItem }
+                                    }
                                 }
                             }
-                            ToolbarButton { iconName: "zoom-in"; text: "Zoom in"; onClicked: canvas.zoomIn() }
-                            ToolbarButton { iconName: "maximize"; text: "Fit map"; onClicked: canvas.fit() }
                         }
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c"); Layout.leftMargin: 4; Layout.rightMargin: 4 }
                         ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
@@ -427,6 +532,20 @@ ApplicationWindow {
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; engine: window.controller; focus: true
                     onCommitRequested: window.commitEditor("")
+                    onSearchResultFocused: searchFlash.restart()
+                    Rectangle {
+                        id: searchHighlight; objectName: "searchResultFlash"
+                        x: canvas.searchResultRect.x - 6; y: canvas.searchResultRect.y - 6
+                        width: canvas.searchResultRect.width + 12; height: canvas.searchResultRect.height + 12
+                        radius: 10; color: "transparent"; border.width: 4
+                        border.color: controller.canvasColor.hslLightness > 0.5 ? "#6750b8" : "#ffe08a"
+                        opacity: 0; z: 10
+                        SequentialAnimation on opacity {
+                            id: searchFlash; running: false
+                            NumberAnimation { from: 0; to: 1; duration: 90 }
+                            NumberAnimation { to: 0; duration: 650 }
+                        }
+                    }
                     onDateEditRequested: function(id, date, text) {
                         if (window.commitEditor("")) dateDialog.openEntry(id,date,text)
                     }
@@ -489,9 +608,12 @@ ApplicationWindow {
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: 20; spacing: 15
                     Caption { text: "INSPECTOR" }
-                    TabBar { id: inspectorTabs; objectName: "inspectorTabs"; Layout.fillWidth: true; TabButton { text: "Map" }
-                TabButton { text: "Node" }
-                TabButton { text: "Themes"; objectName: "themesTab" } }
+                    TabBar {
+                        id: inspectorTabs; objectName: "inspectorTabs"; Layout.fillWidth: true
+                        TabButton { text: "Map"; icon.source: "qrc:/qml/icons/inspector-map.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
+                        TabButton { text: "Node"; icon.source: "qrc:/qml/icons/inspector-node.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
+                        TabButton { text: "Themes"; objectName: "themesTab"; icon.source: "qrc:/qml/icons/inspector-themes.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
+                    }
                     ScrollView {
                         objectName: "inspectorScroll"
                         Layout.fillWidth: true; Layout.fillHeight: true; clip: true
@@ -545,7 +667,6 @@ ApplicationWindow {
                                 visible: inspectorTabs.currentIndex === 1; Layout.fillWidth: true; spacing: 12
                                 enabled: controller.selection.length > 0
                                 opacity: enabled ? 1 : 0.65
-                                Caption { text: controller.selection.length === 1 ? "SELECTED NODE · " + controller.selectedId : controller.selection.length + " NODES SELECTED" }
                                 Rectangle {
                                     Layout.fillWidth: true; implicitHeight: typeGroup.height
                                     color: (ShellTheme.colors["#122029"] || "#122029"); radius: 8; border.color: (ShellTheme.colors["#2a3943"] || "#2a3943")
@@ -594,7 +715,7 @@ ApplicationWindow {
                                         }
                                     }
                                 }
-                                MeetingPanel { Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                MeetingPanel { Layout.fillWidth: true; controller: window.controller }
                                 NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}

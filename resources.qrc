@@ -1,10 +1,15 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/icons/inspector-map.svg</file>
+    <file>qml/icons/inspector-node.svg</file>
+    <file>qml/icons/inspector-themes.svg</file>
+
     <file>assets/icons/mindarchy-macos-512.png</file>
     <file>qml/ThemeCard.qml</file>
     <file>qml/NodeStylePanel.qml</file>
     <file>qml/ColorPicker.qml</file>
     <file>qml/DateNodePanel.qml</file>
     <file>qml/MeetingPanel.qml</file>
+    <file>qml/NodeTemplateDialog.qml</file>
     <file>qml/icons/pencil.svg</file>
     <file>qml/icons/calendar-today.svg</file>
     <file>qml/icons/chevron-right.svg</file>
@@ -27,6 +32,7 @@
     <file>qml/icons/redo-2.svg</file>
     <file>qml/icons/save.svg</file>
     <file>qml/icons/scan.svg</file>
+    <file>qml/icons/search.svg</file>
     <file>qml/icons/underline.svg</file>
     <file>qml/icons/undo-2.svg</file>
     <file>qml/icons/unfold-vertical.svg</file>

@@ -1,13 +1,75 @@
 #include "canvas.h"
+#include "searchmatch.h"
 #include "viewportstate.h"
 #include <QTemporaryDir>
 #include "engine.h"
 #include "drawing.h"
 #include <QQuickWindow>
 #include <QtTest>
+#include <cmath>
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void searchHighlightUsesPlainTextPositionsAndDoesNotEditDocument() {
+        const auto accents=Search::match("Café meeting","cafe");
+        QVERIFY(accents.found); QCOMPARE(accents.positions,QSet<int>({0,1,2,3}));
+        QCOMPARE(Search::match("Meeting","mtg").positions,QSet<int>({0,3,6}));
+        QVERIFY(Search::match("Meeting","meting").found);
+        Engine engine(nullptr,Engine::InitialContent::Blank); engine.setText(1,"<b>Café meeting</b>");
+        MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&engine); canvas.fit();
+        const auto text=engine.nodes().value(1).text; const auto revision=engine.recoveryRevision();
+        const auto before=canvas.m_cache.value(1).image;
+        canvas.focusSearchResult(1,"cafe");
+        QVERIFY(canvas.m_cache.value(1).image!=before);
+        QCOMPARE(engine.nodes().value(1).text,text); QCOMPARE(engine.recoveryRevision(),revision);
+        canvas.clearSearchHighlight(); QCOMPARE(canvas.m_cache.value(1).image,before);
+    }
+    void commandArrowsPanWithoutChangingSelectionOrZoom() {
+        Engine engine; MindCanvas canvas; canvas.setSize({1000,700});
+        canvas.setEngine(&engine); canvas.fit();
+        const int selected=engine.selectedId();
+        const double zoom=canvas.zoom();
+        const auto revision=engine.recoveryRevision();
+        const QList<QPair<int,QPointF>> directions={
+            {Qt::Key_Left,{-40,0}}, {Qt::Key_Right,{40,0}},
+            {Qt::Key_Up,{0,-40}}, {Qt::Key_Down,{0,40}}};
+        for(const auto &direction:directions) {
+            const auto before=canvas.mapToWorld({500,350});
+            QKeyEvent press(QEvent::KeyPress,direction.first,Qt::ControlModifier);
+            canvas.keyPressEvent(&press);
+            QVERIFY(press.isAccepted());
+            QVERIFY(QLineF(canvas.mapToWorld({500,350}),before+direction.second/zoom).length()<0.001);
+            QKeyEvent repeat(QEvent::KeyPress,direction.first,Qt::ControlModifier,QString(),true);
+            canvas.keyPressEvent(&repeat);
+            QVERIFY(QLineF(canvas.mapToWorld({500,350}),before+direction.second*2/zoom).length()<0.001);
+            QCOMPARE(engine.selectedId(),selected);
+            QCOMPARE(canvas.zoom(),zoom);
+            QCOMPARE(engine.recoveryRevision(),revision);
+        }
+        canvas.editSelected(); QVERIFY(canvas.editing());
+        const auto before=canvas.m_pan;
+        QKeyEvent editPress(QEvent::KeyPress,Qt::Key_Left,Qt::ControlModifier);
+        canvas.keyPressEvent(&editPress);
+        QVERIFY(!editPress.isAccepted()); QCOMPARE(canvas.m_pan,before);
+    }
+    void creationHandleUsesConsistentContrastingThemeColor() {
+        auto luminance=[](QColor c) {
+            auto linear=[](double v) { return v<=.04045 ? v/12.92 : std::pow((v+.055)/1.055,2.4); };
+            return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
+        };
+        Engine engine; MindCanvas canvas; canvas.setEngine(&engine);
+        for(const auto &theme:Themes::catalog()) {
+            engine.setThemeId(theme.toMap()["id"].toString());
+            const auto color=canvas.creationHandleColor();
+            const double a=luminance(color), b=luminance(engine.canvasColor());
+            QVERIFY((std::max(a,b)+.05)/(std::min(a,b)+.05)>=4.5);
+            for(int id:{1,2,3}) {
+                canvas.m_hovered=id;
+                engine.select(id); QVERIFY(engine.applyNodeStyle({{"textColor",QString(id%2 ? "#fff2d0" : "#282332")}}));
+                QCOMPARE(canvas.creationHandleColor(),color);
+            }
+        }
+    }
     void creationPreviewRenders() {
         Engine engine(nullptr,Engine::InitialContent::Blank);
         QQuickWindow window; window.resize(1000,700);

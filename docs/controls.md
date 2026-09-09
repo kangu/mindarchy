@@ -8,7 +8,7 @@ The prototype stores local versioned JSON documents. Large test fixtures are ava
 - Double-click or Ctrl/Command-Return edits the selected title.
 - Hover a node to reveal its  handle. Click it to create an empty child and start typing. Drag it to preview a branch, then release: Manual placement keeps the child at the drop point; automatic placement arranges it in the tree. Escape or releasing outside the canvas cancels the drag. Creation is one undoable action.
 - Tab creates a child; Return creates a sibling (a child when the root is selected).
-- Arrow keys navigate the tree; Shift-arrow extends selection.
+- Arrow keys navigate the tree; Shift-arrow extends selection. Command-arrow on macOS (Ctrl-arrow on Omarchy) moves the viewport in the arrow’s direction by 40 screen pixels, independently of natural-scrolling preferences. Hold to repeat. Zoom and selection stay unchanged; text editing retains its normal arrow shortcuts.
 - Delete/Backspace deletes the selected branch. Undo restores it.
 - Drag a node onto another node to reparent its branch. In Manual placement mode, drag to position a branch freely.
 - Drag empty canvas to select a rectangle of nodes. Hold Space while dragging, or drag with the middle/right mouse button, to pan. Trackpad scrolling pans; the mouse wheel or Ctrl-scroll zooms around the pointer. The zoom buttons and Fit map are available at the bottom of the canvas.
@@ -81,3 +81,28 @@ On macOS, window coordinates are restored directly; maximized/fullscreen launche
 
 
 Platform references: [Qt window positioning limitations](https://doc.qt.io/qt-6/qwindow.html#setPosition), [Hyprland dispatchers](https://wiki.hypr.land/configuring/core/dispatchers/).
+
+## macOS recovery
+
+- Cmd+Q checkpoints every window and quits without save prompts; startup restores unsaved documents and drafts. Failed recovery writes keep the application open.
+- Recovery checkpoints run once per second while editing. A crash restores the latest completed checkpoint.
+- Cmd+W retains save/discard confirmation and removes the closed window from restoration.
+- Original `.omm` files are written only by Save. Private recovery envelopes are stored in Application Support, with per-window placement and viewport state.
+
+- The header percentage opens the zoom menu: Zoom In, Zoom Out, Actual Size (100%), and Fit Map. Opening the menu preserves the current viewport. Zoom In/Out keep it open for repeated clicks; Actual Size and Fit Map close it. Escape or clicking outside dismisses it.
+
+## Keyboard shortcut reference
+
+On macOS, choose **Help → Keyboard Shortcuts…** to open the native reference window. It lists shortcuts by context, action, and key combination. Command-W closes the reference window; opening it again brings the same window forward.
+
+## Node templates
+
+Select one node and click **Add node template** in the header (the calendar icon beside Add child). Choose **Weekly task list**, navigate the calendar with previous/next month or Today, and click any date or ISO week number in the desired row. **Add template** appends a dated week branch under the selected node, with Monday–Friday task groups and one empty task per day. The first task opens for typing. Daily and weekly completion use the existing task progress calculation. The complete insertion is one undoable operation and saves as ordinary `.omm` nodes; existing children are preserved. Cancel leaves the map unchanged.
+
+**Meeting Notes** is also available in the template picker. It adds a new meeting branch beneath the selected node with Agenda, Notes, Decisions, and Actions sections, each containing an empty entry. Actions use task nodes; the first Notes entry opens for typing. The whole insertion is one undoable action, and existing children stay in place. Select the meeting branch to edit its date, time, and attendees in the inspector. The former inspector button for converting a node into Meeting Notes has been removed; saved meeting nodes remain supported.
+
+## Search within a mind map
+
+Click the magnifying-glass button in the header, or press Command-F on macOS / Ctrl-F on Omarchy, to open the inline search field. Type a query; after a 300 ms pause, the first match is automatically centered and its matching letters highlighted. Enter then moves to the second match and continues through the results, wrapping after the last. Pressing Enter before the pause completes runs the pending search immediately. The counter shows your position. Results are centered at the existing zoom and briefly outlined with a fading flash. Escape or the close button hides the search field.
+
+Search matches plain node titles, notes, and date-entry text, ignoring case and accents. Exact matches rank before abbreviations and minor spelling errors; ties follow tree order. Folded descendants are searchable. Visiting one expands its ancestors using an undoable fold-state change. Letter highlighting uses contrasting foreground/background colors for the active node/theme, preserves rich text, and is cleared when the query changes or search closes. Queries and highlights are not stored in the document. Command-F now opens search; Fit Map remains available in the zoom dropdown and with the 0 key.

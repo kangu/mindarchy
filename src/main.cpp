@@ -7,6 +7,7 @@
 #include <functional>
 #include "engine.h"
 #include "documentsession.h"
+#include "documentrecovery.h"
 #include "windowplacement.h"
 #include <QCommandLineParser>
 #include <QElapsedTimer>
@@ -77,6 +78,7 @@ int main(int argc, char **argv) {
     parser.setApplicationDescription(
         "Mindarchy — mind maps, tasks, calendars and meeting notes");
     parser.addOption({"no-window-state", "Use default window geometry without saving placement"});
+    parser.addOption({"recover", "Restore an internal recovery snapshot", "path"});
     parser.addOption({"new", "Start a new blank mindmap"});
     parser.addHelpOption();
     parser.addVersionOption();
@@ -136,25 +138,41 @@ int main(int argc, char **argv) {
     files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
     const bool sessionEnabled = !parser.isSet("nodes") && !parser.isSet("screenshot") &&
         !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state");
-    const bool restoring = sessionEnabled && files.isEmpty() && !parser.isSet("new");
+    const bool recoveryEnabled = sessionEnabled && QGuiApplication::platformName()=="cocoa";
+    QString recoveryFile=parser.value("recover");
+    if(!recoveryFile.isEmpty() && (!recoveryEnabled ||
+       QFileInfo(recoveryFile).absolutePath()!=QFileInfo(DocumentSession::defaultDirectory()).absoluteFilePath() ||
+       QUuid(QFileInfo(recoveryFile).completeBaseName()).isNull())) {
+        fprintf(stderr,"Invalid recovery location\n"); return 1;
+    }
+    const bool restoring = sessionEnabled && files.isEmpty() && !parser.isSet("new") && recoveryFile.isEmpty();
     if (restoring) {
         // Validate before spawning any windows; a missing or corrupt map must
         // not prevent the remaining session (or a blank map) from opening.
-        for (const auto &path : DocumentSession::restorePaths()) {
+        for (const auto &path : DocumentSession::restorePaths(DocumentSession::defaultDirectory(),recoveryEnabled)) {
             Engine candidate(nullptr, Engine::InitialContent::Blank);
-            if (candidate.open(path)) files.append(path);
+            const bool snapshot=recoveryEnabled && path.endsWith(".recovery");
+            if (snapshot ? candidate.openRecovery(path) : candidate.open(path)) files.append(path);
+            else fprintf(stderr,"Could not restore %s: %s\n",qPrintable(path),qPrintable(candidate.error()));
         }
     }
     auto openInNewInstance=[](QString path) {
-        QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--document",path});
+        QProcess::startDetached(QCoreApplication::applicationFilePath(), {path.endsWith(".recovery") ? "--recover" : "--document",path});
     };
-    const bool startedWithFile=!files.isEmpty();
-    if(!files.isEmpty() && !document.open(files.takeFirst())) {
+    if(recoveryFile.isEmpty() && !files.isEmpty() && recoveryEnabled && files.first().endsWith(".recovery"))
+        recoveryFile=files.takeFirst();
+    QVariantMap recoveredUi;
+    const bool startedWithFile=!files.isEmpty() || !recoveryFile.isEmpty();
+    if(!recoveryFile.isEmpty() && !document.openRecovery(recoveryFile,&recoveredUi)) {
+        fprintf(stderr,"%s\n",qPrintable(document.error())); return 1;
+    }
+    if(recoveryFile.isEmpty() && !files.isEmpty() && !document.open(files.takeFirst())) {
         fprintf(stderr,"%s\n",qPrintable(document.error())); return 1;
     }
     std::unique_ptr<DocumentSession> session;
     if (sessionEnabled) {
-        session = std::make_unique<DocumentSession>();
+        session = std::make_unique<DocumentSession>(DocumentSession::defaultDirectory(),recoveryFile);
+        if(!session->locked()) { fprintf(stderr,"Document recovery is already open\n"); return 1; }
         session->setDocument(document.documentPath());
         QObject::connect(&document, &Engine::changed, &app, [&] {
             session->setDocument(document.documentPath());
@@ -197,9 +215,15 @@ int main(int argc, char **argv) {
         if (auto *canvas = window->findChild<MindCanvas *>("mindCanvas"))
             viewportState = std::make_unique<ViewportState>(canvas, &document, &viewportSettings);
     }
+    std::unique_ptr<DocumentRecovery> recovery;
+    if(recoveryEnabled && session && window) {
+        if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas"))
+            recovery=std::make_unique<DocumentRecovery>(&document,window,canvas,session->recoveryPath(),recoveredUi);
+    }
     QTimer sessionPoll;
     if (session && window) {
         QObject::connect(&document, &Engine::windowCloseApproved, &app, [&](bool forget) {
+            if (recovery) recovery->remove();
             if (forget) session->forgetDocument();
         });
         QObject::connect(&document, &Engine::quitRequested, &app, [&] { session->beginQuit(); });
@@ -215,6 +239,10 @@ int main(int argc, char **argv) {
             }
             switch (session->pollQuit()) {
             case DocumentSession::QuitAction::Confirm:
+                if(recovery) {
+                    session->voteToQuit(recovery->prepareQuit());
+                    break;
+                }
                 window->raise(); window->requestActivate();
                 QMetaObject::invokeMethod(window, "requestClose", Q_ARG(QVariant, false), Q_ARG(QVariant, true)); break;
             case DocumentSession::QuitAction::Cancel:
@@ -227,8 +255,27 @@ int main(int argc, char **argv) {
         sessionPoll.start(150);
     }
     if(window && !parser.isSet("no-window-state") && !parser.isSet("screenshot") &&
-       !parser.isSet("quit-after") && !parser.isSet("render-benchmark")) new WindowPlacement(window);
+       !parser.isSet("quit-after") && !parser.isSet("render-benchmark")) {
+        const QString placementFile=recovery ? session->recoveryPath()+".window.ini" : QString();
+        if(recovery && !QFileInfo::exists(placementFile)) {
+            std::unique_ptr<QSettings> defaults(AppIdentity::windowSettings());
+            QSettings individual(placementFile,QSettings::IniFormat);
+            for(const auto &key:defaults->allKeys()) individual.setValue(key,defaults->value(key));
+            individual.sync();
+        }
+        auto *placement=new WindowPlacement(window,placementFile);
+        if(recovery) QObject::connect(&app,&QCoreApplication::aboutToQuit,placement,[placement,placementFile] {
+            placement->save();
+            QSettings individual(placementFile,QSettings::IniFormat);
+            std::unique_ptr<QSettings> defaults(AppIdentity::windowSettings());
+            for(const auto &key:individual.allKeys()) defaults->setValue(key,individual.value(key));
+            defaults->sync();
+        });
+    }
 #ifdef Q_OS_MACOS
+    void installMacHelpMenu(QWindow *);
+    if (window && QGuiApplication::platformName() == "cocoa")
+        QTimer::singleShot(0, window, [window] { installMacHelpMenu(window); });
     void installMacToolbar(QWindow *window);
     if (window && QGuiApplication::platformName() == "cocoa") installMacToolbar(window);
     void installMacWindowMenu(QWindow *, std::function<QVariantList()>, std::function<void(qint64)>);

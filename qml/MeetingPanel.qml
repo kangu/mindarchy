@@ -6,15 +6,10 @@ import QtQuick.Layouts
 ColumnLayout {
     id: panel
     required property var controller
-    required property var commitEditor
     readonly property bool meeting: controller.selectedMeeting.date !== undefined
+    visible: meeting
     spacing: 8
-    Label { text: panel.meeting ? "MEETING DETAILS" : "TEMPLATE"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.5 }
-    Button {
-        objectName: "applyMeetingTemplate"; visible: !panel.meeting; Layout.fillWidth: true
-        text: "Meeting Notes"; enabled: controller.selection.length===1
-        onClicked: { if(panel.commitEditor("")) controller.applyMeetingTemplate() }
-    }
+    Label { text: "MEETING DETAILS"; color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 10; font.letterSpacing: 1.5 }
     ColumnLayout {
         visible: panel.meeting; Layout.fillWidth: true; spacing: 8
         RowLayout {

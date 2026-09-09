@@ -1,4 +1,5 @@
 #include "shelltheme.h"
+#include "documentrecovery.h"
 #include "../src/canvas.h"
 #include "../src/engine.h"
 #include <QGuiApplication>
@@ -55,25 +56,100 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void headerSearchCyclesCentersAndFlashes() {
+        document->setText(2,"Unique searchable alpha"); document->setText(3,"Unique searchable beta");
+        auto *button=window->findChild<QObject *>("searchButton"); QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *field=window->findChild<QQuickItem *>("mindmapSearchField"); QVERIFY(field); QVERIFY(field->hasActiveFocus());
+        field->setProperty("text","uniq searchable");
+        const double zoom=canvas->zoom();
+        QCOMPARE(window->property("searchIndex").toInt(),-1);
+        QTest::qWait(100); QCOMPARE(window->property("searchIndex").toInt(),-1);
+        QTRY_COMPARE(window->property("searchIndex").toInt(),0);
+        const int first=document->selectedId(); QVERIFY(first==2 || first==3);
+        const auto center=canvas->mapFromWorld(document->nodes().value(first).rect.center());
+        QVERIFY(QLineF(center,QPointF(canvas->width()/2,canvas->height()/2)).length()<0.01);
+        QCOMPARE(canvas->zoom(),zoom); QVERIFY(field->hasActiveFocus());
+        auto *flash=window->findChild<QQuickItem *>("searchResultFlash"); QVERIFY(flash);
+        QTRY_VERIFY(flash->opacity()>0.1);
+        QTest::keyClick(window,Qt::Key_Return); QVERIFY(document->selectedId()!=first);
+        QTest::keyClick(window,Qt::Key_Return); QCOMPARE(document->selectedId(),first);
+        QTRY_VERIFY(flash->opacity()<0.01);
+        field->setProperty("text","zzzznomatching1234"); QTest::keyClick(window,Qt::Key_Return);
+        QCOMPARE(document->selectedId(),first);
+        QTest::keyClick(window,Qt::Key_Escape); QVERIFY(!window->property("searchOpen").toBool());
+        QTest::keySequence(window,QKeySequence::Find); QTRY_VERIFY(window->property("searchOpen").toBool());
+        QTest::keyClick(window,Qt::Key_Escape);
+    }
+    void weeklyTemplatePickerAddsBranch() {
+        document->select(1); const int before=document->nodeCount();
+        auto *button=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *choice=window->findChild<QObject *>("nodeTemplateChoice"); QVERIFY(choice);
+        choice->setProperty("currentIndex",0);
+        dialog->setProperty("month",document->templateCalendar("2026-09-01"));
+        auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
+        QTest::qWait(50);
+        auto *week=findVisual(content,"templateWeek_2026-09-07"); QVERIFY(week);
+        QVERIFY(QMetaObject::invokeMethod(week,"clicked"));
+        QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
+        auto *otherWeek=findVisual(content,"templateWeek_2026-09-21"); QVERIFY(otherWeek);
+        // Click Wednesday, well away from the week-number column.
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
+            otherWeek->mapToScene(QPointF(otherWeek->width()*3.5/8,otherWeek->height()/2)).toPoint());
+        QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-21"));
+        QVERIFY(dialog->property("selectedLabel").toString().contains("Week 39"));
+        QCOMPARE(document->nodeCount(),before);
+        QVERIFY(dialog->property("visible").toBool());
+        // The end of the row (Sunday) selects the same week too.
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
+            week->mapToScene(QPointF(week->width()*7.5/8,week->height()/2)).toPoint());
+        QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
+        if(qEnvironmentVariableIsSet("MINDARCHY_TEMPLATE_SCREENSHOT")) {
+            QTest::qWait(150); QVERIFY(window->grabWindow().save(qEnvironmentVariable("MINDARCHY_TEMPLATE_SCREENSHOT")));
+        }
+        auto *add=findVisual(content,"addNodeTemplate"); QVERIFY(add);
+        QVERIFY(QMetaObject::invokeMethod(add,"clicked"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(document->nodeCount(),before+11);
+        QTRY_VERIFY(canvas->editing());
+        QTRY_VERIFY(editor->hasActiveFocus()); type("First weekly task"); QTest::keyClick(window,Qt::Key_Escape);
+        QVERIFY(document->selectedTask()); QCOMPARE(plain(document->selectedId()),QString("First weekly task"));
+    }
     void meetingTemplateStartsIndividualNoteEditing() {
         window->setProperty("inspectorVisible",true);
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
-        document->select(2);
-        auto *apply=window->findChild<QQuickItem *>("applyMeetingTemplate"); QVERIFY(apply);
-        apply->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
-        QTRY_VERIFY(canvas->editing());
+        document->select(2); const auto previous=document->nodes().value(2);
+        QVERIFY(!window->findChild<QObject *>("applyMeetingTemplate"));
+        auto *button=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
+        auto *choice=findVisual(content,"nodeTemplateChoice"); QVERIFY(choice); choice->setProperty("currentIndex",1);
+        QTRY_VERIFY(!dialog->property("needsWeek").toBool());
+        auto *calendar=findVisual(content,"templateWeekCalendar"); QVERIFY(calendar); QVERIFY(!calendar->isVisible());
+        auto *add=findVisual(content,"addNodeTemplate"); QVERIFY(add);
+        QVERIFY(QMetaObject::invokeMethod(add,"clicked"));
+        QTRY_VERIFY(canvas->editing()); QTRY_VERIFY(editor->hasActiveFocus());
+        const int meeting=document->nodes().value(2).children.last();
+        QCOMPARE(document->nodes().value(2).text,previous.text);
+        QCOMPARE(document->nodes().value(2).children.size(),previous.children.size()+1);
         QCOMPARE(document->selectedEntryPrompt(),QString("Capture a note…"));
         QTextDocument draft; draft.setHtml(editor->property("text").toString());
         QVERIFY(draft.toPlainText().trimmed().isEmpty());
         type("Meeting discussion"); QTest::keyClick(window,Qt::Key_Escape);
-        QVERIFY(!canvas->editing()); document->select(2);
-        auto *attendees=window->findChild<QQuickItem *>("meetingAttendees"); QVERIFY(attendees);
+        QVERIFY(!canvas->editing()); document->select(meeting);
+        auto *attendees=window->findChild<QQuickItem *>("meetingAttendees"); QVERIFY(attendees); QVERIFY(attendees->isVisible());
         attendees->forceActiveFocus(); type("Alex, Sam");
         QCOMPARE(document->selectedMeeting().value("attendees").toString(),QString("Alex, Sam"));
         if(qEnvironmentVariableIsSet("MINDMAP_MEETING_SCREENSHOT")) {
             canvas->fit(); QTest::qWait(250);
             QVERIFY(window->grabWindow().save(qEnvironmentVariable("MINDMAP_MEETING_SCREENSHOT")));
         }
+        document->select(2); QVERIFY(!attendees->isVisible());
     }
     void integratedColorPickerPresetsCustomAndCancel() {
         auto *button=window->findChild<QObject *>("style-fill-picker");
@@ -107,6 +183,60 @@ class UiTest : public QObject {
         hex->setProperty("text", "#8040a0e0"); QMetaObject::invokeMethod(hex,"textEdited");
         QVERIFY(QMetaObject::invokeMethod(picker, "accept"));
         QCOMPARE(document->appearance(1).fill.name(QColor::HexArgb), QString("#8040a0e0"));
+    }
+    void recoveryCapturesTypingNotesDateAndQuitWithoutPrompt() {
+        QTemporaryDir dir; const auto path=dir.filePath("window.recovery");
+        DocumentRecovery recovery(document,window,canvas,path);
+        canvas->initializeView(); QTest::qWait(50);
+        canvas->beginEdit(2); type("Uncommitted typing");
+        auto *notes=window->findChild<QObject *>("notesEditor"); QVERIFY(notes);
+        notes->setProperty("text","Unapplied notes");
+        QTest::qWait(1100);
+        Engine recovered; QVariantMap draft;
+        QVERIFY(recovered.openRecovery(path,&draft));
+        QCOMPARE(draft["editingId"].toInt(),2);
+        QTextDocument text; text.setHtml(draft["text"].toString()); QCOMPARE(text.toPlainText(),QString("Uncommitted typing"));
+        QCOMPARE(draft["notes"].toString(),QString("Unapplied notes"));
+        const auto currentText=document->nodes().value(2).text;
+        QVERIFY(currentText!=draft["text"].toString()); // snapshot did not commit or alter undo history
+        bool quitSaved=false;
+        const auto quitConnection=connect(document,&Engine::quitRequested,this,[&] { quitSaved=recovery.prepareQuit(); });
+        window->requestActivate(); QTest::qWait(50);
+        const QKeySequence quitKey(QKeySequence::Quit);
+        if(QGuiApplication::platformName()=="cocoa") QVERIFY(!quitKey.isEmpty());
+        // The offscreen platform supplies no StandardKey.Quit binding.
+        if(quitKey.isEmpty()) emit document->quitRequested();
+        else QTest::keySequence(window,quitKey);
+        QTRY_VERIFY(quitSaved);
+        disconnect(quitConnection);
+        QVERIFY(window->property("quitPending").toBool());
+        QVERIFY(!window->findChild<QObject *>("closeConfirmation")->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(window,"abortSessionQuit"));
+        canvas->endEdit();
+        QVERIFY(QMetaObject::invokeMethod(window,"restoreRecoveryDraft",Q_ARG(QVariant,draft)));
+        QVERIFY(canvas->editing()); QCOMPARE(editor->property("text").toString(),draft["text"].toString());
+        QCOMPARE(notes->property("text").toString(),QString("Unapplied notes"));
+        canvas->endEdit(); document->select(3); document->setNodeKind(3,"date");
+        auto *date=window->findChild<QObject *>("dateEntryDialog"); QVERIFY(date);
+        QVERIFY(QMetaObject::invokeMethod(date,"openEntry",Q_ARG(QVariant,3),Q_ARG(QVariant,QString("2026-09-09")),Q_ARG(QVariant,QString("Before"))));
+        auto *entry=date->findChild<QObject *>("dateEntryText"); QVERIFY(entry); entry->setProperty("text","Unfinished date");
+        QVERIFY(recovery.checkpoint()); QVERIFY(recovered.openRecovery(path,&draft));
+        QCOMPARE(draft["date"].toMap()["text"].toString(),QString("Unfinished date"));
+        QVERIFY(QMetaObject::invokeMethod(date,"close"));
+        QVERIFY(QMetaObject::invokeMethod(window,"restoreRecoveryDraft",Q_ARG(QVariant,draft)));
+        QTRY_VERIFY(date->property("opened").toBool());
+        QCOMPARE(entry->property("text").toString(),QString("Unfinished date"));
+        QVERIFY(QMetaObject::invokeMethod(date,"close"));
+        recovery.remove(); QVERIFY(!QFileInfo::exists(path)); QVERIFY(!recovery.checkpoint());
+    }
+    void failedRecoveryKeepsWindowEditable() {
+        QTemporaryDir dir;
+        DocumentRecovery recovery(document,window,canvas,dir.filePath("missing/window.recovery"));
+        QVERIFY(!recovery.prepareQuit());
+        QVERIFY(!window->property("quitPending").toBool());
+        QVERIFY(window->contentItem()->isEnabled());
+        QVERIFY(window->isVisible());
+        QVERIFY(document->error().contains("recovery"));
     }
     void documentHeaderTracksSaveAndEditing() {
         QTemporaryDir dir;
@@ -266,6 +396,28 @@ class UiTest : public QObject {
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
     }
+    void systemThemePrefersStateDirectoryAndHandlesMigrationLive() {
+        QTemporaryDir dir;
+        const auto state=dir.filePath("state/current"), legacy=dir.filePath("config/current");
+        auto write=[](const QString &root,const QByteArray &background) {
+            QDir().mkpath(root+"/theme"); QFile file(root+"/theme/colors.toml");
+            if(!file.open(QIODevice::WriteOnly)) return false;
+            return file.write("background = '"+background+"'\nforeground = '#e6d9db'\naccent = '#f38d70'\nred = '#fd6883'\n")>0;
+        };
+        QVERIFY(write(legacy,"#111111"));
+        ShellTheme theme(QStringList{state,legacy});
+        QCOMPARE(theme.colors()["#172129"].value<QColor>(),QColor("#111111"));
+        QVERIFY(write(state,"#2c2525"));
+        QTRY_COMPARE_WITH_TIMEOUT(theme.colors()["#172129"].value<QColor>(),QColor("#2c2525"),2500);
+        QCOMPARE(theme.colors()["#f08b83"].value<QColor>(),QColor("#fd6883"));
+        QVERIFY(QDir(state+"/theme").removeRecursively());
+        QTest::qWait(1200);
+        QCOMPARE(theme.colors()["#172129"].value<QColor>(),QColor("#2c2525"));
+        QVERIFY(write(state,"#faf4ed"));
+        QTRY_COMPARE_WITH_TIMEOUT(theme.colors()["#172129"].value<QColor>(),QColor("#faf4ed"),2500);
+        QVERIFY(write(legacy,"#000000")); QTest::qWait(1200);
+        QCOMPARE(theme.colors()["#172129"].value<QColor>(),QColor("#faf4ed"));
+    }
     void systemThemeUpdatesShellLive() {
         const QString root=shellThemeDirectory.path();
         auto writeTheme=[&](QString directory,QByteArray background,QByteArray foreground) {
@@ -331,6 +483,30 @@ class UiTest : public QObject {
         window->setProperty("inspectorVisible",inspector);
         window->resize(originalSize);
     }
+    void compactZoomDropdownActions() {
+        auto *percentage=window->findChild<QQuickItem *>("zoomPercentage"); QVERIFY(percentage);
+        auto *menu=window->findChild<QObject *>("zoomMenu"); QVERIFY(menu);
+        auto choose=[&](const char *name,bool staysOpen=false) {
+            if(!menu->property("visible").toBool())
+                QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,percentage->mapToScene(QPointF(percentage->width()/2,percentage->height()/2)).toPoint());
+            QTRY_VERIFY(menu->property("opened").toBool());
+            auto *item=window->findChild<QQuickItem *>(name); QVERIFY(item);
+            QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,item->mapToScene(QPointF(item->width()/2,item->height()/2)).toPoint());
+            QTest::qWait(100);
+            QCOMPARE(menu->property("visible").toBool(),staysOpen);
+            if(const auto path=qEnvironmentVariable("MINDARCHY_ZOOM_MENU_SCREENSHOT"); staysOpen && !path.isEmpty())
+                QVERIFY(window->grabWindow().save(path));
+        };
+        canvas->resetZoom(); choose("zoomInAction",true); QCOMPARE(canvas->zoom(),1.25);
+        choose("zoomInAction",true); QCOMPARE(canvas->zoom(),1.5625);
+        choose("zoomOutAction",true); QCOMPARE(canvas->zoom(),1.25);
+        choose("zoomOutAction",true); QCOMPARE(canvas->zoom(),1.);
+        choose("zoomInAction",true);
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!menu->property("visible").toBool());
+        choose("zoomActualSizeAction"); QCOMPARE(canvas->zoom(),1.);
+        canvas->fit(); const auto fitted=canvas->zoom();
+        canvas->zoomIn(); choose("zoomFitAction"); QCOMPARE(canvas->zoom(),fitted);
+    }
     void toolbarGroupsAndNewDocument() {
         auto *left=window->findChild<QQuickItem *>("documentActions");
         auto *center=window->findChild<QQuickItem *>("editingActions");
@@ -340,9 +516,15 @@ class UiTest : public QObject {
         auto *zoom=window->findChild<QQuickItem *>("zoomControls"); QVERIFY(zoom);
         QVERIFY(zoom->mapToScene(QPointF(0,zoom->height())).y()<=canvas->mapToScene(QPointF()).y());
         auto *percentage=window->findChild<QQuickItem *>("zoomPercentage"); QVERIFY(percentage);
-        canvas->zoomIn();
+        canvas->zoomIn(); const auto zoomBeforeMenu=canvas->zoom();
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,percentage->mapToScene(QPointF(percentage->width()/2,percentage->height()/2)).toPoint());
+        auto *menu=window->findChild<QObject *>("zoomMenu"); QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool()); QCOMPARE(canvas->zoom(),zoomBeforeMenu);
+        auto *actualSize=window->findChild<QQuickItem *>("zoomActualSizeAction"); QVERIFY(actualSize);
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,actualSize->mapToScene(QPointF(actualSize->width()/2,actualSize->height()/2)).toPoint());
         QCOMPARE(canvas->zoom(),1.);
+        QTRY_VERIFY(!menu->property("visible").toBool());
+        QVERIFY(zoom->width()<=80);
         auto x=[](QQuickItem *item) {return item->mapToScene(QPointF()).x();};
         QVERIFY(x(left)+left->width()<x(center));
         QVERIFY(x(center)+center->width()<x(right));

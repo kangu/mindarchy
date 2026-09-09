@@ -5,12 +5,25 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 
-ShellTheme::ShellTheme(QString directory, QObject *parent) : QObject(parent), m_directory(directory) {
+namespace {
+QStringList themeDirectories(const QString &directory) {
+    if(!directory.isEmpty()) return {directory};
 #ifdef Q_OS_LINUX
-    if (m_directory.isEmpty())
-        m_directory = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omarchy/current";
+    // New Omarchy releases moved generated theme state out of ~/.config.
+    const auto state=qEnvironmentVariable("XDG_STATE_HOME");
+    const auto root=state.isEmpty() ? QDir::homePath()+"/.local/state" : state;
+    return {root+"/omarchy/current",
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)+"/omarchy/current"};
+#else
+    return {};
 #endif
-    if (m_directory.isEmpty()) return;
+}
+}
+ShellTheme::ShellTheme(QString directory, QObject *parent)
+    : ShellTheme(themeDirectories(directory),parent) {}
+ShellTheme::ShellTheme(QStringList directories, QObject *parent)
+    : QObject(parent), m_directories(std::move(directories)) {
+    if (m_directories.isEmpty()) return;
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(100);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
@@ -23,15 +36,23 @@ ShellTheme::ShellTheme(QString directory, QObject *parent) : QObject(parent), m_
     reload();
 }
 void ShellTheme::reload() {
-    const QString filePath = m_directory + "/theme/colors.toml";
-    QStringList wanted{m_directory, m_directory + "/theme", filePath};
-    for (const auto &path : wanted)
-        if (QFile::exists(path) && !m_watcher.files().contains(path) && !m_watcher.directories().contains(path))
-            m_watcher.addPath(path);
-    QFile file(filePath);
-    // Keep the last valid palette during the remove/rename gap of a switch.
-    if (!file.open(QIODevice::ReadOnly) || file.size() > 65536) return;
-    const QString text = QString::fromUtf8(file.readAll());
+    QString text;
+    bool found=false;
+    for(const auto &directory:m_directories) {
+        const QString filePath=directory+"/theme/colors.toml";
+        const QStringList wanted{directory,directory+"/theme",filePath};
+        for(const auto &path:wanted)
+            if(QFile::exists(path) && !m_watcher.files().contains(path) && !m_watcher.directories().contains(path))
+                m_watcher.addPath(path);
+        // The preferred state directory owns the theme once present. During an
+        // atomic switch retain the last good colors, not a stale legacy theme.
+        if(found || !QFile::exists(directory)) continue;
+        found=true;
+        QFile file(filePath);
+        if(!file.open(QIODevice::ReadOnly) || file.size()>65536) continue;
+        text=QString::fromUtf8(file.readAll());
+    }
+    if(text.isEmpty()) return;
     QHash<QString,QColor> palette;
     const QRegularExpression entry(R"re(^\s*([a-zA-Z_0-9]+)\s*=\s*["'](#[0-9a-fA-F]{6})["']\s*(?:#.*)?$)re",
                                   QRegularExpression::MultilineOption);
@@ -59,8 +80,8 @@ void ShellTheme::reload() {
     assign({"#29463f","#317d73"},mix(bg,accent,.28));
     assign({"#32434d","#2a3943","#34434c","#3a4b57","#40545f"},mix(bg,fg,.25));
     assign({"#ffffff"},fg);
-    assign({"#f08b83","#efaa96","#ef8585"},palette.value("color1",QColor("#ef8585")));
-    assign({"#563832"},mix(bg,palette.value("color1",QColor("#ef8585")),.2));
+    assign({"#f08b83","#efaa96","#ef8585"},palette.value("red",palette.value("color1",QColor("#ef8585"))));
+    assign({"#563832"},mix(bg,palette.value("red",palette.value("color1",QColor("#ef8585"))),.2));
     assign({"#ffd3c7"},fg);
     if (colors != m_colors) { m_colors=colors; emit changed(); }
 }

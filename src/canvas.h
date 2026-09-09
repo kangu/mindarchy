@@ -11,6 +11,7 @@ class MindCanvas : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(Engine *engine READ engine WRITE setEngine NOTIFY engineChanged)
     Q_PROPERTY(double zoom READ zoom NOTIFY viewChanged)
+    Q_PROPERTY(QRectF searchResultRect READ searchResultRect NOTIFY viewChanged)
     Q_PROPERTY(double panX READ panX NOTIFY viewChanged)
     Q_PROPERTY(double panY READ panY NOTIFY viewChanged)
     Q_PROPERTY(int visibleRendered READ visibleRendered NOTIFY metricsChanged)
@@ -40,6 +41,9 @@ class MindCanvas : public QQuickItem {
     QRectF nodeRect(int id) const { return displayRect(id); }
     QString dateHoverText() const { return m_dateHoverText; }
     QPointF dateHoverPosition() const { return m_dateHoverPosition; }
+    Q_INVOKABLE void focusSearchResult(int id, QString query = {});
+    Q_INVOKABLE void clearSearchHighlight();
+    QRectF searchResultRect() const;
     Q_INVOKABLE void revealNode(int id) { ensureVisible(id); }
     Q_INVOKABLE void editDateEntry(int id, QString date);
     QString interactionHint() const { return m_hint; }
@@ -63,6 +67,7 @@ class MindCanvas : public QQuickItem {
     Q_INVOKABLE bool commitEditing(QString text);
     Q_INVOKABLE bool exportPng(QString path);
   signals:
+    void searchResultFocused();
     void viewInitializing();
     void viewInitialized();
     void engineChanged();
@@ -133,10 +138,13 @@ class MindCanvas : public QQuickItem {
     qreal taskProgress(int id) const;
     QColor nodeColor(int id) const;
     void updateDrop(QPointF screen);
+    QColor creationHandleColor() const;
     QRectF creationHandleRect() const;
     QPointF creationAnchor(int id, std::optional<QPointF> toward = {}) const;
     QPolygonF creationPreview() const;
     void cancelCreation();
+    QString m_searchQuery;
+    int m_searchResult = -1;
     int m_creatingParent = -1;
     bool m_creationDragged = false;
     QPointF m_creationEnd;

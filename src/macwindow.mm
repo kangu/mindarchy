@@ -236,3 +236,179 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
         [target release];
     });
 }
+
+@interface OMMShortcutsWindow : NSWindow
+@end
+@implementation OMMShortcutsWindow
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    if ((event.modifierFlags & NSEventModifierFlagCommand) &&
+        [event.charactersIgnoringModifiers isEqualToString:@"w"]) {
+        [self performClose:nil]; return YES;
+    }
+    return [super performKeyEquivalent:event];
+}
+@end
+
+@interface OMMHelpTarget : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate> {
+    NSWindow *shortcutsWindow;
+    NSArray *rows;
+    NSMutableArray *filteredRows;
+    NSTableView *shortcutsTable;
+}
+- (void)showShortcuts:(id)sender;
+@end
+@implementation OMMHelpTarget
+- (NSString *)searchableText:(NSString *)text {
+    NSString *result=text.lowercaseString;
+    for (NSArray *pair in @[@[@"⌘",@" command "], @[@"cmd",@"command"], @[@"⇧",@" shift "],
+                           @[@"⌃",@" control "], @[@"ctrl",@"control"], @[@"⌫",@" backspace "],
+                           @[@"↑",@" up arrow "], @[@"↓",@" down arrow "],
+                           @[@"←",@" left arrow "], @[@"→",@" right arrow "], @[@"−",@"-"]])
+        result=[result stringByReplacingOccurrencesOfString:pair[0] withString:pair[1]];
+    return result;
+}
+- (void)controlTextDidChange:(NSNotification *)notification {
+    NSString *query=[notification.object stringValue];
+    NSString *normalized=[self searchableText:query];
+    if (normalized.length>1) normalized=[normalized stringByReplacingOccurrencesOfString:@"+" withString:@" "];
+    NSArray *terms=[normalized componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    [filteredRows removeAllObjects];
+    for(NSArray *row in rows) {
+        NSString *haystack=[self searchableText:[row componentsJoinedByString:@" "]];
+        BOOL matches=YES;
+        for(NSString *term in terms)
+            if(term.length && [haystack rangeOfString:term options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch].location==NSNotFound) { matches=NO; break; }
+        if(matches) [filteredRows addObject:row];
+    }
+    [shortcutsTable reloadData];
+    if(filteredRows.count) [shortcutsTable scrollRowToVisible:0];
+}
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)table { return filteredRows.count; }
+- (NSView *)tableView:(NSTableView *)table viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
+    NSInteger index=[column.identifier integerValue];
+    NSTableCellView *cell=[[[NSTableCellView alloc] init] autorelease];
+    NSTextField *label=[NSTextField labelWithString:filteredRows[row][index]];
+    label.font=index==2 ? [NSFont monospacedSystemFontOfSize:13 weight:NSFontWeightMedium] : [NSFont systemFontOfSize:13];
+    label.textColor=index==0 ? NSColor.secondaryLabelColor : NSColor.labelColor;
+    label.lineBreakMode=NSLineBreakByTruncatingTail;
+    label.translatesAutoresizingMaskIntoConstraints=NO;
+    [cell addSubview:label]; cell.textField=label;
+    [NSLayoutConstraint activateConstraints:@[
+        [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+        [label.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:2],
+        [label.trailingAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-2]
+    ]];
+    return cell;
+}
+- (void)showShortcuts:(id)sender {
+    if (!shortcutsWindow) {
+        rows=[@[
+            @[@"Document", @"New mindmap", @"⌘ N"],
+            @[@"Document", @"Open document", @"⌘ O"],
+            @[@"Document", @"Save", @"⌘ S"],
+            @[@"Document", @"Close active window", @"⌘ W"],
+            @[@"Document", @"Quit application", @"⌘ Q"],
+            @[@"Document", @"Undo", @"⌘ Z"],
+            @[@"Document", @"Redo", @"⇧ ⌘ Z"],
+            @[@"Canvas", @"Navigate nodes", @"↑ ↓ ← →"],
+            @[@"Canvas", @"Extend selection", @"⇧ + arrows"],
+            @[@"Canvas", @"Move viewport in arrow direction", @"⌘ + arrows"],
+            @[@"Canvas", @"Pan with mouse", @"Space + drag"],
+            @[@"Canvas", @"Create child", @"Tab"],
+            @[@"Canvas", @"Create sibling (child of root)", @"Return"],
+            @[@"Canvas", @"Edit selected node", @"⌘ Return / F2"],
+            @[@"Canvas", @"Delete selected branch", @"Delete / ⌫"],
+            @[@"Canvas", @"Fold or expand branch", @"F"],
+            @[@"Canvas", @"Toggle Task node type", @"T"],
+            @[@"Canvas", @"Zoom in", @"+ / ="],
+            @[@"Canvas", @"Zoom out", @"−"],
+            @[@"Canvas", @"Fit map", @"0"],
+            @[@"Search", @"Open mind map search", @"⌘ F"],
+            @[@"Search", @"Next result after automatic first match", @"Return"],
+            @[@"Search", @"Close search", @"Esc"],
+            @[@"Canvas", @"Clear selection / cancel child drag", @"Esc"],
+            @[@"Node editing", @"Commit text", @"Return / Esc"],
+            @[@"Node editing", @"Commit and create child", @"Tab"],
+            @[@"Node editing", @"Insert line break", @"⇧ Return"],
+            @[@"Node editing", @"Bold", @"⌘ B"],
+            @[@"Node editing", @"Italic", @"⌘ I"],
+            @[@"Node editing", @"Underline", @"⌘ U"],
+            @[@"Text fields", @"Select all", @"⌘ A"],
+            @[@"Text fields", @"Cut / copy / paste", @"⌘ X / C / V"],
+            @[@"Date entry", @"Save entry", @"⌘ Return"],
+            @[@"Date entry", @"Cancel entry", @"Esc"],
+            @[@"Window", @"Minimize", @"⌘ M"],
+            @[@"Window", @"Toggle full screen", @"⌃ ⌘ F"],
+            @[@"Window", @"Next window", @"⌘ `"],
+            @[@"Window", @"Previous window", @"⇧ ⌘ `"]
+        ] retain];
+        filteredRows=[rows mutableCopy];
+        shortcutsWindow=[[OMMShortcutsWindow alloc] initWithContentRect:NSMakeRect(0,0,740,600)
+            styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable
+            backing:NSBackingStoreBuffered defer:NO];
+        shortcutsWindow.title=@"Keyboard Shortcuts";
+        shortcutsWindow.identifier=@"mindarchy-keyboard-shortcuts";
+        shortcutsWindow.releasedWhenClosed=NO;
+        shortcutsWindow.contentMinSize=NSMakeSize(680,360);
+        NSView *content=shortcutsWindow.contentView;
+        NSTextField *heading=[NSTextField labelWithString:@"Keyboard Shortcuts"];
+        heading.font=[NSFont systemFontOfSize:23 weight:NSFontWeightSemibold];
+        NSTextField *subtitle=[NSTextField labelWithString:@"Canvas shortcuts work while the mind map is focused. Text fields keep their editing shortcuts."];
+        subtitle.font=[NSFont systemFontOfSize:12]; subtitle.textColor=NSColor.secondaryLabelColor;
+        NSSearchField *search=[[[NSSearchField alloc] init] autorelease];
+        search.placeholderString=@"Search actions or keys";
+        search.accessibilityLabel=@"Search keyboard shortcuts";
+        search.identifier=@"shortcut-search";
+        search.delegate=self;
+        search.sendsSearchStringImmediately=YES;
+        NSScrollView *scroll=[[[NSScrollView alloc] init] autorelease];
+        scroll.hasVerticalScroller=YES; scroll.autohidesScrollers=YES;
+        NSTableView *table=[[[NSTableView alloc] init] autorelease];
+        shortcutsTable=table;
+        NSArray *titles=@[@"Context", @"Action", @"Shortcut"];
+        for (NSInteger i=0;i<3;++i) {
+            NSTableColumn *column=[[[NSTableColumn alloc] initWithIdentifier:[@(i) stringValue]] autorelease];
+            column.title=titles[i]; column.width=i==0 ? 115 : i==1 ? 345 : 210;
+            column.minWidth=i==0 ? 100 : i==1 ? 280 : 180;
+            [table addTableColumn:column];
+        }
+        table.usesAlternatingRowBackgroundColors=YES; table.rowHeight=32;
+        table.selectionHighlightStyle=NSTableViewSelectionHighlightStyleNone;
+        table.dataSource=self; table.delegate=self;
+        scroll.documentView=table;
+        for(NSView *child in @[heading,subtitle,search,scroll]) { child.translatesAutoresizingMaskIntoConstraints=NO; [content addSubview:child]; }
+        [NSLayoutConstraint activateConstraints:@[
+            [heading.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:24],
+            [heading.topAnchor constraintEqualToAnchor:content.topAnchor constant:22],
+            [subtitle.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+            [subtitle.topAnchor constraintEqualToAnchor:heading.bottomAnchor constant:8],
+            [search.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+            [search.topAnchor constraintEqualToAnchor:subtitle.bottomAnchor constant:14],
+            [search.widthAnchor constraintEqualToConstant:280],
+            [search.heightAnchor constraintEqualToConstant:26],
+            [scroll.topAnchor constraintEqualToAnchor:search.bottomAnchor constant:14],
+            [scroll.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:16],
+            [scroll.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-16],
+            [scroll.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-16]
+        ]];
+        [shortcutsWindow center];
+    }
+    [shortcutsWindow makeKeyAndOrderFront:nil];
+}
+- (void)dealloc {
+    [shortcutsWindow close]; [shortcutsWindow release]; [filteredRows release]; [rows release]; [super dealloc];
+}
+@end
+
+void installMacHelpMenu(QWindow *owner) {
+    NSMenu *menu=[[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
+    NSMenuItem *root=[[[NSMenuItem alloc] initWithTitle:@"Help" action:nil keyEquivalent:@""] autorelease];
+    OMMHelpTarget *target=[[OMMHelpTarget alloc] init];
+    NSMenuItem *item=[[[NSMenuItem alloc] initWithTitle:@"Keyboard Shortcuts…" action:@selector(showShortcuts:) keyEquivalent:@""] autorelease];
+    item.target=target; [menu addItem:item]; root.submenu=menu;
+    [NSApp.mainMenu addItem:root]; NSApp.helpMenu=menu;
+    QObject::connect(owner,&QObject::destroyed,[target,root,menu] {
+        if(NSApp.helpMenu==menu) NSApp.helpMenu=nil;
+        [NSApp.mainMenu removeItem:root]; [target release];
+    });
+}

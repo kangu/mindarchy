@@ -19,6 +19,13 @@ Dialog {
     function openEntry(id, date, text) {
         nodeId=id; day=date; existing=text.length>0; entry.text=text; initialText=text; open()
     }
+    function recoveryDraft() {
+        return opened ? {nodeId: nodeId, day: day, text: entry.text, initialText: initialText} : null
+    }
+    function restoreRecoveryDraft(state) {
+        openEntry(state.nodeId, state.day, state.initialText)
+        entry.text = state.text
+    }
     function saveEntry() {
         if(entry.text.trim().length && controller.setDateEntry(nodeId,day,entry.text)) close()
     }

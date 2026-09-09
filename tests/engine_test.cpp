@@ -1,6 +1,8 @@
 #include "../src/engine.h"
 #include "../src/documentsession.h"
 #include <QFile>
+#include <QProcess>
+#include <cstdlib>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -12,6 +14,54 @@
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void fuzzySearchFindsFoldedTitlesNotesAndDates() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        e.setText(1,"Café planning"); e.addChild(); const int child=e.selectedId(); e.setText(child,"Meeting discussion");
+        e.setNotes("Quarterly budget"); e.select(1); e.toggleFold();
+        QCOMPARE(e.searchNodes("CAFE").first().toInt(),1);
+        QVERIFY(e.searchNodes("meetin").contains(child));
+        QVERIFY(e.searchNodes("meting").contains(child));
+        QVERIFY(e.searchNodes("mtg").contains(child));
+        QVERIFY(e.searchNodes("budget").contains(child));
+        QVERIFY(e.searchNodes("xyz987missing").isEmpty()); QVERIFY(e.searchNodes(" ").isEmpty());
+        QVERIFY(e.revealSearchNode(child)); QVERIFY(!e.nodes().value(1).folded); QCOMPARE(e.selectedId(),child);
+        QVERIFY(!e.revealSearchNode(99999));
+        e.setNodeKind(child,"date"); QVERIFY(e.setDateEntry(child,"2026-09-09","Revenue report"));
+        QVERIFY(e.searchNodes("revenue").contains(child));
+    }
+    void weeklyTemplateCalendarAndAtomicInsertion() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        auto weeks=e.templateCalendar("2021-01-01").value("weeks").toList();
+        QCOMPARE(weeks.first().toMap().value("number").toInt(),53);
+        QCOMPARE(weeks.first().toMap().value("year").toInt(),2020);
+        QCOMPARE(weeks.first().toMap().value("monday").toString(),QString("2020-12-28"));
+        QVERIFY(e.templateCalendar("invalid").isEmpty());
+        QVERIFY(!e.addNodeTemplate("unknown","2026-09-07")); QCOMPARE(e.nodeCount(),1);
+        QVERIFY(!e.addNodeTemplate("weekly-tasks","invalid")); QCOMPARE(e.nodeCount(),1);
+        QVERIFY(e.addNodeTemplate("weekly-tasks","2026-09-09"));
+        QCOMPARE(e.nodeCount(),12);
+        const int week=e.nodes().value(1).children.first();
+        QVERIFY(e.nodes().value(week).text.contains("Week 37"));
+        const auto days=e.nodes().value(week).children; QCOMPARE(days.size(),5);
+        for(int i=0;i<5;++i) {
+            const auto day=e.nodes().value(days[i]);
+            QCOMPARE(day.text,QDate(2026,9,7).addDays(i).toString("dddd · d MMM"));
+            QCOMPARE(day.children.size(),1); QVERIFY(day.task); QVERIFY(!day.checked);
+            const auto task=e.nodes().value(day.children.first());
+            QVERIFY(task.task); QVERIFY(!task.checked); QVERIFY(task.text.isEmpty());
+            QCOMPARE(task.parent,day.id);
+        }
+        QCOMPARE(e.selectedId(),e.nodes().value(days.first()).children.first());
+        for(int day:days) { e.select(e.nodes().value(day).children.first()); e.toggleChecked(); }
+        QVERIFY(e.nodes().value(week).checked);
+        QTemporaryDir dir; const auto path=dir.filePath("week.omm"); QVERIFY(e.save(path));
+        Engine reopened; QVERIFY(reopened.open(path)); QCOMPARE(reopened.nodeCount(),12);
+        QVERIFY(reopened.nodes().value(week).checked);
+        for(int i=0;i<5;++i) e.undo();
+        e.undo(); QCOMPARE(e.nodeCount(),1);
+        e.redo(); QCOMPARE(e.nodeCount(),12);
+        QVERIFY(!e.nodes().value(week).checked);
+    }
     void pointerChildInheritsTaskAndPersistsMirroredPosition() {
         Engine engine(nullptr,Engine::InitialContent::Blank);
         engine.setManual(true); engine.toggleTask();
@@ -35,24 +85,30 @@ class EngineTest : public QObject {
     void meetingTemplatePreservesChildrenAndPersists() {
         Engine e(nullptr,Engine::InitialContent::Blank);
         e.setText(1,"Product review"); e.addChild(); const int existing=e.selectedId(); e.setText(existing,"Existing note"); e.select(1);
-        QVERIFY(e.applyMeetingTemplate()); const int draft=e.selectedId();
+        QVERIFY(e.addNodeTemplate("meeting-notes", "")); const int draft=e.selectedId();
+        const int meeting=e.nodes().value(1).children.last();
+        QCOMPARE(e.nodeCount(),11);
         QCOMPARE(e.nodes().value(1).text,QString("Product review"));
-        QCOMPARE(e.nodes().value(1).children.size(),4); QVERIFY(!e.nodes().value(1).task);
+        QCOMPARE(e.nodes().value(1).children,QVector<int>({existing,meeting}));
+        QVERIFY(e.nodes().value(1).meeting.isEmpty());
+        QCOMPARE(e.nodes().value(meeting).text,QString("Meeting Notes"));
         QVERIFY(e.nodes().value(draft).text.isEmpty()); QCOMPARE(e.selectedEntryPrompt(),QString("Capture a note…"));
-        const auto sections=e.nodes().value(1).children;
-        QCOMPARE(e.nodes().value(sections[1]).children.first(),existing);
-        QCOMPARE(e.nodes().value(existing).parent,sections[1]);
+        const auto sections=e.nodes().value(meeting).children;
+        QCOMPARE(sections.size(),4); QCOMPARE(e.nodes().value(existing).parent,1);
+        for(int section:sections) QCOMPARE(e.nodes().value(section).children.size(),1);
         QVERIFY(e.nodes().value(sections[3]).task);
-        e.undo(); QCOMPARE(e.nodeCount(),2); QCOMPARE(e.nodes().value(existing).parent,1);
-        e.redo(); QCOMPARE(e.nodes().value(1).children,sections);
-        e.select(1); QVERIFY(e.updateMeeting("2026-09-08","14:30","Alex, Sam"));
+        e.undo(); QCOMPARE(e.nodeCount(),2); QCOMPARE(e.nodes().value(1).children,QVector<int>({existing}));
+        e.redo(); QCOMPARE(e.nodes().value(meeting).children,sections);
+        e.select(meeting); QVERIFY(e.updateMeeting("2026-09-08","14:30","Alex, Sam"));
         QVERIFY(!e.updateMeeting("not a date","",""));
         QTemporaryDir dir; const auto path=dir.filePath("meeting.omm"); QVERIFY(e.save(path));
-        Engine loaded; QVERIFY(loaded.open(path)); loaded.select(1);
+        Engine loaded; QVERIFY(loaded.open(path)); loaded.select(meeting);
         QCOMPARE(loaded.selectedMeeting(),e.selectedMeeting()); QVERIFY(!loaded.selectedTask());
         loaded.select(sections[3]); loaded.addChild(); QVERIFY(loaded.selectedTask()); QVERIFY(loaded.selectedText().isEmpty());
-        QVERIFY(!loaded.nodes().value(1).task);
-        loaded.select(1); const int count=loaded.nodeCount(); QVERIFY(loaded.applyMeetingTemplate()); QCOMPARE(loaded.nodeCount(),count);
+        QVERIFY(!loaded.nodes().value(meeting).task);
+        loaded.select(1); const int count=loaded.nodeCount(); QVERIFY(loaded.addNodeTemplate("meeting-notes",""));
+        QCOMPARE(loaded.nodeCount(),count+9); QCOMPARE(loaded.nodes().value(1).children.size(),3);
+        loaded.undo(); QCOMPARE(loaded.nodeCount(),count);
     }
     void nestedTaskProgressSurvivesSaveAndStructuralChanges() {
         Engine e(nullptr,Engine::InitialContent::Blank);
@@ -297,6 +353,79 @@ class EngineTest : public QObject {
         e.resetBranchWidth(); QVERIFY(e.selectedStyle()["themeBranchWidth"].toBool());
         QCOMPARE(e.appearance(2).text,QColor("#123456"));
         e.undo(); QCOMPARE(e.appearance(2).branchWidth,7.);
+    }
+    void recoverySurvivesAbruptProcessExit() {
+        const auto crashDirectory=qEnvironmentVariable("MINDARCHY_TEST_CRASH_DIRECTORY");
+        if(!crashDirectory.isEmpty()) {
+            DocumentSession session(crashDirectory);
+            Engine map(nullptr,Engine::InitialContent::Blank);
+            if(!map.setText(1,"Survived process crash") || !map.saveRecovery(session.recoveryPath(),{})) std::_Exit(2);
+            std::_Exit(0); // No destructors, no close handler, stale process/instance entries.
+        }
+        QTemporaryDir dir; QProcess child;
+        auto environment=QProcessEnvironment::systemEnvironment();
+        environment.insert("MINDARCHY_TEST_CRASH_DIRECTORY",dir.path()); child.setProcessEnvironment(environment);
+        child.start(QCoreApplication::applicationFilePath(),{QString::fromLatin1(QTest::currentTestFunction())});
+        QVERIFY(child.waitForFinished(10000)); QCOMPARE(child.exitCode(),0);
+        const auto paths=DocumentSession::restorePaths(dir.path(),true); QCOMPARE(paths.size(),1);
+        Engine recovered; QVERIFY(recovered.openRecovery(paths.first()));
+        QCOMPARE(recovered.selectedText(),QString("Survived process crash")); QVERIFY(recovered.edited());
+        DocumentSession resumed(dir.path(),paths.first()); QVERIFY(resumed.locked());
+        QVERIFY(DocumentSession::restorePaths(dir.path(),true).isEmpty());
+    }
+    void sessionRecoversMultipleWindowsWithoutDuplicateOriginals() {
+        QTemporaryDir dir; const auto original=dir.filePath("Original.omm");
+        const auto registry=dir.filePath("session"); QString first,second;
+        Engine saved(nullptr,Engine::InitialContent::Blank),blank(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(saved.save(original));
+        {
+            DocumentSession one(registry),two(registry);
+            one.setDocument(original); first=one.recoveryPath(); second=two.recoveryPath();
+            QVERIFY(saved.setText(1,"Unsaved saved-file edit")); QVERIFY(saved.saveRecovery(first,{}));
+            QVERIFY(blank.setText(1,"Untitled edit")); QVERIFY(blank.saveRecovery(second,{}));
+            QVERIFY(DocumentSession::restorePaths(registry,true).isEmpty());
+            one.beginQuit(); QCOMPARE(one.pollQuit(),DocumentSession::QuitAction::Confirm); one.voteToQuit(true);
+            QCOMPARE(two.pollQuit(),DocumentSession::QuitAction::Confirm); two.voteToQuit(true);
+            QCOMPARE(one.pollQuit(),DocumentSession::QuitAction::Close);
+            QCOMPARE(two.pollQuit(),DocumentSession::QuitAction::Close);
+        }
+        auto paths=DocumentSession::restorePaths(registry,true);
+        QCOMPARE(paths.size(),2); QVERIFY(paths.contains(first)); QVERIFY(paths.contains(second)); QVERIFY(!paths.contains(original));
+        {
+            DocumentSession restored(registry,second); QCOMPARE(restored.recoveryPath(),second);
+            restored.removeRecovery(); restored.forgetDocument();
+        }
+        QCOMPARE(DocumentSession::restorePaths(registry,true),QStringList{first});
+    }
+    void recoveryPreservesIdentityDirtyStateAndOriginal() {
+        QTemporaryDir dir;
+        const auto original=dir.filePath("Original.omm"), recovery=dir.filePath("window.recovery");
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(e.save(original));
+        QFile file(original); QVERIFY(file.open(QIODevice::ReadOnly)); const auto disk=file.readAll(); file.close();
+        QVERIFY(e.setText(1,"Unsaved changes"));
+        const QVariantMap draft{{"text",QString("Still typing")},{"editingId",1}};
+        QVERIFY(e.saveRecovery(recovery,draft));
+        QCOMPARE(e.documentPath(),original); QVERIFY(e.edited());
+        Engine restored(nullptr,Engine::InitialContent::Blank); QVariantMap state;
+        QVERIFY(restored.openRecovery(recovery,&state));
+        QCOMPARE(restored.documentPath(),original); QCOMPARE(restored.selectedText(),QString("Unsaved changes"));
+        QVERIFY(restored.edited()); QCOMPARE(state,draft);
+        QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(),disk);
+        QVERIFY(!e.saveRecovery(dir.filePath("missing/window.recovery"),{}));
+        Engine stillValid; QVERIFY(stillValid.openRecovery(recovery)); QCOMPARE(stillValid.selectedText(),QString("Unsaved changes"));
+    }
+    void recoveryRestoresUntitledAndCleanDocuments() {
+        QTemporaryDir dir; const auto recovery=dir.filePath("window.recovery");
+        Engine blank(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(blank.saveRecovery(recovery,{}));
+        Engine restored; QVERIFY(restored.openRecovery(recovery));
+        QVERIFY(restored.documentPath().isEmpty()); QVERIFY(!restored.edited());
+        QVERIFY(blank.setText(1,"Untitled work")); QVERIFY(blank.saveRecovery(recovery,{}));
+        QVERIFY(restored.openRecovery(recovery)); QVERIFY(restored.edited());
+        QCOMPARE(restored.documentName(),QString("New mindmap"));
+        QFile broken(recovery); QVERIFY(broken.open(QIODevice::WriteOnly)); broken.write("{}"); broken.close();
+        QVERIFY(!restored.openRecovery(recovery)); QCOMPARE(restored.selectedText(),QString("Untitled work"));
     }
     void fixedWidthWrapsDraftWithFinalMetrics() {
         Engine e; e.select(2); QVERIFY(e.applyNodeStyle({{"width",160},{"fontSize",26},{"italic",true}}));
@@ -580,6 +709,29 @@ class EngineTest : public QObject {
         QCOMPARE(e.nodes()[1].children.first(), b);
         e.moveNode(1, b);
         QCOMPARE(e.nodes()[1].parent, -1);
+    }
+    void automaticLayoutUsesParentGapWithoutOverlaps() {
+        Engine e;
+        e.loadFixture(160);
+        for(int id : {2,7,19}) QVERIFY(e.setNodeKind(id,"date"));
+        for(int id : {3,8,20}) QVERIFY(e.setText(id,QString(100,'W')));
+        for(QString layout : {QString("Horizontal"),QString("Vertical")}) {
+            e.setLayout(layout);
+            for(QString spacing : {QString("Narrow"),QString("Standard"),QString("Wide")}) {
+                e.setSpacing(spacing);
+                const qreal gap=spacing=="Narrow" ? 36 : spacing=="Wide" ? 104 : 64;
+                const auto ids=e.visibleIds();
+                for(int i=0;i<ids.size();++i) {
+                    const auto node=e.nodes().value(ids[i]);
+                    if(node.parent>=0) {
+                        const auto parent=e.nodes().value(node.parent).rect;
+                        QCOMPARE(layout=="Horizontal" ? node.rect.left()-parent.right() : node.rect.top()-parent.bottom(),gap);
+                    }
+                    for(int j=i+1;j<ids.size();++j)
+                        QVERIFY2(!node.rect.intersects(e.nodes().value(ids[j]).rect),qPrintable(layout+" / "+spacing));
+                }
+            }
+        }
     }
     void layouts() {
         Engine e;

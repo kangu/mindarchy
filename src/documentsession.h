@@ -7,6 +7,8 @@
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QVariantList>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QUuid>
 #include <memory>
 #include <algorithm>
@@ -18,25 +20,41 @@ public:
     static QString defaultDirectory() {
         return AppIdentity::sessionDirectory();
     }
-    static QStringList restorePaths(const QString &directory = defaultDirectory()) {
+    static QStringList restorePaths(const QString &directory = defaultDirectory(), bool includeRecovery = false) {
         QDir().mkpath(directory);
         QLockFile guard(directory + "/registry.lock");
         if (!guard.tryLock(1000)) return {};
         QSettings settings(directory + "/documents.ini", QSettings::IniFormat);
         prune(settings, directory);
         settings.beginGroup("windows");
-        const bool running = !settings.childKeys().isEmpty();
+        const auto activeIds = settings.childKeys();
+        const bool running = !activeIds.isEmpty();
         settings.endGroup();
         // Launching another instance while working must not duplicate windows.
-        if (running) return {};
+        if (running && !includeRecovery) return {};
         QStringList paths;
-        for (const auto &path : settings.value("lastDocuments").toStringList())
+        for (const auto &path : running ? QStringList{} : settings.value("lastDocuments").toStringList())
             if (QFileInfo(path).isFile() && QFileInfo(path).isReadable()) paths.append(path);
+        if (includeRecovery) {
+            QStringList snapshots;
+            for(const auto &name:QDir(directory).entryList({"*.recovery"},QDir::Files,QDir::Name)) {
+                if(activeIds.contains(QFileInfo(name).completeBaseName())) continue;
+                const auto snapshot=QDir(directory).filePath(name);
+                QFile file(snapshot);
+                if(!file.open(QIODevice::ReadOnly) || file.size()>64*1024*1024) continue;
+                const auto obj=QJsonDocument::fromJson(file.readAll()).object();
+                // Keep invalid snapshots on disk for diagnosis/manual recovery.
+                if(obj["format"]!="mindarchy-recovery") continue;
+                paths.removeAll(obj["originalPath"].toString());
+                snapshots.append(snapshot);
+            }
+            paths=snapshots+paths;
+        }
         paths.removeDuplicates();
         return paths;
     }
-    explicit DocumentSession(const QString &directory = defaultDirectory())
-        : m_directory(directory), m_id(QUuid::createUuid().toString(QUuid::WithoutBraces)) {
+    explicit DocumentSession(const QString &directory = defaultDirectory(), const QString &recovery = {})
+        : m_directory(directory), m_id(recovery.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : QFileInfo(recovery).completeBaseName()) {
         QDir().mkpath(directory);
         m_instance = std::make_unique<QLockFile>(directory + "/" + m_id + ".lock");
         m_instance->setStaleLockTime(0);
@@ -44,6 +62,9 @@ public:
         if (m_locked) update(QString(), false);
     }
     ~DocumentSession() { if (m_locked) update(QString(), true); }
+    bool locked() const { return m_locked; }
+    QString recoveryPath() const { return QDir(m_directory).filePath(m_id+".recovery"); }
+    void removeRecovery() { QFile::remove(recoveryPath()); }
     QVariantList liveWindows() {
         QLockFile guard(m_directory + "/registry.lock");
         if (!guard.tryLock(1000)) return {};

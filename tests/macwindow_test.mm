@@ -10,6 +10,7 @@
 #import <AppKit/AppKit.h>
 
 void installMacToolbar(QWindow *window);
+void installMacHelpMenu(QWindow *);
 void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
 NSMenu *createMacParentFolderMenu(const QString &);
 void installMacWindowMenu(QWindow *, std::function<QVariantList()>, std::function<void(qint64)>);
@@ -100,5 +101,59 @@ int main(int argc, char **argv) {
     if (activated != 999999) return 13;
     if (![windowMenu itemWithTitle:@"Second map"] || ![windowMenu itemWithTitle:@"Minimize"]) return 14;
     fprintf(stdout, "Window menu: native registration, cross-process listing and cycle shortcut verified.\n");
+    installMacHelpMenu(&window);
+    NSMenu *help=NSApp.helpMenu;
+    NSMenuItem *shortcuts=[help itemWithTitle:@"Keyboard Shortcuts…"];
+    if(!shortcuts || ![NSApp.mainMenu itemWithTitle:@"Help"]) return 15;
+    [NSApp sendAction:shortcuts.action to:shortcuts.target from:shortcuts];
+    app.processEvents();
+    NSWindow *reference=nil;
+    for(NSWindow *candidate in NSApp.windows)
+        if([candidate.identifier isEqualToString:@"mindarchy-keyboard-shortcuts"]) reference=candidate;
+    if(!reference || !reference.visible || reference==native) return 16;
+    NSTableView *table=nil;
+    for(NSView *child in reference.contentView.subviews)
+        if([child isKindOfClass:NSScrollView.class]) table=(NSTableView *)[(NSScrollView *)child documentView];
+    if(!table || table.numberOfRows<30 || table.numberOfColumns!=3) return 17;
+    [reference.contentView layoutSubtreeIfNeeded];
+    for(NSInteger column=0;column<3;++column) {
+        NSTableCellView *cell=[table viewAtColumn:column row:0 makeIfNecessary:YES];
+        [cell layoutSubtreeIfNeeded];
+        if(!cell.textField || std::abs(NSMidY(cell.textField.frame)-NSMidY(cell.bounds))>1) return 21;
+    }
+    NSSearchField *search=nil;
+    for(NSView *child in reference.contentView.subviews)
+        if([child isKindOfClass:NSSearchField.class]) search=(NSSearchField *)child;
+    if(!search) return 22;
+    const NSInteger totalRows=table.numberOfRows;
+    for(NSString *query in @[@"zoom",@"Cmd+Return",@"⌘ Return",@"unlikely-no-match",@""]) {
+        search.stringValue=query;
+        [search.delegate controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:search]];
+        const NSInteger expected=[query isEqualToString:@"zoom"] ? 2 :
+            [query isEqualToString:@"unlikely-no-match"] ? 0 : query.length ? 2 : totalRows;
+        if(table.numberOfRows!=expected) { fprintf(stderr,"Search result mismatch for %s: %ld\n",query.UTF8String,(long)table.numberOfRows); return 23; }
+    }
+    fprintf(stdout,"Shortcut table: vertical centering, description/key filtering, aliases, empty result and clearing verified.\n");
+
+    app.processEvents();
+    if(const auto path=qEnvironmentVariable("MINDARCHY_SHORTCUTS_SCREENSHOT"); !path.isEmpty()) {
+        [reference.contentView layoutSubtreeIfNeeded];
+        NSBitmapImageRep *bitmap=[reference.contentView bitmapImageRepForCachingDisplayInRect:reference.contentView.bounds];
+        [reference.contentView cacheDisplayInRect:reference.contentView.bounds toBitmapImageRep:bitmap];
+        [[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path.toNSString() atomically:YES];
+    }
+    [NSApp sendAction:shortcuts.action to:shortcuts.target from:shortcuts];
+    NSInteger count=0;
+    for(NSWindow *candidate in NSApp.windows)
+        if([candidate.identifier isEqualToString:@"mindarchy-keyboard-shortcuts"]) ++count;
+    if(count!=1) return 18;
+    NSEvent *closeKey=[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+        modifierFlags:NSEventModifierFlagCommand timestamp:0 windowNumber:reference.windowNumber
+        context:nil characters:@"w" charactersIgnoringModifiers:@"w" isARepeat:NO keyCode:13];
+    if(![reference performKeyEquivalent:closeKey] || reference.visible || !native.visible) return 19;
+    [NSApp sendAction:shortcuts.action to:shortcuts.target from:shortcuts];
+    if(!reference.visible) return 20;
+    [reference close];
+    fprintf(stdout,"Help menu: separate shortcuts table opens, reuses its window, closes with Cmd-W and reopens.\n");
     return 0;
 }
