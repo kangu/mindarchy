@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import MindmapLab 1.0
+import Mindarchy 1.0
 
 ApplicationWindow {
     id: window
@@ -244,7 +244,7 @@ ApplicationWindow {
         title: "Save changes before closing?"
         contentItem: ColumnLayout {
             spacing: 20
-            Image { source: "qrc:/assets/icons/mindmap-blue-64.png"; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 64; Layout.preferredHeight: 64 }
+            Image { source: "qrc:/assets/icons/mindarchy-64.png"; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 64; Layout.preferredHeight: 64 }
             Label { text: "Your changes will be lost if you don’t save them."; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             RowLayout {
                 Layout.fillWidth: true
@@ -257,11 +257,11 @@ ApplicationWindow {
     }
 
     FileDialog {
-        id: openDialog; title: "Open Mindmap Lab document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
+        id: openDialog; title: "Open Mindarchy document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
         onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.fit(); canvas.forceActiveFocus() }
     }
     FileDialog {
-        id: saveDialog; title: "Save Mindmap Lab document"; fileMode: FileDialog.SaveFile
+        id: saveDialog; title: "Save Mindarchy document"; fileMode: FileDialog.SaveFile
         nameFilters: ["Open Mindmap (*.omm)"]; defaultSuffix: "omm"
         onAccepted: window.finishSaveDialog(window.localPath(selectedFile))
         onRejected: window.finishSaveDialog("")
@@ -302,7 +302,7 @@ ApplicationWindow {
                         anchors.left: parent.left; height: parent.height
                         width: implicitWidth; spacing: window.width < 800 ? 4 : 6
                         Image {
-                            source: "qrc:/assets/icons/mindmap-blue-64.png"
+                            source: "qrc:/assets/icons/mindarchy-64.png"
                             sourceSize: Qt.size(64, 64)
                             Layout.preferredWidth: 32; Layout.preferredHeight: 32
                             fillMode: Image.PreserveAspectFit
@@ -443,6 +443,11 @@ ApplicationWindow {
                             font.family: "sans-serif"; font.pixelSize: 15
                             color: inlineEditor.nodeAppearance.text || "#f1fff9"; selectionColor: "#438b78"
                             onTextChanged: { if (canvas.editing) canvas.updateEditingText(text) }
+                            Text {
+                                visible: editor.length===0 && !editor.inputMethodComposing
+                                text: controller.selectedEntryPrompt; color: "#718896"; font: editor.font
+                                width: parent.width; elide: Text.ElideRight
+                            }
                             selectByMouse: true; persistentSelection: true
                             Keys.onPressed: function(event) {
                                 if (inputMethodComposing) return
@@ -463,8 +468,16 @@ ApplicationWindow {
                     width: zoomControls.implicitWidth + 16; height: 44; radius: 9; color: "#1c2b35"; border.color: "#34454f"
                     Row { id: zoomControls; anchors.centerIn: parent; spacing: 5
                         IconButton { iconName: "zoom-out"; text: "Zoom out"; width: 32; onClicked: canvas.zoomOut() }
-                        Label { text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"; color: window.ink; anchors.verticalCenter: parent.verticalCenter; width: 50; horizontalAlignment: Text.AlignHCenter }
-                        IconButton { iconName: "scan"; text: "Actual size (100%)"; onClicked: canvas.resetZoom() }
+                        IconButton {
+                            objectName: "zoomPercentage"
+                            iconName: ""; text: "Actual size (100%)"; width: 60
+                            onClicked: canvas.resetZoom()
+                            contentItem: Text {
+                                text: (canvas.zoom * 100).toFixed(canvas.zoom < .1 ? 2 : 0) + "%"
+                                color: window.ink; font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                         IconButton { iconName: "zoom-in"; text: "Zoom in"; width: 32; onClicked: canvas.zoomIn() }
                         IconButton { iconName: "maximize"; text: "Fit map"; onClicked: canvas.fit() }
                     }
@@ -564,9 +577,14 @@ ApplicationWindow {
                                                 id: typeOptions; x: 12; y: 12; width: parent.width-24; spacing: 8
                                                 Caption { visible: controller.selectedTask; text: "TASK" }
                                                 CheckBox {
-                                                    objectName: "taskCompleted"; visible: controller.selectedTask
+                                                    objectName: "taskCompleted"; visible: controller.selectedTask && controller.selectedTaskChildren===0
                                                     text: "Completed"; checked: controller.selectedChecked
                                                     onClicked: { if(window.commitEditor("")) controller.toggleChecked() }
+                                                }
+                                                Label {
+                                                    visible: controller.selectedTask && controller.selectedTaskChildren>0
+                                                    text: controller.selectedCompletedTasks + " / " + controller.selectedTaskChildren + " tasks completed"
+                                                    color: window.ink
                                                 }
                                                 DateNodePanel {
                                                     visible: controller.selectedKind === "date"; Layout.fillWidth: true
@@ -576,6 +594,7 @@ ApplicationWindow {
                                         }
                                     }
                                 }
+                                MeetingPanel { Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}

@@ -93,6 +93,7 @@ class MindCanvas : public QQuickItem {
         NodeAppearance appearance;
         bool selected, folded, task, checked, expandsLeft;
         qreal taskOpacity = 0;
+        qreal completion = -1;
     };
     struct Label {
         int id;

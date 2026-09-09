@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Mindmap Lab and its .omm association/thumbnailer for the current user."""
+"""Install Mindarchy and its .omm association/thumbnailer for the current user."""
 import argparse
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ import tempfile
 
 project = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--binary', type=Path, default=project / 'build/mindmap-lab')
+parser.add_argument('--binary', type=Path, default=project / 'build/mindarchy')
 parser.add_argument('--system', action='store_true', help='Install under /usr/local for sandboxed Nautilus thumbnails (requires root)')
 args = parser.parse_args()
 if args.system and os.geteuid() != 0:
@@ -20,7 +20,7 @@ if not binary.is_file():
 data = Path('/usr/local/share') if args.system else Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share')))
 bin_dir = Path('/usr/local/bin') if args.system else Path.home() / '.local/bin'
 bin_dir.mkdir(parents=True, exist_ok=True)
-installed = bin_dir / 'mindmap-lab'
+installed = bin_dir / 'mindarchy'
 # Atomic replacement also works while an older executable is running.
 with tempfile.NamedTemporaryFile(dir=bin_dir, delete=False) as stream:
     temporary = Path(stream.name)
@@ -36,12 +36,12 @@ def copy(source, destination):
     shutil.copy2(project / source, destination)
 
 copy('packaging/blue.mindmap.omm.xml', data / 'mime/packages/blue.mindmap.omm.xml')
-copy('assets/icons/mindmap-blue-512.png', data / 'icons/hicolor/512x512/apps/blue.mindmap.lab.png')
+copy('assets/icons/mindarchy-512.png', data / 'icons/hicolor/512x512/apps/blue.mindmap.lab.png')
 # Desktop Exec values have their own escaping rules (not shell syntax).
 quoted = '"' + str(installed).replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$') + '"'
 for source, destination in [('packaging/blue.mindmap.lab.desktop', 'applications/blue.mindmap.lab.desktop'),
                             ('packaging/blue.mindmap.lab.thumbnailer', 'thumbnailers/blue.mindmap.lab.thumbnailer')]:
-    text = (project / source).read_text().replace('Exec=mindmap-lab', 'Exec=' + quoted)
+    text = (project / source).read_text().replace('Exec=mindarchy', 'Exec=' + quoted)
     # TryExec is a path, not a command line.
     text = text.replace('TryExec=' + quoted, 'TryExec=' + str(installed))
     target = data / destination

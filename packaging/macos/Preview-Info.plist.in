@@ -7,7 +7,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>blue.mindmap.lab.preview</string>
 	<key>CFBundleName</key>
-	<string>Open Mindmap Preview</string>
+	<string>Mindarchy Preview</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>

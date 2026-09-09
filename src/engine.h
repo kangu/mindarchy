@@ -14,11 +14,14 @@ struct MapNode {
     QString text, notes;
     QString kind = "text";
     CalendarData calendar;
+    QVariantMap meeting;
+    QString meetingSection;
     QVariantMap style;
     bool folded = false, task = false, checked = false;
     QPointF manualOffset;
     QRectF rect;
     int depth = 0;
+    int taskChildren = 0, completedTaskChildren = 0;
 };
 class Engine : public QObject {
     Q_OBJECT
@@ -32,11 +35,15 @@ class Engine : public QObject {
     Q_PROPERTY(QVariantList selection READ selection NOTIFY changed)
     Q_PROPERTY(QVariantList outline READ outline NOTIFY outlineChanged)
     Q_PROPERTY(QVariantMap selectedCalendar READ selectedCalendar NOTIFY changed)
+    Q_PROPERTY(QVariantMap selectedMeeting READ selectedMeeting NOTIFY changed)
+    Q_PROPERTY(QString selectedEntryPrompt READ selectedEntryPrompt NOTIFY changed)
     Q_PROPERTY(QString selectedKind READ selectedKind NOTIFY changed)
     Q_PROPERTY(QString selectedText READ selectedText NOTIFY changed)
     Q_PROPERTY(QString selectedNotes READ selectedNotes NOTIFY changed)
     Q_PROPERTY(bool selectedTask READ selectedTask NOTIFY changed)
     Q_PROPERTY(bool selectedChecked READ selectedChecked NOTIFY changed)
+    Q_PROPERTY(int selectedTaskChildren READ selectedTaskChildren NOTIFY changed)
+    Q_PROPERTY(int selectedCompletedTasks READ selectedCompletedTasks NOTIFY changed)
     Q_PROPERTY(bool selectedFolded READ selectedFolded NOTIFY changed)
     Q_PROPERTY(int nodeCount READ nodeCount NOTIFY changed)
     Q_PROPERTY(int visibleCount READ visibleCount NOTIFY changed)
@@ -68,6 +75,10 @@ class Engine : public QObject {
     QVariantList outline() const;
     QString selectedKind() const { return m_nodes.value(m_selected).kind; }
     QVariantMap selectedCalendar() const;
+    QVariantMap selectedMeeting() const { return m_nodes.value(m_selected).meeting; }
+    QString selectedEntryPrompt() const;
+    Q_INVOKABLE bool applyMeetingTemplate();
+    Q_INVOKABLE bool updateMeeting(QString date, QString time, QString attendees);
     Q_INVOKABLE void addDateNode(QString view);
     Q_INVOKABLE bool setNodeKind(int id, QString kind);
     Q_INVOKABLE bool configureDateNode(int id, QString view, QString anchor);
@@ -77,6 +88,8 @@ class Engine : public QObject {
     QString selectedText() const { return m_nodes.value(m_selected).text; }
     QString selectedNotes() const { return m_nodes.value(m_selected).notes; }
     bool selectedTask() const { return m_nodes.value(m_selected).task; }
+    int selectedTaskChildren() const { return m_nodes.value(m_selected).taskChildren; }
+    int selectedCompletedTasks() const { return m_nodes.value(m_selected).completedTaskChildren; }
     bool selectedChecked() const { return m_nodes.value(m_selected).checked; }
     bool selectedFolded() const { return m_nodes.value(m_selected).folded; }
     int nodeCount() const { return m_nodes.size(); }

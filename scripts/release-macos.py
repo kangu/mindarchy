@@ -83,9 +83,9 @@ def main():
         with tempfile.TemporaryDirectory(prefix='.payload-', dir=release) as temporary:
             work = Path(temporary)
             root = work / 'root'
-            bundle = root / 'Applications/Mindmap Lab.app'
+            bundle = root / 'Applications/Mindarchy.app'
             bundle.parent.mkdir(parents=True)
-            run(['/usr/bin/ditto', build / 'mindmap-lab.app', bundle])
+            run(['/usr/bin/ditto', build / 'mindarchy.app', bundle])
             run(['/usr/bin/xattr', '-cr', bundle])
             deploy = [deployqt, bundle, f'-qmldir={PROJECT / "qml"}', '-always-overwrite', '-appstore-compliant', '-verbose=2']
             preview = bundle / 'Contents/PlugIns/OMMPreview.appex'
@@ -98,7 +98,7 @@ def main():
             shutil.copy2(args.qt / 'plugins/platforms/libqoffscreen.dylib', preview_platform)
             deploy += [f'-executable={preview_executable}', f'-executable={offscreen}', f'-executable={preview_platform}']
             if args.sign:
-                shutil.copy2(PROJECT / 'packaging/macos/MindmapLab.entitlements', bundle / 'Contents/Resources/MindmapLab.entitlements')
+                shutil.copy2(PROJECT / 'packaging/macos/Mindarchy.entitlements', bundle / 'Contents/Resources/Mindarchy.entitlements')
                 deploy.append(f'-sign-for-notarization={application_identity}')
             run(deploy)
             # Qt deploys optional SQL drivers even though only its SQLite backend
@@ -116,7 +116,7 @@ def main():
             sign = ['codesign', '--force', '--sign', application_identity if args.sign else '-']
             if args.sign:
                 sign += ['--options', 'runtime', '--timestamp', '--entitlements',
-                         bundle / 'Contents/Resources/MindmapLab.entitlements']
+                         bundle / 'Contents/Resources/Mindarchy.entitlements']
             extension_sign = ['codesign', '--force', '--sign', application_identity if args.sign else '-',
                               '--entitlements', PROJECT / 'packaging/macos/Preview.entitlements']
             if args.sign:
@@ -128,12 +128,12 @@ def main():
             run(['pkgbuild', '--analyze', '--root', root, component_file])
             with component_file.open('rb') as stream:
                 components = plistlib.load(stream)
-            assert len(components) == 1 and components[0]['RootRelativeBundlePath'] == 'Applications/Mindmap Lab.app'
+            assert len(components) == 1 and components[0]['RootRelativeBundlePath'] == 'Applications/Mindarchy.app'
             components[0].update(BundleIsRelocatable=False, BundleHasStrictIdentifier=True,
                                  BundleIsVersionChecked=True, BundleOverwriteAction='upgrade')
             with component_file.open('wb') as stream:
                 plistlib.dump(components, stream)
-            name = f'Mindmap-Lab-{args.version}-macos-{args.arch}' + ('-unsigned' if args.unsigned else '')
+            name = f'Mindarchy-{args.version}-macos-{args.arch}' + ('-unsigned' if args.unsigned else '')
             package = release / f'{name}.pkg'
             command = ['pkgbuild', '--root', root, '--component-plist', component_file,
                        '--identifier', 'blue.mindmap.lab.installer', '--version', args.version,
@@ -156,14 +156,14 @@ def main():
             # Verify the actual installer payload, not just the staging copy.
             expanded = work / 'expanded'
             run(['pkgutil', '--expand-full', package, expanded])
-            payloads = list(expanded.rglob('Payload/Applications/Mindmap Lab.app'))
+            payloads = list(expanded.rglob('Payload/Applications/Mindarchy.app'))
             assert len(payloads) == 1, 'Installer must contain exactly one application'
             payload = payloads[0]
             verification = verify_bundle(payload, args.version, architectures)
             clean = {key: value for key, value in os.environ.items()
                      if not key.startswith(('QT_', 'QML', 'DYLD_'))}
             clean.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', QT_QPA_PLATFORM='cocoa')
-            executable = payload / 'Contents/MacOS/mindmap-lab'
+            executable = payload / 'Contents/MacOS/mindarchy'
             found_version = run([executable, '--version'], env=clean, capture=True, timeout=30)
             assert args.version in found_version, 'Payload executable version mismatch'
             screenshot = release / 'payload-smoke.png'
@@ -174,15 +174,15 @@ def main():
                  '--preview-output', preview_png], env=clean, timeout=30)
             assert preview_png.is_file(), 'Packaged document renderer did not produce a PNG'
             # Retain a convenient verified, portable app next to the installer.
-            run(['/usr/bin/ditto', payload, release / 'Mindmap Lab.app'])
+            run(['/usr/bin/ditto', payload, release / 'Mindarchy.app'])
         # A drag-to-Applications DMG contains the same verified app and bundled
         # Quick Look extension as the package installer.
         disk_image = release / f'{name}.dmg'
         with tempfile.TemporaryDirectory(prefix='.dmg-', dir=release) as disk_source:
             disk_source = Path(disk_source)
-            run(['/usr/bin/ditto', release / 'Mindmap Lab.app', disk_source / 'Mindmap Lab.app'])
+            run(['/usr/bin/ditto', release / 'Mindarchy.app', disk_source / 'Mindarchy.app'])
             (disk_source / 'Applications').symlink_to('/Applications')
-            run(['hdiutil', 'create', '-volname', 'Mindmap Lab', '-srcfolder', disk_source,
+            run(['hdiutil', 'create', '-volname', 'Mindarchy', '-srcfolder', disk_source,
                  '-format', 'UDZO', '-ov', disk_image])
         if args.sign:
             run(['codesign', '--force', '--sign', application_identity, '--timestamp', disk_image])
@@ -201,7 +201,7 @@ def main():
         manifest = {**verification, 'package': package.name, 'sha256': digest, 'dmg': disk_image.name, 'dmg_sha256': disk_digest,
                     'signed': args.sign, 'notarized': args.notarize, 'minimum_macos': args.min_macos,
                     'built_at': stamp, 'qt_version': subprocess.check_output([str(args.qt / 'bin/qmake'), '-query', 'QT_VERSION'], text=True).strip(),
-                    'install_path': '/Applications/Mindmap Lab.app'}
+                    'install_path': '/Applications/Mindarchy.app'}
         (release / 'release.json').write_text(json.dumps(manifest, indent=2) + '\n')
         print(f'\nVerified installer: {package}\nManifest and logs: {release}', flush=True)
     finally:

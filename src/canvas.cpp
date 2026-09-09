@@ -321,7 +321,7 @@ void MindCanvas::refresh() {
             continue;
         const qreal taskOpacity = taskProgress(id);
         m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, taskOpacity > 0, n.checked,
-            m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x(), taskOpacity});
+            m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x(), taskOpacity, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1});
         if (m_zoom < .28 || editingId() == id)
             continue;
         // Task conversion changes padding, not the text's wrapping width.
@@ -453,7 +453,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 }
                 painter.save();
                 painter.setOpacity(n.taskOpacity);
-                paintTask(painter, check, n.appearance.text, n.checked);
+                paintTask(painter, check, n.appearance.text, n.checked, n.completion);
                 painter.restore();
             }
         }
@@ -515,6 +515,18 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 tint.setAlphaF(.04);
                 box(vertices, check.adjusted(-3,-3,3,3), tint, 3);
             }
+            if(n.completion>=0) {
+                const QColor base=n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor;
+                const QColor ink=n.appearance.text;
+                QColor track=QColor::fromRgbF(base.redF()*.75+ink.redF()*.25,
+                    base.greenF()*.75+ink.greenF()*.25,base.blueF()*.75+ink.blueF()*.25);
+                track.setAlphaF(n.taskOpacity);
+                strokePath(vertices,taskProgressArc(check,1),2.5,track,Qt::SolidLine);
+                if(n.completion>0) {
+                    QColor fill=taskCheckColor; fill.setAlphaF(n.taskOpacity);
+                    strokePath(vertices,taskProgressArc(check,n.completion),2.5,fill,Qt::SolidLine);
+                }
+            } else {
             QColor frame = n.appearance.text;
             frame.setAlphaF(frame.alphaF() * n.taskOpacity);
             if (n.checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
@@ -529,6 +541,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 const qreal radius = taskCheckWidth / 2;
                 for (const auto &point : tick)
                     box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(taskCheckWidth,taskCheckWidth)), tickColor, radius);
+            }
             }
         }
         if (n.folded)
@@ -735,7 +748,7 @@ int MindCanvas::taskHit(QPointF screen) const {
         return -1;
     const QPointF world = mapToWorld(screen);
     for (auto it = m_draw.crbegin(); it != m_draw.crend(); ++it) {
-        if (it->task && m_engine->nodes().value(it->id).kind != "date") {
+        if (it->task && m_engine->nodes().value(it->id).kind != "date" && m_engine->nodes().value(it->id).taskChildren==0) {
             const QPointF center = mapFromWorld(QPointF(it->rect.left() + 13, it->rect.center().y()));
             const qreal half = std::max(16., 8. * m_zoom);
             QRectF target(center - QPointF(half, half), QSizeF(half * 2, half * 2));

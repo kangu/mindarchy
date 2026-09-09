@@ -1,4 +1,4 @@
-# Qt Mindmap Lab prototype
+# Qt Mindarchy prototype
 
 Goal: test the proposed Qt Quick + C++ stack on Omarchy (SSH omarchy-host), with portable sources for macOS and Windows.
 Approved scope: sample prototype following the stack recommendation and observed MindNode Classic interactions. No replacement of existing application, no cloud sync or MindNode binary format parity promised.

@@ -111,8 +111,29 @@ class CanvasTest : public QObject {
             QCOMPARE(canvas.m_cache.value(1).key, texture);
         }
     }
+    void parentTaskUsesReadOnlyProgressRing() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        engine.addChild(); const int first=engine.selectedId();
+        engine.addSibling(); engine.select(1); engine.toggleTask();
+        engine.select(first); engine.toggleChecked();
+        MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&engine); canvas.resetZoom(); canvas.revealNode(1);
+        canvas.m_animating=false; canvas.refresh();
+        bool found=false;
+        for(const auto &node:canvas.m_draw) if(node.id==1) {
+            found=true; QCOMPARE(node.completion,.5);
+            const QPointF point=canvas.mapFromWorld(QPointF(node.rect.left()+13,node.rect.center().y()));
+            QCOMPARE(canvas.taskHit(point),-1);
+        }
+        QVERIFY(found);
+        if(qEnvironmentVariableIsSet("MINDMAP_TASK_RING_SCREENSHOT")) {
+            QQuickWindow window; window.resize(1000,700);
+            canvas.setParentItem(window.contentItem()); window.show(); QTest::qWait(250);
+            QVERIFY(window.grabWindow().save(qEnvironmentVariable("MINDMAP_TASK_RING_SCREENSHOT")));
+            canvas.setParentItem(nullptr);
+        }
+    }
     void taskCheckboxInteraction() {
-        Engine engine;
+        Engine engine(nullptr,Engine::InitialContent::Blank);
         engine.select(1);
         engine.toggleChecked();
         QQuickWindow window;

@@ -1,4 +1,4 @@
-# Mindmap Lab
+# Mindarchy
 
 A Qt Quick + C++20 prototype for testing a MindNode-like editor on Omarchy. It is isolated from the existing Vue/Tauri application.
 
@@ -74,7 +74,7 @@ mkdir -p build
 cd build
 qmake6 ../prototype.pro
 make -j2
-./mindmap-lab
+./mindarchy
 ```
 
 CMake alternative:
@@ -99,8 +99,8 @@ Windows builds remain unverified.
 
 ```bash
 ./scripts/test.sh
-QT_QPA_PLATFORM=offscreen ./build/mindmap-lab --benchmark
-./build/mindmap-lab --nodes 10000 --render-benchmark
+QT_QPA_PLATFORM=offscreen ./build/mindarchy --benchmark
+./build/mindarchy --nodes 10000 --render-benchmark
 ```
 
 The first command runs engine, canvas and complete-QML tests. The second prints JSON for cold fixture creation and layout switching. The third opens the complete app and measures a scripted pan after warm-up, then exits. Run performance measurements without concurrent compilation or other test windows.
@@ -135,9 +135,9 @@ Toolbar actions now use local [Lucide icons from Iconify](https://icon-sets.icon
 
 ## Application icon
 
-The application uses `assets/mindmap-blue-icon-concept-v1.png` on every supported platform:
+The application uses `assets/mindarchy-icon.png`, derived from the primary logo in `assets/minarchy-logo-concept.png`, on every supported platform:
 
-- macOS: `build-macos/mindmap-lab.app`, with an ICNS resource and bundle identifier `blue.mindmap.lab`. Open the bundle in Finder or use `./run.sh`.
+- macOS: `build-macos/mindarchy.app`, with an ICNS resource and bundle identifier `blue.mindmap.lab`. Open the bundle in Finder or use `./run.sh`.
 - Windows: multi-resolution ICO embedded through CMake RC or qmake RC_ICONS. Windows packaging is configured but not yet built/tested on Windows.
 - Linux/Omarchy: Qt runtime icon and a matching `blue.mindmap.lab.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
 
@@ -146,7 +146,7 @@ The toolbar uses the same artwork. Native icon assets are committed-source build
 
 ## macOS installer releases
 
-Run `python3 scripts/release-macos.py --version 0.1.0 --unsigned` to build, test and package a self-contained installer for `/Applications/Mindmap Lab.app`. Signed/notarized releases, architecture choices, installation and verification details are in [macOS release workflow](docs/macos-release.md).
+Run `python3 scripts/release-macos.py --version 0.1.0 --unsigned` to build, test and package a self-contained installer for `/Applications/Mindarchy.app`. Signed/notarized releases, architecture choices, installation and verification details are in [macOS release workflow](docs/macos-release.md).
 
 Document format, Finder previews, and Linux associations: [OMM documents](docs/omm-documents.md).
 
@@ -157,3 +157,7 @@ Normal startup reopens the saved documents from the previous session, each in it
 Session metadata lives in the platform application-data directory under `session/documents.ini`. Per-window locks coordinate separate processes and recover stale entries after a crash. Screenshot, benchmark, and timed test runs do not read or modify the saved session.
 
 Cmd+W closes the active window after any save confirmation and removes it from session restoration. Cmd+Q coordinates all running document windows: each confirms in turn, and all remain open until every confirmation succeeds. Cancel or a failed save aborts the quit. A successful quit preserves the saved paths of those windows for the next startup; discarded unsaved changes are not restored.
+
+## Mindarchy rename compatibility
+
+The application, executable, artwork resources and release packages now use Mindarchy. The repository directory is unchanged. The internal `blue.mindmap.lab` application/launcher identity, `blue.mindmap.omm` document type, and `mindmap-lab` v1 JSON format remain stable so existing file associations and documents continue to work. Window preferences and the session registry retain their historical storage namespace through `src/appidentity.h`; existing window geometry and reopened documents are preserved. Archived release artifacts retain their original names; the release workflow produces new `Mindarchy` packages.

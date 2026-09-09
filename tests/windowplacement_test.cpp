@@ -1,6 +1,8 @@
 #include "../src/windowplacement.h"
 #include <QGuiApplication>
 #include <QQuickWindow>
+#include <QQmlEngine>
+#include <QQmlComponent>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -14,6 +16,37 @@ bool nativeZoomedForTest(QWindow *window);
 class PlacementTest : public QObject {
     Q_OBJECT
 private slots:
+    void panelVisibilitySurvivesRestartAndResize() {
+        QTemporaryDir dir; const auto file=dir.filePath("panels.ini");
+        QQmlEngine engine; QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+            Window {
+                width: 1200; height: 700
+                property bool outlineVisible: width>=1100
+                property bool inspectorVisible: width>=1000
+            })", QUrl());
+        QVERIFY2(component.isReady(),qPrintable(component.errorString()));
+        for (bool outline : {false,true}) for (bool inspector : {false,true}) {
+            {
+                std::unique_ptr<QObject> object(component.create());
+                auto *window=qobject_cast<QQuickWindow *>(object.get()); QVERIFY(window);
+                WindowPlacement placement(window,file);
+                window->setProperty("outlineVisible",outline);
+                window->setProperty("inspectorVisible",inspector);
+                placement.save();
+            }
+            {
+                std::unique_ptr<QObject> object(component.create());
+                auto *window=qobject_cast<QQuickWindow *>(object.get()); QVERIFY(window);
+                WindowPlacement placement(window,file);
+                QCOMPARE(window->property("outlineVisible").toBool(),outline);
+                QCOMPARE(window->property("inspectorVisible").toBool(),inspector);
+                window->resize(700,700); window->resize(1400,700);
+                QCOMPARE(window->property("outlineVisible").toBool(),outline);
+                QCOMPARE(window->property("inspectorVisible").toBool(),inspector);
+            }
+        }
+    }
     void maximizedWindowRestores_data() {
         QTest::addColumn<bool>("nativeZoom");
         QTest::newRow("qt-titlebar-double-click") << false;

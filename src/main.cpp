@@ -54,26 +54,26 @@ int main(int argc, char **argv) {
     QSurfaceFormat::setDefaultFormat(format);
     for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") qputenv("QT_QPA_PLATFORM","offscreen");
     DocumentApplication app(argc, argv);
-    app.setApplicationName("Mindmap Lab");
+    app.setApplicationName("Mindarchy");
 #ifdef MINDMAP_VERSION
     app.setApplicationVersion(MINDMAP_VERSION);
 #else
     app.setApplicationVersion("0.1.0");
 #endif
-    app.setOrganizationName("MindmapBlue");
+    app.setOrganizationName("Mindarchy");
     app.setDesktopFileName("blue.mindmap.lab");
     QIcon applicationIcon;
 #ifdef Q_OS_MACOS
-    applicationIcon.addFile(":/assets/icons/mindmap-blue-macos-512.png");
+    applicationIcon.addFile(":/assets/icons/mindarchy-macos-512.png");
 #else
     for (int size : {16, 24, 32, 48, 64, 128, 256, 512})
-        applicationIcon.addFile(QString(":/assets/icons/mindmap-blue-%1.png").arg(size));
+        applicationIcon.addFile(QString(":/assets/icons/mindarchy-%1.png").arg(size));
 #endif
     app.setWindowIcon(applicationIcon);
     QQuickStyle::setStyle("Basic");
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        "Qt Quick/C++ mind-map interaction and performance laboratory");
+        "Mindarchy — mind maps, tasks, calendars and meeting notes");
     parser.addOption({"no-window-state", "Use default window geometry without saving placement"});
     parser.addOption({"new", "Start a new blank mindmap"});
     parser.addHelpOption();
@@ -166,8 +166,8 @@ int main(int argc, char **argv) {
         }
         document.setThemeId(parser.value("theme"));
     }
-    qmlRegisterUncreatableType<Engine>("MindmapLab", 1, 0, "Engine", "Provided by application");
-    qmlRegisterType<MindCanvas>("MindmapLab", 1, 0, "MindCanvas");
+    qmlRegisterUncreatableType<Engine>("Mindarchy", 1, 0, "Engine", "Provided by application");
+    qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("engine", &document);
     qml.rootContext()->setContextProperty("deferWindowShow", true);

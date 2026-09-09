@@ -1,6 +1,6 @@
 QT += core gui qml quick quickcontrols2
 CONFIG += c++20
-TARGET = mindmap-lab
+TARGET = mindarchy
 SOURCES += src/main.cpp src/windowplacement.cpp src/drawing.cpp src/preview.cpp src/engine.cpp src/theme.cpp src/canvas.cpp
 HEADERS += src/windowplacement.h src/documentsession.h src/engine.h src/theme.h src/canvas.h
 RESOURCES += resources.qrc
@@ -8,10 +8,10 @@ RESOURCES += resources.qrc
 macx {
     OBJECTIVE_SOURCES += src/macwindow.mm src/macplacement.mm
     LIBS += -framework AppKit -framework UniformTypeIdentifiers
-    ICON = assets/icons/mindmap-blue.icns
+    ICON = assets/icons/mindarchy.icns
     QMAKE_MACOSX_BUNDLE_GUI_IDENTIFIER = blue.mindmap.lab
 }
-win32: RC_ICONS = assets/icons/mindmap-blue.ico
+win32: RC_ICONS = assets/icons/mindarchy.ico
 unix:!macx {
     isEmpty(PREFIX): PREFIX = /usr/local
     target.path = $$PREFIX/bin

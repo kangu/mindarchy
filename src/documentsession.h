@@ -1,4 +1,5 @@
 #pragma once
+#include "appidentity.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QLockFile>
@@ -15,7 +16,7 @@
 class DocumentSession {
 public:
     static QString defaultDirectory() {
-        return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/session";
+        return AppIdentity::sessionDirectory();
     }
     static QStringList restorePaths(const QString &directory = defaultDirectory()) {
         QDir().mkpath(directory);

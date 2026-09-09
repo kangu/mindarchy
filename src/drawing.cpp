@@ -11,7 +11,26 @@ QPolygonF taskCheckPath(QRectF box) {
         points << overlay.topLeft() + QPointF(p.x()*overlay.width()/16, p.y()*overlay.height()/16);
     return points;
 }
-void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked) {
+QPolygonF taskProgressArc(QRectF box, qreal progress) {
+    QPolygonF points;
+    const qreal radius=box.width()*.7;
+    const int steps=std::max(1,int(std::ceil(64*progress)));
+    for(int i=0;i<=steps;++i) {
+        const qreal angle=-std::numbers::pi/2+2*std::numbers::pi*progress*i/steps;
+        points.append(box.center()+QPointF(std::cos(angle),std::sin(angle))*radius);
+    }
+    return points;
+}
+void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked, qreal progress) {
+    if(progress>=0) {
+        painter.save();
+        frame.setAlphaF(frame.alphaF()*.25);
+        painter.setPen(QPen(frame,2.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+        painter.drawPolyline(taskProgressArc(box,1));
+        painter.setPen(QPen(taskCheckColor,2.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+        if(progress>0) painter.drawPolyline(taskProgressArc(box,progress));
+        painter.restore(); return;
+    }
     painter.save();
     if (checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
     painter.setPen(QPen(frame, 1.5));

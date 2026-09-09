@@ -1,6 +1,6 @@
 # macOS installer releases
 
-The release command builds the Qt prototype and creates a self-contained `.pkg` installer for **/Applications/Mindmap Lab.app**. Recipients do not need Qt installed. The command runs on a macOS desktop session with Python 3.9+, CMake, Xcode command-line tools, and a Qt 6 kit including Qt Test and `macdeployqt`.
+The release command builds the Qt prototype and creates a self-contained `.pkg` installer for **/Applications/Mindarchy.app**. Recipients do not need Qt installed. The command runs on a macOS desktop session with Python 3.9+, CMake, Xcode command-line tools, and a Qt 6 kit including Qt Test and `macdeployqt`.
 
 ## Build a local test installer
 
@@ -14,9 +14,9 @@ The default Qt kit is `~/Qt/6.11.2/macos`; override with `--qt /path/to/Qt/macos
 
 Outputs:
 
-- `Mindmap-Lab-<version>-macos-<arch>-unsigned.pkg` (or the signed filename without `-unsigned`).
+- `Mindarchy-<version>-macos-<arch>-unsigned.pkg` (or the signed filename without `-unsigned`).
 - `SHA256SUMS` and `release.json`: artifact checksum, version, architecture, Qt version and signing/notarization state.
-- `Mindmap Lab.app`: the verified portable application extracted from the installer.
+- `Mindarchy.app`: the verified portable application extracted from the installer.
 - `payload-smoke.png` and `release.log`: packaged-interface evidence and build/test/deployment logs.
 
 The command only reports success after all tests pass, bundle linkage/signature checks pass, the installer can be expanded, and its actual application payload opens the full QML interface with Qt/DYLD environment overrides removed. It does not invoke the system installer or modify `/Applications`.
@@ -25,11 +25,11 @@ Unsigned mode uses ad-hoc app signatures and produces an unsigned installer for 
 
 ## Install or update
 
-Close an installed copy of Mindmap Lab, then open the `.pkg` in Finder and follow macOS Installer. macOS may request administrator authorization. For managed deployment, an administrator can run:
+Close an installed copy of Mindarchy, then open the `.pkg` in Finder and follow macOS Installer. macOS may request administrator authorization. For managed deployment, an administrator can run:
 
 ```bash
-sudo installer -pkg "/path/to/Mindmap-Lab-0.1.0-macos-arm64.pkg" -target /
-open "/Applications/Mindmap Lab.app"
+sudo installer -pkg "/path/to/Mindarchy-0.1.0-macos-arm64.pkg" -target /
+open "/Applications/Mindarchy.app"
 ```
 
 The package uses receipt ID `blue.mindmap.lab.installer` and stable app bundle ID `blue.mindmap.lab`. Relocation is disabled, so the installer cannot accidentally update a development bundle elsewhere. Bundle version checking is enabled; release a higher numeric `major.minor.patch` for an upgrade. Upgrades replace the installed application bundle, including obsolete bundled libraries. There are no custom privileged installer scripts, launch agents, automatic app termination or automatic launch. User documents and settings are not included in the package and are not removed.

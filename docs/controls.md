@@ -1,4 +1,4 @@
-# Mindmap Lab controls
+# Mindarchy controls
 
 The prototype stores local versioned JSON documents. Large test fixtures are available through the `--nodes 1000` or `--nodes 10000` launch options. PNG exports the current canvas viewport, so use Fit map before exporting the whole visible map.
 

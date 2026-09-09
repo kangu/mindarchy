@@ -1,9 +1,15 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
-    <file>assets/icons/mindmap-blue-macos-512.png</file>
+    <file>assets/icons/mindarchy-macos-512.png</file>
     <file>qml/ThemeCard.qml</file>
     <file>qml/NodeStylePanel.qml</file>
     <file>qml/ColorPicker.qml</file>
     <file>qml/DateNodePanel.qml</file>
+    <file>qml/MeetingPanel.qml</file>
+    <file>qml/icons/pencil.svg</file>
+    <file>qml/icons/calendar-today.svg</file>
+    <file>qml/icons/chevron-right.svg</file>
+    <file>qml/icons/chevron-left.svg</file>
+    <file>qml/icons/calendar-week.svg</file>
     <file>qml/DateEntryDialog.qml</file>
     <file>qml/icons/file-plus-2.svg</file>
     <file>qml/icons/calendar-days.svg</file>
@@ -27,12 +33,12 @@
     <file>qml/icons/zoom-in.svg</file>
     <file>qml/icons/zoom-out.svg</file>
 
-    <file>assets/icons/mindmap-blue-16.png</file>
-    <file>assets/icons/mindmap-blue-24.png</file>
-    <file>assets/icons/mindmap-blue-32.png</file>
-    <file>assets/icons/mindmap-blue-48.png</file>
-    <file>assets/icons/mindmap-blue-64.png</file>
-    <file>assets/icons/mindmap-blue-128.png</file>
-    <file>assets/icons/mindmap-blue-256.png</file>
-    <file>assets/icons/mindmap-blue-512.png</file>
+    <file>assets/icons/mindarchy-16.png</file>
+    <file>assets/icons/mindarchy-24.png</file>
+    <file>assets/icons/mindarchy-32.png</file>
+    <file>assets/icons/mindarchy-48.png</file>
+    <file>assets/icons/mindarchy-64.png</file>
+    <file>assets/icons/mindarchy-128.png</file>
+    <file>assets/icons/mindarchy-256.png</file>
+    <file>assets/icons/mindarchy-512.png</file>
 </qresource></RCC>

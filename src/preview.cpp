@@ -60,7 +60,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
         if(n.kind=="date") MapDrawing::paintCalendar(painter,n.calendar,style);
         else {
             if(n.task) {
-                MapDrawing::paintTask(painter, QRectF(8,r.height()/2-5,10,10), style.text, n.checked);
+                MapDrawing::paintTask(painter, QRectF(8,r.height()/2-5,10,10), style.text, n.checked, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1);
             }
             PreviewText text; QFont font("sans-serif"); font.setPixelSize(15);
             text.setDefaultFont(font); text.setDocumentMargin(0);

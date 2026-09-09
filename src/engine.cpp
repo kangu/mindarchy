@@ -1,4 +1,5 @@
 #include "engine.h"
+#include <QTime>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -51,7 +52,7 @@ Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
         m_nodes.insert(1,root); m_nextId=2;
         rebuild(); m_savedBytes = documentBytes(); return;
     }
-    const QStringList labels = {"Mindmap Lab",     "Layout engine",       "Interaction",
+    const QStringList labels = {"Mindarchy",     "Layout engine",       "Interaction",
                                 "Document",        "Measured text",       "Horizontal / vertical",
                                 "Compact outline", "Keyboard navigation", "Drag to reparent",
                                 "Fold a branch",   "Local JSON files",    "Undo / redo",
@@ -183,6 +184,23 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
 void Engine::rebuild() {
     QElapsedTimer timer;
     timer.start();
+    // Include folded descendants; task completion is document state, not visibility.
+    QVector<int> taskOrder{1};
+    for(int i=0;i<taskOrder.size();++i)
+        for(int child:m_nodes.value(taskOrder[i]).children) taskOrder.append(child);
+    for(auto it=taskOrder.crbegin();it!=taskOrder.crend();++it) {
+        auto &node=m_nodes[*it];
+        node.taskChildren=0; node.completedTaskChildren=0;
+        if(node.kind!="text" || !node.meeting.isEmpty()) continue;
+        for(int child:node.children) if(m_nodes[child].task) {
+            ++node.taskChildren;
+            if(m_nodes[child].checked) ++node.completedTaskChildren;
+        }
+        if(node.taskChildren>0) {
+            node.task=true;
+            node.checked=node.completedTaskChildren==node.taskChildren;
+        }
+    }
     m_visible.clear();
     m_branchIndices.clear();
     const auto rootChildren = m_nodes.value(1).children;
@@ -318,6 +336,10 @@ NodeAppearance Engine::appearance(int id) const {
     if(it->kind=="date" && !s.contains("shape") && (a.shape==NodeShape::Underline || a.shape==NodeShape::Embedded)) {
         a.shape=NodeShape::Rounded; a.border=a.branch; a.borderWidth=1; a.fill=canvasColor();
     }
+    // Shape overrides and the Date fallback can inherit a zero radius from
+    // an underline/rectangle theme. Rounded must still have curved corners.
+    if (a.shape==NodeShape::Rounded && a.radius<=0)
+        a.radius=NodeAppearance{}.radius;
     return a;
 }
 void Engine::setLayout(QString value) {
@@ -397,7 +419,8 @@ void Engine::add(int parent, int after, QString kind, QString dateView) {
     n.id = m_nextId++;
     n.parent = parent;
     n.kind=kind;
-    n.text = kind=="date" ? "Date" : "New idea";
+    n.task=kind=="text" && m_nodes.value(parent).task;
+    n.text = kind=="date" ? "Date" : !m_nodes.value(parent).meetingSection.isEmpty() ? "" : "New idea";
     if(kind=="date") { n.calendar.view=dateView; n.calendar.anchor=QDate::currentDate(); }
     m_nodes.insert(n.id, n);
     auto &children = m_nodes[parent].children;
@@ -461,27 +484,17 @@ void Engine::toggleFold() {
 void Engine::toggleTask() {
     if (!m_nodes.contains(m_selected) || m_nodes.value(m_selected).kind!="text")
         return;
-    checkpoint();
-    auto &n = m_nodes[m_selected];
-    n.task = !n.task;
-    if (!n.task)
-        n.checked = false;
-    rebuild();
+    setNodeKind(m_selected,m_nodes.value(m_selected).task ? "text" : "task");
 }
 void Engine::toggleChecked() {
-    if (!m_nodes.contains(m_selected) || m_nodes.value(m_selected).kind!="text")
+    if (!m_nodes.contains(m_selected) || m_nodes.value(m_selected).kind!="text" ||
+        m_nodes.value(m_selected).taskChildren>0)
         return;
     checkpoint();
     auto &n = m_nodes[m_selected];
-    bool needsLayout = !n.task;
     n.task = true;
     n.checked = !n.checked;
-    if (needsLayout)
-        rebuild();
-    else {
-        emit outlineChanged();
-        emit changed();
-    }
+    rebuild();
 }
 QSizeF Engine::previewTextSize(int id, const QString &text) const {
     if (!m_nodes.contains(id) || text.size() > MaxText) return {};
@@ -593,7 +606,7 @@ void Engine::loadFixture(int count) {
         MapNode n;
         n.id = id;
         n.parent = id == 1 ? -1 : (id - 2) / 4 + 1;
-        n.text = id == 1 ? "Mindmap Lab" : QString("Idea %1").arg(id);
+        n.text = id == 1 ? "Mindarchy" : QString("Idea %1").arg(id);
         m_nodes.insert(id, n);
         if (n.parent != -1)
             m_nodes[n.parent].children.append(id);
@@ -674,6 +687,8 @@ QByteArray Engine::documentBytes() const {
             calendar={{"view",n.calendar.view},{"anchor",n.calendar.anchor.toString(Qt::ISODate)},{"entries",entries}};
         }
         nodes.append(QJsonObject{{"kind",n.kind},{"calendar",calendar},{"id", id},
+                                 {"meeting",QJsonObject::fromVariantMap(n.meeting)},
+                                 {"meetingSection",n.meetingSection},
                                  {"parent", n.parent},
                                  {"children", children},
                                  {"text", n.text},
@@ -782,6 +797,19 @@ bool Engine::open(QString path) {
                 n.calendar.entries.insert(it.key(),it.value().toString());
             }
         }
+        if(o.contains("meeting") && !o["meeting"].isObject()) return fail("Invalid meeting metadata.");
+        n.meeting=o["meeting"].toObject().toVariantMap();
+        if(!n.meeting.isEmpty()) {
+            const auto date=n.meeting.value("date").toString();
+            const auto time=n.meeting.value("time").toString();
+            if(n.kind!="text" || !QDate::fromString(date,Qt::ISODate).isValid() ||
+               (!time.isEmpty() && !QTime::fromString(time,"HH:mm").isValid()) ||
+               n.meeting.value("attendees").toString().size()>4096)
+                return fail("Invalid meeting details.");
+        }
+        n.meetingSection=o["meetingSection"].toString();
+        if(!QStringList{"","agenda","notes","decisions","actions"}.contains(n.meetingSection))
+            return fail("Invalid meeting section.");
         n.text = o["text"].toString();
         n.notes = o["notes"].toString();
         if (o.contains("style") && !o["style"].isObject()) return fail("Invalid node style.");
@@ -1069,9 +1097,32 @@ bool Engine::setNodeKind(int id, QString kind) {
     if(!m_nodes.contains(id) || (kind!="text" && kind!="task" && kind!="date")) return fail("Choose Text, Task or Date.");
     const QString storageKind=kind=="task" ? "text" : kind;
     const bool task=kind=="task";
-    if(m_nodes.value(id).kind==storageKind && m_nodes.value(id).task==task) return true;
+    if(m_nodes.value(id).kind==storageKind && m_nodes.value(id).task==task) {
+        bool needsCascade=false;
+        if(task) {
+            QVector<int> pending=m_nodes[id].children;
+            while(!pending.isEmpty()) {
+                const auto &child=m_nodes[pending.takeLast()];
+                if(!child.task) { needsCascade=true; break; }
+                pending+=child.children;
+            }
+        }
+        if(!needsCascade) return true;
+    }
     checkpoint();
+    const bool cascade=task || (kind=="text" && m_nodes[id].task);
+    if(cascade) {
+        QVector<int> pending=m_nodes[id].children;
+        while(!pending.isEmpty()) {
+            const int child=pending.takeLast(); auto &descendant=m_nodes[child];
+            pending+=descendant.children;
+            if(task) descendant.kind="text";
+            descendant.task=task;
+            if(!task) descendant.checked=false;
+        }
+    }
     auto &node=m_nodes[id]; node.kind=storageKind; node.task=task;
+    if(kind!="text") node.meeting.clear();
     if(!task) node.checked=false;
     if(kind=="date" && !node.calendar.anchor.isValid()) node.calendar.anchor=QDate::currentDate();
     rebuild(); return true;
@@ -1109,4 +1160,57 @@ bool Engine::setDateEntry(int id,QString date,QString text) {
     if(text.isEmpty()) m_nodes[id].calendar.entries.remove(date);
     else m_nodes[id].calendar.entries.insert(date,text);
     rebuild(); return true;
+}
+
+QString Engine::selectedEntryPrompt() const {
+    const auto role=m_nodes.value(m_nodes.value(m_selected).parent).meetingSection;
+    if(role=="agenda") return "Topic to discuss…";
+    if(role=="notes") return "Capture a note…";
+    if(role=="decisions") return "What was decided?";
+    if(role=="actions") return "What needs to be done?";
+    return {};
+}
+bool Engine::applyMeetingTemplate() {
+    const int id=m_selected;
+    if(!m_nodes.contains(id)) return fail("Select a node first.");
+    if(!m_nodes[id].meeting.isEmpty()) return true;
+    if(m_nodes.size()+8>MaxNodes) return fail("Not enough room for the meeting sections.");
+    int depth=0;
+    for(int p=id;m_nodes.contains(p) && m_nodes[p].parent>=0;p=m_nodes[p].parent) ++depth;
+    int deepest=depth;
+    QVector<QPair<int,int>> pending{{id,depth}};
+    while(!pending.isEmpty()) {
+        const auto item=pending.takeLast(); deepest=std::max(deepest,item.second);
+        for(int child:m_nodes[item.first].children) pending.append({child,item.second+1});
+    }
+    if(std::max(depth+2,deepest+1)>MaxDepth) return fail("Meeting sections would exceed maximum tree depth.");
+    checkpoint();
+    const auto existing=m_nodes[id].children;
+    m_nodes[id].children.clear(); m_nodes[id].kind="text"; m_nodes[id].task=false; m_nodes[id].checked=false; m_nodes[id].folded=false;
+    m_nodes[id].meeting={{"date",QDate::currentDate().toString(Qt::ISODate)},{"time",""},{"attendees",""}};
+    int note=0;
+    for(const QString role : {QString("agenda"),QString("notes"),QString("decisions"),QString("actions")}) {
+        MapNode section; section.id=m_nextId++; section.parent=id; section.meetingSection=role;
+        section.text=role.left(1).toUpper()+role.mid(1); section.task=role=="actions";
+        if(role=="decisions") section.style.insert("textColor","#3da995");
+        if(role=="notes") {
+            section.children=existing;
+            for(int child:existing) m_nodes[child].parent=section.id;
+        }
+        MapNode entry; entry.id=m_nextId++; entry.parent=section.id; entry.task=section.task; entry.text="";
+        section.children.append(entry.id);
+        if(role=="notes") note=entry.id;
+        m_nodes[id].children.append(section.id);
+        m_nodes.insert(section.id,section); m_nodes.insert(entry.id,entry);
+    }
+    m_selected=note; m_selection={note}; rebuild(); emit editRequested(note); return true;
+}
+bool Engine::updateMeeting(QString date,QString time,QString attendees) {
+    if(!m_nodes.contains(m_selected) || m_nodes[m_selected].meeting.isEmpty()) return false;
+    if(!QDate::fromString(date,Qt::ISODate).isValid() || date!=QDate::fromString(date,Qt::ISODate).toString(Qt::ISODate) ||
+       (!time.isEmpty() && (!QTime::fromString(time,"HH:mm").isValid() || time!=QTime::fromString(time,"HH:mm").toString("HH:mm"))) || attendees.size()>4096)
+        return fail("Use YYYY-MM-DD, optional HH:mm, and up to 4,096 characters for attendees.");
+    const QVariantMap details{{"date",date},{"time",time},{"attendees",attendees}};
+    if(m_nodes[m_selected].meeting==details) return true;
+    checkpoint(); m_nodes[m_selected].meeting=details; rebuild(); return true;
 }

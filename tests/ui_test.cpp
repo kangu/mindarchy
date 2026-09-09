@@ -53,6 +53,26 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void meetingTemplateStartsIndividualNoteEditing() {
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+        document->select(2);
+        auto *apply=window->findChild<QQuickItem *>("applyMeetingTemplate"); QVERIFY(apply);
+        apply->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(canvas->editing());
+        QCOMPARE(document->selectedEntryPrompt(),QString("Capture a note…"));
+        QTextDocument draft; draft.setHtml(editor->property("text").toString());
+        QVERIFY(draft.toPlainText().trimmed().isEmpty());
+        type("Meeting discussion"); QTest::keyClick(window,Qt::Key_Escape);
+        QVERIFY(!canvas->editing()); document->select(2);
+        auto *attendees=window->findChild<QQuickItem *>("meetingAttendees"); QVERIFY(attendees);
+        attendees->forceActiveFocus(); type("Alex, Sam");
+        QCOMPARE(document->selectedMeeting().value("attendees").toString(),QString("Alex, Sam"));
+        if(qEnvironmentVariableIsSet("MINDMAP_MEETING_SCREENSHOT")) {
+            canvas->fit(); QTest::qWait(250);
+            QVERIFY(window->grabWindow().save(qEnvironmentVariable("MINDMAP_MEETING_SCREENSHOT")));
+        }
+    }
     void integratedColorPickerPresetsCustomAndCancel() {
         auto *button=window->findChild<QObject *>("style-fill-picker");
         QVERIFY(button);
@@ -179,8 +199,8 @@ class UiTest : public QObject {
         window->show();
     }
     void initTestCase() {
-        qmlRegisterUncreatableType<Engine>("MindmapLab", 1, 0, "Engine", "Provided by application");
-        qmlRegisterType<MindCanvas>("MindmapLab", 1, 0, "MindCanvas");
+        qmlRegisterUncreatableType<Engine>("Mindarchy", 1, 0, "Engine", "Provided by application");
+        qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
         document = new Engine(this);
         qml = new QQmlApplicationEngine(this);
         qml->rootContext()->setContextProperty("engine", document);
@@ -247,8 +267,13 @@ class UiTest : public QObject {
             if(!item) return false; item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space); return true;
         };
         QVERIFY(choose("Task")); QTRY_VERIFY(document->selectedTask());
-        auto *completed=window->findChild<QQuickItem *>("taskCompleted"); QVERIFY(completed); QVERIFY(completed->isVisible());
-        completed->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space); QVERIFY(document->selectedChecked());
+        auto *completed=window->findChild<QQuickItem *>("taskCompleted"); QVERIFY(completed); QVERIFY(!completed->isVisible());
+        const auto tasks=document->nodes().value(2).children;
+        for(int child:tasks) {
+            document->select(child); QVERIFY(completed->isVisible());
+            if(!document->selectedChecked()) { completed->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space); }
+        }
+        document->select(2); QVERIFY(document->selectedChecked()); QVERIFY(!completed->isVisible());
         const QString dir=qEnvironmentVariable("MINDMAP_TYPE_SCREENSHOTS");
         if(!dir.isEmpty()) {QDir().mkpath(dir); QTest::qWait(150); QVERIFY(window->grabWindow().save(dir+"/task.png"));}
         QVERIFY(choose("Date")); QTRY_COMPARE(document->selectedKind(),QString("date")); QCOMPARE(document->nodeCount(),count);
@@ -311,8 +336,8 @@ class UiTest : public QObject {
         QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
         window->setProperty("inspectorVisible",true);
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
-        auto *view=window->findChild<QQuickItem *>("dateNodeView"); QVERIFY(view);
-        view->forceActiveFocus(); QTest::keyClick(window,Qt::Key_End);
+        auto *view=window->findChild<QQuickItem *>("dateNodeMonth"); QVERIFY(view);
+        view->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
         QTRY_COMPARE(document->nodes().value(id).calendar.view,QString("month"));
         QCOMPARE(document->dateEntry(id,"2026-09-08"),QString("Updated review"));
         if(!dir.isEmpty()) {QTest::qWait(250); QVERIFY(window->grabWindow().save(dir+"/date-inspector.png"));}

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 set(MINDMAP_VERSION "0.1.0" CACHE STRING "Application release version")
-project(MindmapLab VERSION ${MINDMAP_VERSION} LANGUAGES CXX)
+project(Mindarchy VERSION ${MINDMAP_VERSION} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -11,49 +11,49 @@ target_link_libraries(mindmap_engine PUBLIC Qt6::Core Qt6::Gui)
 target_include_directories(mindmap_engine PUBLIC src)
 add_library(mindmap_canvas src/canvas.cpp src/canvas.h)
 target_link_libraries(mindmap_canvas PUBLIC mindmap_engine Qt6::Quick)
-qt_add_executable(mindmap-lab src/main.cpp src/windowplacement.cpp src/windowplacement.h resources.qrc)
-target_link_libraries(mindmap-lab PRIVATE mindmap_canvas Qt6::Qml Qt6::QuickControls2)
-target_compile_definitions(mindmap-lab PRIVATE MINDMAP_VERSION="${PROJECT_VERSION}")
+qt_add_executable(mindarchy src/main.cpp src/windowplacement.cpp src/windowplacement.h resources.qrc)
+target_link_libraries(mindarchy PRIVATE mindmap_canvas Qt6::Qml Qt6::QuickControls2)
+target_compile_definitions(mindarchy PRIVATE MINDMAP_VERSION="${PROJECT_VERSION}")
 if(APPLE)
     enable_language(OBJCXX)
-    target_sources(mindmap-lab PRIVATE src/macwindow.mm src/macplacement.mm)
-    target_link_libraries(mindmap-lab PRIVATE "-framework AppKit" "-framework UniformTypeIdentifiers")
+    target_sources(mindarchy PRIVATE src/macwindow.mm src/macplacement.mm)
+    target_link_libraries(mindarchy PRIVATE "-framework AppKit" "-framework UniformTypeIdentifiers")
     add_executable(omm-preview packaging/macos/PreviewProvider.mm)
     set_target_properties(omm-preview PROPERTIES AUTOMOC OFF OUTPUT_NAME OMMPreview)
     target_compile_options(omm-preview PRIVATE -fobjc-arc)
     target_link_options(omm-preview PRIVATE -Wl,-e,_NSExtensionMain)
     target_link_libraries(omm-preview PRIVATE mindmap_engine "-framework Cocoa" "-framework Quartz" "-framework UniformTypeIdentifiers")
-    set(preview_bundle "${CMAKE_CURRENT_BINARY_DIR}/mindmap-lab.app/Contents/PlugIns/OMMPreview.appex")
+    set(preview_bundle "${CMAKE_CURRENT_BINARY_DIR}/mindarchy.app/Contents/PlugIns/OMMPreview.appex")
     set_target_properties(omm-preview PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${preview_bundle}/Contents/MacOS")
     configure_file(packaging/macos/Preview-Info.plist.in "${preview_bundle}/Contents/Info.plist" @ONLY)
     add_custom_command(TARGET omm-preview POST_BUILD
         COMMAND /usr/bin/codesign --force --sign - --entitlements "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Preview.entitlements" "${preview_bundle}")
-    add_dependencies(mindmap-lab omm-preview)
-    set(app_icon "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/mindmap-blue.icns")
-    target_sources(mindmap-lab PRIVATE "${app_icon}")
+    add_dependencies(mindarchy omm-preview)
+    set(app_icon "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/mindarchy.icns")
+    target_sources(mindarchy PRIVATE "${app_icon}")
     set_source_files_properties("${app_icon}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    set_target_properties(mindmap-lab PROPERTIES
+    set_target_properties(mindarchy PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
-        MACOSX_BUNDLE_ICON_FILE mindmap-blue.icns
+        MACOSX_BUNDLE_ICON_FILE mindarchy.icns
         MACOSX_BUNDLE_GUI_IDENTIFIER blue.mindmap.lab
-        MACOSX_BUNDLE_BUNDLE_NAME "Mindmap Lab"
+        MACOSX_BUNDLE_BUNDLE_NAME "Mindarchy"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
 elseif(WIN32)
     enable_language(RC)
-    set(APPLICATION_ICON_WINDOWS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/mindmap-blue.ico")
+    set(APPLICATION_ICON_WINDOWS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/mindarchy.ico")
     configure_file(packaging/windows-icon.rc.in windows-icon.rc @ONLY)
-    target_sources(mindmap-lab PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/windows-icon.rc")
-    set_target_properties(mindmap-lab PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(mindarchy PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/windows-icon.rc")
+    set_target_properties(mindarchy PROPERTIES WIN32_EXECUTABLE TRUE)
 else()
     include(GNUInstallDirs)
-    install(TARGETS mindmap-lab RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS mindarchy RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES packaging/blue.mindmap.lab.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES packaging/blue.mindmap.omm.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
     install(FILES packaging/blue.mindmap.lab.thumbnailer DESTINATION ${CMAKE_INSTALL_DATADIR}/thumbnailers)
     foreach(size 16 24 32 48 64 128 256 512 1024)
-        install(FILES assets/icons/mindmap-blue-${size}.png
+        install(FILES assets/icons/mindarchy-${size}.png
             DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${size}x${size}/apps
             RENAME blue.mindmap.lab.png)
     endforeach()

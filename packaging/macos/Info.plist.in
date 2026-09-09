@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Mindmap Lab</string>
+	<string>Mindarchy</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleTypeIconFile</key>
-			<string>mindmap-blue.icns</string>
+			<string>mindarchy.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>Open Mindmap document</string>
 			<key>CFBundleTypeRole</key>
@@ -24,11 +24,11 @@
 	<key>CFBundleExecutable</key>
 	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
 	<key>CFBundleIconFile</key>
-	<string>mindmap-blue.icns</string>
+	<string>mindarchy.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>blue.mindmap.lab</string>
 	<key>CFBundleName</key>
-	<string>Mindmap Lab</string>
+	<string>Mindarchy</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

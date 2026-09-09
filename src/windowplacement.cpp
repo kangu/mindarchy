@@ -1,5 +1,7 @@
 #include "windowplacement.h"
+#include "appidentity.h"
 #include <QGuiApplication>
+#include <QQmlProperty>
 #include <QScreen>
 #include <QEvent>
 #include <QJsonArray>
@@ -57,7 +59,7 @@ QVector<PlacementScreen> WindowPlacement::screens() const {
 }
 WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
     : QObject(window),m_window(window),
-      m_settings(settingsFile.isEmpty() ? new QSettings : new QSettings(settingsFile,QSettings::IniFormat)),
+      m_settings(settingsFile.isEmpty() ? AppIdentity::windowSettings() : new QSettings(settingsFile,QSettings::IniFormat)),
       m_environment(QProcessEnvironment::systemEnvironment()) {
     m_wayland=QGuiApplication::platformName().startsWith("wayland");
     if(m_wayland) {
@@ -80,6 +82,12 @@ WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
     window->setMinimumSize({std::min(600,m_target.rect.width()),std::min(640,m_target.rect.height())});
     window->resize(m_target.rect.size());
     if(!m_wayland) window->setPosition(m_target.rect.topLeft());
+    for (const char *property : {"outlineVisible", "inspectorVisible"}) {
+        const QString key=QStringLiteral("panels/v1/")+QString::fromLatin1(property);
+        if (m_settings->contains(key) && window->property(property).isValid())
+            // QQmlProperty also removes the initial width-based binding.
+            QQmlProperty::write(window,QString::fromLatin1(property),m_settings->value(key).toBool());
+    }
     m_current={{"rect",m_target.rect},{"screen",available.isEmpty() ? QString() : available[m_target.screen].id},
                {"backend",m_hyprland ? "hyprland" : m_wayland ? "wayland" : "qt"}, {"state","normal"}};
     if(!m_hyprland && m_target.restored) {
@@ -186,6 +194,12 @@ void WindowPlacement::captureHypr(const QByteArray &data) {
     }
 }
 void WindowPlacement::save() {
+    for (const char *property : {"outlineVisible", "inspectorVisible"}) {
+        const auto value=m_window->property(property);
+        if (value.isValid())
+            m_settings->setValue(QStringLiteral("panels/v1/")+QString::fromLatin1(property),value.toBool());
+    }
+    m_settings->sync();
     if(m_restorePending || m_settling) return;
     if(m_hyprland) captureHypr(hypr({"-j","clients"})); else captureQt();
     if(m_current.value("rect").toRect().isValid()) {

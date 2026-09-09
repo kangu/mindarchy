@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Mindmap Lab
+Name=Mindarchy
 Comment=Create and explore mind maps
-Exec=mindmap-lab %f
+Exec=mindarchy %f
 Icon=blue.mindmap.lab
 Terminal=false
 Categories=Office;

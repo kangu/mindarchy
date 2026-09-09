@@ -12,6 +12,88 @@
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void meetingTemplatePreservesChildrenAndPersists() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        e.setText(1,"Product review"); e.addChild(); const int existing=e.selectedId(); e.setText(existing,"Existing note"); e.select(1);
+        QVERIFY(e.applyMeetingTemplate()); const int draft=e.selectedId();
+        QCOMPARE(e.nodes().value(1).text,QString("Product review"));
+        QCOMPARE(e.nodes().value(1).children.size(),4); QVERIFY(!e.nodes().value(1).task);
+        QVERIFY(e.nodes().value(draft).text.isEmpty()); QCOMPARE(e.selectedEntryPrompt(),QString("Capture a note…"));
+        const auto sections=e.nodes().value(1).children;
+        QCOMPARE(e.nodes().value(sections[1]).children.first(),existing);
+        QCOMPARE(e.nodes().value(existing).parent,sections[1]);
+        QVERIFY(e.nodes().value(sections[3]).task);
+        e.undo(); QCOMPARE(e.nodeCount(),2); QCOMPARE(e.nodes().value(existing).parent,1);
+        e.redo(); QCOMPARE(e.nodes().value(1).children,sections);
+        e.select(1); QVERIFY(e.updateMeeting("2026-09-08","14:30","Alex, Sam"));
+        QVERIFY(!e.updateMeeting("not a date","",""));
+        QTemporaryDir dir; const auto path=dir.filePath("meeting.omm"); QVERIFY(e.save(path));
+        Engine loaded; QVERIFY(loaded.open(path)); loaded.select(1);
+        QCOMPARE(loaded.selectedMeeting(),e.selectedMeeting()); QVERIFY(!loaded.selectedTask());
+        loaded.select(sections[3]); loaded.addChild(); QVERIFY(loaded.selectedTask()); QVERIFY(loaded.selectedText().isEmpty());
+        QVERIFY(!loaded.nodes().value(1).task);
+        loaded.select(1); const int count=loaded.nodeCount(); QVERIFY(loaded.applyMeetingTemplate()); QCOMPARE(loaded.nodeCount(),count);
+    }
+    void nestedTaskProgressSurvivesSaveAndStructuralChanges() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        e.addChild(); const int parent=e.selectedId();
+        e.addChild(); const int first=e.selectedId();
+        e.addSibling(); const int second=e.selectedId();
+        e.select(1); e.toggleTask();
+        e.select(first); e.toggleChecked();
+        QCOMPARE(e.nodes().value(parent).completedTaskChildren,1);
+        QCOMPARE(e.nodes().value(parent).taskChildren,2);
+        QVERIFY(!e.nodes().value(1).checked);
+        e.select(second); e.toggleChecked();
+        e.select(parent); e.toggleFold();
+        QVERIFY(e.nodes().value(parent).checked); QVERIFY(e.nodes().value(1).checked);
+        QTemporaryDir dir; const auto path=dir.filePath("tasks.omm");
+        QVERIFY(e.save(path)); Engine loaded; QVERIFY(loaded.open(path));
+        QVERIFY(loaded.nodes().value(1).checked);
+        QCOMPARE(loaded.nodes().value(parent).completedTaskChildren,2);
+        loaded.select(parent); loaded.toggleFold(); loaded.addChild();
+        QVERIFY(loaded.selectedTask()); QVERIFY(!loaded.nodes().value(1).checked);
+        loaded.removeSelected(); QVERIFY(loaded.nodes().value(1).checked);
+    }
+    void taskBranchesCascadeAndAggregate() {
+        Engine e; e.loadFixture(15);
+        const int parent=e.nodes().value(1).children.first();
+        e.select(parent); e.toggleTask();
+        const auto children=e.nodes().value(parent).children;
+        for(int child:children) QVERIFY(e.nodes().value(child).task);
+        QVERIFY(!e.nodes().value(parent).checked);
+        for(int i=0;i<children.size();++i) {
+            e.select(children[i]); e.toggleChecked();
+            QCOMPARE(e.nodes().value(parent).checked,i==children.size()-1);
+        }
+        e.select(parent); e.toggleChecked();
+        QVERIFY(e.nodes().value(parent).checked);
+        e.select(children.first()); e.toggleChecked();
+        QVERIFY(!e.nodes().value(parent).checked);
+        e.undo(); QVERIFY(e.nodes().value(parent).checked);
+        e.select(parent); e.toggleTask();
+        for(int child:children) QVERIFY(!e.nodes().value(child).task);
+        e.undo(); QVERIFY(e.nodes().value(parent).checked);
+    }
+    void roundedDateNodesHaveRoundedCornersAcrossThemes() {
+        Engine e; e.loadFixture(15);
+        const int branch=e.nodes().value(1).children.first();
+        const int child=e.nodes().value(branch).children.first();
+        e.setThemeId("beach-day");
+        QVERIFY(e.setNodeKind(child,"date"));
+        QCOMPARE(e.appearance(child).shape,NodeShape::Rounded);
+        QVERIFY(e.appearance(child).radius>0);
+        e.select(child);
+        QVERIFY(e.applyNodeStyle({{"shape",int(NodeShape::Rounded)}}));
+        QVERIFY(e.appearance(child).radius>0);
+        e.setThemeId("holographic");
+        QVERIFY(e.setNodeKind(branch,"date")); e.select(branch);
+        QVERIFY(e.applyNodeStyle({{"shape",int(NodeShape::Rounded)}}));
+        QVERIFY(e.appearance(branch).radius>0);
+        QVERIFY(e.applyNodeStyle({{"shape",int(NodeShape::Rectangle)}}));
+        QCOMPARE(e.appearance(branch).shape,NodeShape::Rectangle);
+        QCOMPARE(e.appearance(branch).radius,0.);
+    }
     void dateNodesSupportEveryExplicitShape() {
         Engine e(nullptr, Engine::InitialContent::Blank);
         QVERIFY(e.setNodeKind(1, "date"));
@@ -297,7 +379,7 @@ class EngineTest : public QObject {
         Engine e;
         QVERIFY(e.nodeCount() >= 12);
         QCOMPARE(e.nodes().value(1).parent, -1);
-        QVERIFY(e.selectedText().contains("Mindmap"));
+        QVERIFY(e.selectedText().contains("Mindarchy"));
         QCOMPARE(e.nodeCount(), e.visibleCount());
     }
     void researchThemeRecipesAreAtomicAndReadable() {
@@ -588,7 +670,7 @@ class EngineTest : public QObject {
             f.close();
             QVERIFY2(!e.open(path), qPrintable(QString("Mutation %1").arg(mutation)));
             QCOMPARE(e.nodeCount(), 15);
-            QCOMPARE(e.selectedText(), QString("Mindmap Lab"));
+            QCOMPARE(e.selectedText(), QString("Mindarchy"));
         }
     }
     void relationships() {
@@ -721,7 +803,7 @@ class EngineTest : public QObject {
         QCOMPARE(manual.spacing(), QString("Standard"));
     }
     void textMeasurementUpdates() {
-        Engine e;
+        Engine e(nullptr, Engine::InitialContent::Blank);
         e.setText(1, "Short title");
         QSizeF shortSize = e.nodes()[1].rect.size();
         e.setText(1, QString(350, 'W'));

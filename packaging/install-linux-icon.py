@@ -7,20 +7,20 @@ import subprocess
 import sys
 
 root = Path(__file__).resolve().parents[1]
-executable = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'build/mindmap-lab'
+executable = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'build/mindarchy'
 if not executable.is_file() or not os.access(executable, os.X_OK):
     raise SystemExit(f'Build the application first: {executable}')
 data = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share')))
 for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
     target = data / f'icons/hicolor/{size}x{size}/apps/blue.mindmap.lab.png'
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(root / f'assets/icons/mindmap-blue-{size}.png', target)
+    shutil.copyfile(root / f'assets/icons/mindarchy-{size}.png', target)
 entry = data / 'applications/blue.mindmap.lab.desktop'
 entry.parent.mkdir(parents=True, exist_ok=True)
 quoted = str(executable)
 for char in ('\\', '"', '`', '$'):
     quoted = quoted.replace(char, '\\' + char)
-text = (root / 'packaging/blue.mindmap.lab.desktop').read_text().replace('Exec=mindmap-lab', f'Exec="{quoted}"')
+text = (root / 'packaging/blue.mindmap.lab.desktop').read_text().replace('Exec=mindarchy', f'Exec="{quoted}"')
 entry.write_text(text)
 for command, args in [('update-desktop-database', [str(entry.parent)]),
                       ('gtk-update-icon-cache', ['-f', '-t', str(data / 'icons/hicolor')])]:
