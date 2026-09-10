@@ -18,7 +18,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
     QImage image(QSize(qMax(1,int(bounds.width()*scale)),qMax(1,int(bounds.height()*scale))), QImage::Format_ARGB32_Premultiplied);
     image.fill(engine.canvasColor());
     QPainter painter(&image);
-    painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
+    painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing | QPainter::SmoothPixmapTransform);
     painter.scale(scale,scale); painter.translate(-bounds.topLeft());
     const auto &nodes=engine.nodes();
     const bool vertical=engine.layout()=="Vertical", compact=engine.layout()=="Compact";
@@ -56,18 +56,23 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
         } else if(style.shape!=NodeShape::Embedded) painter.drawPolygon(MapDrawing::shapePolygon(r,style.shape,style.radius));
         // Labels smaller than a few output pixels are illegible; avoid spending
         // seconds shaping thousands of texts in overview thumbnails.
+        if(!n.image.empty()) painter.drawImage(n.image.rect(r),n.image.pixels);
         if(scale<.18) continue;
-        painter.save(); painter.translate(r.topLeft());
-        if(n.kind=="date") MapDrawing::paintCalendar(painter,n.calendar,style);
+        const auto content=n.image.contentRect(r,engine.contentSize(n.id));
+        painter.save(); painter.translate(content.topLeft());
+        if(n.kind=="date") {
+            painter.translate(0,(content.height()-Calendar::size(n.calendar).height())/2);
+            MapDrawing::paintCalendar(painter,n.calendar,style);
+        }
         else {
             if(n.task) {
-                MapDrawing::paintTask(painter, QRectF(8,r.height()/2-5,10,10), style.text, n.checked, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1);
+                MapDrawing::paintTask(painter, QRectF(8,content.height()/2-5,10,10), style.text, n.checked, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1);
             }
             PreviewText text; QFont font(mindarchyTextFamily()); font.setPixelSize(15);
             text.setDefaultFont(font); text.setDocumentMargin(0);
             text.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(style.text.name()));
-            text.setHtml(n.text); text.setTextWidth(std::max(0.,r.width()-30-(n.task?20:0)));
-            painter.translate(15+(n.task?20:0),std::max(8.,(r.height()-text.size().height())/2));
+            text.setHtml(n.text); text.setTextWidth(std::max(0.,content.width()-30-(n.task?20:0)));
+            painter.translate(15+(n.task?20:0),std::max(8.,(content.height()-text.size().height())/2));
             QAbstractTextDocumentLayout::PaintContext context; context.palette.setColor(QPalette::Text,style.text);
             text.documentLayout()->draw(&painter,context);
         }

@@ -1,4 +1,5 @@
 #include <optional>
+#include <functional>
 #pragma once
 #include <QHash>
 #include <QObject>
@@ -8,11 +9,14 @@
 #include <QVector>
 #include "theme.h"
 #include "calendar.h"
+#include "nodeimage.h"
 
 struct MapNode {
     int id = 0, parent = -1;
     QVector<int> children;
     QString text, notes;
+    QVariantList resources;
+    NodeImage image;
     QString kind = "text";
     CalendarData calendar;
     QVariantMap meeting;
@@ -26,6 +30,8 @@ struct MapNode {
 };
 class Engine : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool selectedHasImage READ selectedHasImage NOTIFY changed)
+    Q_PROPERTY(QString selectedImagePlacement READ selectedImagePlacement NOTIFY changed)
     Q_PROPERTY(QString documentName READ documentName NOTIFY changed)
     Q_PROPERTY(bool edited READ edited NOTIFY changed)
     Q_PROPERTY(QString layout READ layout WRITE setLayout NOTIFY changed)
@@ -40,6 +46,7 @@ class Engine : public QObject {
     Q_PROPERTY(QString selectedEntryPrompt READ selectedEntryPrompt NOTIFY changed)
     Q_PROPERTY(QString selectedKind READ selectedKind NOTIFY changed)
     Q_PROPERTY(QString selectedText READ selectedText NOTIFY changed)
+    Q_PROPERTY(QVariantList selectedResources READ selectedResources NOTIFY changed)
     Q_PROPERTY(QString selectedNotes READ selectedNotes NOTIFY changed)
     Q_PROPERTY(bool selectedTask READ selectedTask NOTIFY changed)
     Q_PROPERTY(bool selectedChecked READ selectedChecked NOTIFY changed)
@@ -66,6 +73,7 @@ class Engine : public QObject {
     const QVector<int> &visibleIds() const { return m_visible; }
     QRectF bounds() const { return m_bounds; }
     QHash<int,QRectF> manualGeometry(int movingId = -1, QPointF delta = {}) const;
+    QHash<int,QRectF> manualGeometry(const QSet<int> &movingRoots, QPointF delta) const;
     QSet<int> selectedIds() const { return m_selection; }
     bool isDescendant(int node, int ancestor) const;
     QString layout() const { return m_layout; }
@@ -92,6 +100,26 @@ class Engine : public QObject {
     Q_INVOKABLE bool setDateEntry(int id, QString date, QString text);
     Q_INVOKABLE QString dateEntry(int id, QString date) const;
     QString selectedText() const { return m_nodes.value(m_selected).text; }
+    QVariantList selectedResources() const { return m_nodes.value(m_selected).resources; }
+    Q_INVOKABLE bool importImage(int id, QString path);
+    bool selectedHasImage() const { return hasImage(selectedId()); }
+    QString selectedImagePlacement() const { return m_nodes.value(selectedId()).image.placement; }
+    Q_INVOKABLE bool setImagePlacement(int id, QString placement);
+    QSizeF previewContentSize(int id, const QString &text) const;
+    bool setImage(int id, const NodeImage &image, bool preservePlacement = true);
+    Q_INVOKABLE bool resizeImage(int id, double width);
+    Q_INVOKABLE bool resetImageSize(int id) { return resizeImage(id,NodeImage::defaultWidth(m_nodes.value(id).image.pixels.size())); }
+    Q_INVOKABLE bool removeImage(int id);
+    Q_INVOKABLE QString imageSource(int id) const { return m_nodes.value(id).image.source(); }
+    Q_INVOKABLE bool hasImage(int id) const { return !m_nodes.value(id).image.empty(); }
+    Q_INVOKABLE void copyImage(int id);
+    Q_INVOKABLE bool cutImage(int id);
+    Q_INVOKABLE bool pasteImage(int id);
+    Q_INVOKABLE bool clipboardHasImage() const;
+    QSizeF contentSize(int id) const;
+    Q_INVOKABLE bool setResource(int node, int index, QString kind, QString name, QString target);
+    Q_INVOKABLE bool removeResource(int node, int index);
+    Q_INVOKABLE bool openResource(int node, int index);
     QString selectedNotes() const { return m_nodes.value(m_selected).notes; }
     bool selectedTask() const { return m_nodes.value(m_selected).task; }
     int selectedTaskChildren() const { return m_nodes.value(m_selected).taskChildren; }
@@ -123,6 +151,17 @@ class Engine : public QObject {
     void setThemeId(QString value);
     Q_INVOKABLE bool applyThemeRecipe(QString id);
     Q_INVOKABLE void select(int id, bool extend = false);
+    void setWindowNavigation(std::function<QVariantList()> list, std::function<void(qint64)> activate) {
+        m_listWindows=std::move(list); m_activateWindow=std::move(activate);
+    }
+    Q_INVOKABLE QVariantList applicationWindows() const;
+    Q_INVOKABLE void activateApplicationWindow(qint64 pid);
+    Q_INVOKABLE void cycleApplicationWindow(int direction);
+    QByteArray branchData() const;
+    bool pasteBranchData(const QByteArray &data);
+    bool pasteOutline(const QString &text);
+    Q_INVOKABLE bool copyBranches();
+    Q_INVOKABLE bool pasteBranches();
     Q_INVOKABLE void addChild();
     void addChildFromPointer(int parent, std::optional<QPointF> position = {});
     Q_INVOKABLE void addSibling();
@@ -139,18 +178,26 @@ class Engine : public QObject {
     Q_INVOKABLE void redo();
     Q_INVOKABLE void loadFixture(int count);
     Q_INVOKABLE void moveNode(int id, int parent, int beforeId = -1);
+    QVector<int> branchRoots(const QSet<int> &selection) const;
+    bool moveBranches(const QSet<int> &selection, int parent, int beforeId = -1, QPointF delta = {});
     Q_INVOKABLE void moveManual(int id, double dx, double dy);
     Q_INVOKABLE bool hasUnsavedChanges() const;
     QString documentName() const;
     bool edited() const;
     Q_INVOKABLE QString documentPath() const { return m_documentPath; }
+    void setRecentDirectory(QString directory) { m_recentDirectory=std::move(directory); }
+    Q_INVOKABLE QVariantList recentDocuments() const;
+    Q_INVOKABLE void clearRecentDocuments();
+    Q_INVOKABLE bool requestOpenDocument(QString path);
     Q_INVOKABLE bool save(QString path);
     Q_INVOKABLE bool open(QString path);
     quint64 recoveryRevision() const { return m_documentRevision; }
     bool saveRecovery(const QString &path, const QVariantMap &ui);
     bool openRecovery(const QString &path, QVariantMap *ui = nullptr);
   signals:
+    void clipboardMessage(QString text);
     void documentSaved();
+    void openDocumentRequested(QString path);
     void nativeCloseRequested();
     void nativeSaveRequested();
     void nativeFolderMenuRequested(double x, double y);
@@ -163,6 +210,8 @@ class Engine : public QObject {
     void editRequested(int id);
 
   private:
+    std::function<QVariantList()> m_listWindows;
+    std::function<void(qint64)> m_activateWindow;
     bool addMeetingTemplate();
     struct State {
         QHash<int, MapNode> nodes;
@@ -173,12 +222,13 @@ class Engine : public QObject {
         QSet<int> selection;
     };
     bool loadDocumentBytes(const QByteArray &bytes, const QString &path);
-    QByteArray documentBytes() const;
+    QByteArray documentBytes(QString destination = {}) const;
     QByteArray m_savedBytes;
     quint64 m_documentRevision = 0;
     mutable quint64 m_checkedRevision = ~quint64(0);
     mutable bool m_edited = false;
     QString m_documentPath;
+    QString m_recentDirectory;
     State state() const;
     void restore(const State &state);
     void checkpoint();

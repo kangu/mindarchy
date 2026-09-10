@@ -46,30 +46,17 @@ ApplicationWindow {
         height: visible && item ? item.implicitHeight : 0
         sourceComponent: MenuBar {
             id: windowsMenuContent
-            readonly property bool popupOpen: fileMenu.opened || helpMenu.opened
-            function closeMenus() { fileMenu.close(); helpMenu.close() }
-            function menuClosed() { Qt.callLater(function() { if (!popupOpen) window.hideWindowsMenu(false) }) }
-            Menu {
-                id: fileMenu
-                title: qsTr("&File")
-                onClosed: windowsMenuContent.menuClosed()
-                MenuItem { text: qsTr("&New"); onTriggered: { window.hideWindowsMenu(true); controller.newDocumentRequested() } }
-                MenuItem { text: qsTr("&Open…"); onTriggered: { window.hideWindowsMenu(true); openDialog.open() } }
-                MenuItem { text: qsTr("&Save"); onTriggered: { window.hideWindowsMenu(true); window.saveDocument(false) } }
-                MenuSeparator {}
-                MenuItem { text: qsTr("&Close window"); onTriggered: { window.hideWindowsMenu(true); window.requestClose(true, false) } }
-                MenuItem { text: qsTr("E&xit Mindarchy"); onTriggered: { window.hideWindowsMenu(true); controller.quitRequested() } }
-            }
-            Menu {
-                id: helpMenu
-                title: qsTr("&Help")
-                onClosed: windowsMenuContent.menuClosed()
-                MenuItem {
-                    text: qsTr("Keyboard &Shortcuts")
-                    onTriggered: { window.hideWindowsMenu(true); windowsShortcuts.show(); windowsShortcuts.raise(); windowsShortcuts.requestActivate() }
-                }
-            }
+            readonly property bool popupOpen: desktopMenus.popupOpen
+            function closeMenus() { desktopMenus.closeMenus() }
+            Component.onCompleted: Qt.callLater(function() { windowsMenuContent.addMenu(desktopMenus.fileMenu); windowsMenuContent.addMenu(desktopMenus.windowMenu); windowsMenuContent.addMenu(desktopMenus.helpMenu) })
+
         }
+    }
+    function openDocumentMenu() { openDialog.open() }
+    DesktopMenus {
+        id: desktopMenus; host: window; controller: window.controller; shortcutsWindow: windowsShortcuts
+        onCommandChosen: { window.hideWindowsMenu(true); applicationMenu.close() }
+        onMenusClosed: Qt.callLater(function() { if (!desktopMenus.popupOpen && Qt.platform.os === "windows") window.hideWindowsMenu(false) })
     }
     KeyboardShortcuts { id: windowsShortcuts; transientParent: window }
     color: (ShellTheme.colors["#111920"] || "#111920")
@@ -353,8 +340,8 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.New]; onActivated: controller.newDocumentRequested() }
     Shortcut { sequences: [StandardKey.Open]; onActivated: openDialog.open() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveDocument(false) }
-    Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.undo() }
-    Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.redo() }
+    Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus && !resourcePanel.editingResource; onActivated: controller.undo() }
+    Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus && !resourcePanel.editingResource; onActivated: controller.redo() }
 
     DateEntryDialog { id: dateDialog; controller: window.controller; canvas: canvas; parent: Overlay.overlay }
 
@@ -388,7 +375,7 @@ ApplicationWindow {
 
     FileDialog {
         id: openDialog; title: "Open Mindarchy document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
-        onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.initializeView(); canvas.forceActiveFocus() }
+        onAccepted: { if (!window.commitEditor("")) return; controller.requestOpenDocument(window.localPath(selectedFile)); canvas.forceActiveFocus() }
     }
     FileDialog {
         id: saveDialog; title: "Save Mindarchy document"; fileMode: FileDialog.SaveFile
@@ -454,11 +441,24 @@ ApplicationWindow {
                     }
                 }
             }
+                        ToolbarButton {
+                            id: applicationMenuButton; objectName: "applicationMenuButton"
+                            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                            ToolTip.visible: (hovered || activeFocus) && !applicationMenu.visible
+                            visible: Qt.platform.os === "linux"; iconName: "menu"; text: "Application menu"
+                            checked: applicationMenu.visible
+                            onClicked: applicationMenu.visible ? applicationMenu.close() : applicationMenu.open()
+                            Menu {
+                                id: applicationMenu; objectName: "applicationMenu"
+                                y: applicationMenuButton.height+4; x: applicationMenuButton.width-width
+                                Component.onCompleted: { if(Qt.platform.os === "linux") { addMenu(desktopMenus.fileMenu); addMenu(desktopMenus.windowMenu); addMenu(desktopMenus.helpMenu) } }
+                            }
+                        }
             Flickable {
                 id: toolbarViewport; objectName: "toolbarViewport"
                 anchors.fill: parent
                 anchors.leftMargin: window.integratedMacToolbar && window.visibility !== Window.FullScreen ? 96 : 12
-                anchors.rightMargin: 12 + window.windowsCaptionWidth
+                anchors.rightMargin: 12 + window.windowsCaptionWidth + (applicationMenuButton.visible ? applicationMenuButton.width + 8 : 0)
                 interactive: contentWidth > width
                 contentWidth: toolbarRow.width; contentHeight: height; clip: true
                 flickableDirection: Flickable.HorizontalFlick
@@ -522,7 +522,6 @@ ApplicationWindow {
                         ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
                         ToolbarButton { objectName: "nodeTemplatesButton"; iconName: "calendar-week"; text: "Add node template"; enabled: controller.selection.length === 1; onClicked: { if (window.commitEditor("")) nodeTemplateDialog.open() } }
                         ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
-                        ToolbarButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
                         ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                     }
                     RowLayout {
@@ -585,6 +584,7 @@ ApplicationWindow {
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c"); Layout.leftMargin: 4; Layout.rightMargin: 4 }
                         ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
                         ToolbarButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
+
                     }
                 }
             }
@@ -624,8 +624,38 @@ ApplicationWindow {
             Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
             Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
+                Connections { target: controller; function onClipboardMessage(message) { window.exportStatus=message; exportTimer.restart() } }
+                Rectangle {
+                    objectName: "focusBreadcrumbBar"
+                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                    height: 36; z: 20; visible: canvas.focusActive
+                    color: window.controller.canvasColor
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8
+                        Flickable {
+                            Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                            contentWidth: crumbs.width; contentHeight: height
+                            Row {
+                                id: crumbs; height: parent.height; spacing: 4
+                                Repeater {
+                                    model: canvas.focusBreadcrumb
+                                    Button {
+                                        required property var modelData
+                                        text: modelData.text; height: 32
+                                        width: Math.min(220,implicitWidth)
+                                        onClicked: { if(window.commitEditor("")) canvas.focusBranch(modelData.id); canvas.forceActiveFocus() }
+                                    }
+                                }
+                            }
+                        }
+                        Button { text: "Exit Focus · Esc"; onClicked: { if(window.commitEditor("")) canvas.exitFocus();canvas.forceActiveFocus() } }
+                    }
+                }
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; engine: window.controller; focus: true
+                    NodeImageTools { id: nodeImageTools; anchors.fill: parent; z: 9; canvas: parent; controller: window.controller; hostWindow: window }
+                    onImageMenuRequested: function(id,x,y) { nodeImageTools.showMenu(id,x,y) }
+                    onImagePreviewRequested: function(id) { nodeImageTools.preview(id) }
                     onCommitRequested: window.commitEditor("")
                     onSearchResultFocused: searchFlash.restart()
                     Rectangle {
@@ -654,6 +684,7 @@ ApplicationWindow {
                         y: Math.max(0,Math.min(canvas.height-height,canvas.dateHoverPosition.y+16))
                     }
                     onEditRequested: function(id, text) { editor.text = text; editor.initialText = editor.text; editor.forceActiveFocus(); editor.selectAll() }
+                    onReplaceEditingText: function(text) { editor.text = text; editor.cursorPosition = editor.length }
                     onExportFinished: function(path, success) { window.exportStatus = success ? "PNG exported" : "PNG export failed"; exportTimer.restart() }
                     Item {
                         id: inlineEditor; objectName: "inlineNodeEditor"
@@ -810,7 +841,26 @@ ApplicationWindow {
                                         }
                                     }
                                 }
+                                ColumnLayout {
+                                    objectName: "imagePlacementSection"
+                                    visible: controller.selection.length === 1 && controller.selectedHasImage
+                                    Layout.fillWidth: true; spacing: 8
+                                    Caption { text: "IMAGE PLACEMENT" }
+                                    MapOptionBar {
+                                        Layout.fillWidth: true; optionPrefix: "image-placement-"
+                                        selectedValue: controller.selectedImagePlacement
+                                        options: [
+                                            {value:"left",label:"Image on left",path:"M3 5h7v14H3z M14 7h7 M14 12h7 M14 17h7"},
+                                            {value:"right",label:"Image on right",path:"M14 5h7v14h-7z M3 7h7 M3 12h7 M3 17h7"},
+                                            {value:"top",label:"Image on top",path:"M5 3h14v7H5z M5 14h14 M5 19h14"},
+                                            {value:"bottom",label:"Image on bottom",path:"M5 14h14v7H5z M5 4h14 M5 9h14"}
+                                        ]
+                                        onChosen: function(value) { if(window.commitEditor("")) controller.setImagePlacement(controller.selectedId,value) }
+                                    }
+                                }
                                 MeetingPanel { Layout.fillWidth: true; controller: window.controller }
+                                ResourcePanel { id: resourcePanel; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                Rule {}
                                 NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}

@@ -13,8 +13,9 @@
 #include <memory>
 #include <algorithm>
 
-// Each document window runs in its own process. Instance locks distinguish live
-// windows from stale entries after a crash; the registry lock serializes updates.
+// Each document has its own session lock, including windows sharing one Cocoa
+// process. Locks distinguish live windows from stale entries after a crash;
+// the registry lock serializes updates.
 class DocumentSession {
 public:
     static QString defaultDirectory() {

@@ -1,4 +1,6 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/DesktopMenus.qml</file>
+    <file>qml/icons/menu.svg</file>
     <file>qml/KeyboardShortcuts.qml</file>
     <file>qml/icons/inspector-map.svg</file>
     <file>qml/icons/inspector-node.svg</file>
@@ -10,6 +12,8 @@
     <file>qml/ColorPicker.qml</file>
     <file>qml/DateNodePanel.qml</file>
     <file>qml/MeetingPanel.qml</file>
+    <file>qml/ResourcePanel.qml</file>
+    <file>qml/NodeImageTools.qml</file>
     <file>qml/NodeTemplateDialog.qml</file>
     <file>qml/icons/pencil.svg</file>
     <file>qml/icons/calendar-today.svg</file>
@@ -26,6 +30,7 @@
     <file>qml/icons/image-down.svg</file>
     <file>qml/icons/italic.svg</file>
     <file>qml/icons/link.svg</file>
+    <file>qml/icons/copy.svg</file>
     <file>qml/icons/list-plus.svg</file>
     <file>qml/icons/maximize.svg</file>
     <file>qml/icons/panel-left.svg</file>

@@ -33,9 +33,8 @@ public:
         QVariant draft;
         if(!QMetaObject::invokeMethod(m_window,"recoveryDraft",Q_RETURN_ARG(QVariant,draft))) return false;
         auto state=draft.toMap();
-        const auto center=m_canvas->mapToWorld({m_canvas->width()/2,m_canvas->height()/2});
-        state.insert("view",QVariantList{m_canvas->zoom(),center.x(),center.y()});
-        if(m_lastRevision==m_engine->recoveryRevision() && state==m_lastState && QFileInfo::exists(m_path)) return true;
+        state.insert("view",m_canvas->persistentView());
+        if(m_lastRevision==m_engine->recoveryRevision() && state==m_lastState && QFileInfo(m_path).isFile() && QFileInfo(m_path).isReadable()) return true;
         if(!m_engine->saveRecovery(m_path,state)) return false;
         m_lastRevision=m_engine->recoveryRevision(); m_lastState=state;
         return true;

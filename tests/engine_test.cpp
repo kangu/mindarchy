@@ -1,6 +1,12 @@
 #include "../src/engine.h"
 #include "../src/documentsession.h"
 #include <QFile>
+#include <QBuffer>
+#include <QImage>
+#include <QClipboard>
+#include "../src/recentdocuments.h"
+#include <QDesktopServices>
+#include <QScopeGuard>
 #include <QProcess>
 #include <cstdlib>
 #include <QJsonArray>
@@ -11,9 +17,283 @@
 #include <QTextCursor>
 #include <QtTest>
 #include <cmath>
+class ResourceUrlReceiver : public QObject {
+    Q_OBJECT
+public:
+    QUrl opened;
+public slots:
+    void receive(const QUrl &url) { opened=url; }
+};
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void imageClipboardPreservesImageAndUndo() {
+        Engine source(nullptr,Engine::InitialContent::Blank), target(nullptr,Engine::InitialContent::Blank);
+        NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
+        QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(source.setImage(1,image));
+        QVERIFY(source.resizeImage(1,180)); QVERIFY(source.setImagePlacement(1,"bottom"));
+        source.copyImage(1); QVERIFY(source.hasImage(1)); QVERIFY(target.pasteImage(1));
+        QCOMPARE(target.nodes()[1].image.json(),source.nodes()[1].image.json());
+        target.undo(); QVERIFY(!target.hasImage(1)); target.redo(); QVERIFY(target.hasImage(1));
+        QVERIFY(source.cutImage(1)); QVERIFY(!source.hasImage(1)); source.undo(); QVERIFY(source.hasImage(1));
+        QVERIFY(target.setImagePlacement(1,"top")); QVERIFY(target.pasteImage(1));
+        QCOMPARE(target.nodes()[1].image.placement,QString("bottom")); target.undo();
+        QCOMPARE(target.nodes()[1].image.placement,QString("top"));
+        QGuiApplication::clipboard()->setImage(pixels); QVERIFY(target.pasteImage(1));
+        QCOMPARE(target.nodes()[1].image.pixels.size(),pixels.size());
+        QGuiApplication::clipboard()->setText("plain text"); QVERIFY(!target.pasteImage(1));
+    }
+    void imagePlacementRoundTrip() {
+        NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
+        QVERIFY(NodeImage::importPixels(pixels,image));
+        for(const QString position:{QString("left"),QString("right"),QString("top"),QString("bottom")}) {
+            auto json=image.json(); json["placement"]=position;
+            NodeImage loaded; QVERIFY(NodeImage::fromJson(json,loaded));
+            QCOMPARE(loaded.json()["placement"].toString(),position);
+            const QSizeF base(100,42); const QRectF node(QPointF(),loaded.expanded(base)); const auto r=loaded.rect(node);
+            if(position=="left") QCOMPARE(r.left(),10.);
+            if(position=="right") QCOMPARE(r.right(),node.right()-10);
+            if(position=="top") QCOMPARE(r.top(),10.);
+            if(position=="bottom") QCOMPARE(r.bottom(),node.bottom()-10);
+        }
+    }
+    void imagePlacementUndoAndValidation() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
+        QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(e.setImage(1,image));
+        QVERIFY(e.setImagePlacement(1,"top")); QCOMPARE(e.nodes()[1].image.placement,QString("top"));
+        e.undo(); QCOMPARE(e.nodes()[1].image.placement,QString("left")); e.redo();
+        QVERIFY(e.setImage(1,image)); QCOMPARE(e.nodes()[1].image.placement,QString("top"));
+        QVERIFY(!e.setImagePlacement(1,"invalid"));
+        auto legacy=image.json(); legacy.remove("placement"); NodeImage loaded;
+        QVERIFY(NodeImage::fromJson(legacy,loaded)); QCOMPARE(loaded.placement,QString("left"));
+        legacy["placement"]="invalid"; QVERIFY(!NodeImage::fromJson(legacy,loaded));
+    }
+    void imageCompressionAndValidation() {
+        QImage source(3000,1500,QImage::Format_RGB32);
+        quint32 seed=42;
+        for(int y=0;y<source.height();++y) {
+            auto row=reinterpret_cast<QRgb*>(source.scanLine(y));
+            for(int x=0;x<source.width();++x) { seed=1664525*seed+1013904223; row[x]=qRgb(seed>>24,seed>>16,seed>>8); }
+        }
+        QByteArray original; QBuffer buffer(&original); buffer.open(QIODevice::WriteOnly); QVERIFY(source.save(&buffer,"PNG"));
+        NodeImage compressed; QVERIFY(NodeImage::importPixels(source,compressed));
+        QCOMPARE(compressed.pixels.size(),QSize(2048,1024));
+        QVERIFY(compressed.data.size()<original.size()/3);
+        QCOMPARE(compressed.size(),QSizeF(120,60));
+        qInfo()<<"Image compression bytes:"<<original.size()<<"->"<<compressed.data.size();
+        QImage alpha(80,40,QImage::Format_ARGB32); alpha.fill(QColor(255,0,0,100));
+        NodeImage transparent; QVERIFY(NodeImage::importPixels(alpha,transparent));
+        QCOMPARE(transparent.pixels.pixelColor(5,5).alpha(),100);
+        NodeImage decoded; QVERIFY(NodeImage::fromJson(transparent.json(),decoded));
+        auto invalid=transparent.json(); invalid["data"]="%%%notbase64";
+        QVERIFY(!NodeImage::fromJson(invalid,decoded));
+        invalid=transparent.json(); invalid["width"]=-1; QVERIFY(!NodeImage::fromJson(invalid,decoded));
+        QVERIFY(!NodeImage::importPixels(QImage(),decoded));
+        Engine e(nullptr,Engine::InitialContent::Blank); QVERIFY(e.setImage(1,transparent));
+        QVERIFY(e.resizeImage(1,200)); QCOMPARE(e.nodes()[1].image.size(),QSizeF(200,100));
+        e.undo(); QCOMPARE(e.nodes()[1].image.size(),QSizeF(80,40));
+        e.redo(); QCOMPARE(e.nodes()[1].image.size(),QSizeF(200,100));
+        QVERIFY(e.removeImage(1)); QVERIFY(!e.hasImage(1)); e.undo(); QVERIFY(e.hasImage(1));
+        QVERIFY(!e.importImage(1,"/nonexistent/image.png")); QCOMPARE(e.nodes()[1].image.width,200.);
+        QVERIFY(!e.resizeImage(1,std::numeric_limits<double>::quiet_NaN()));
+        QTemporaryDir dir; QVERIFY(e.saveRecovery(dir.filePath("recovery.json"),{}));
+        Engine recovered; QVERIFY(recovered.openRecovery(dir.filePath("recovery.json")));
+        QCOMPARE(recovered.nodes()[1].image.data,e.nodes()[1].image.data);
+        QCOMPARE(recovered.nodes()[1].image.width,200.);
+        e.select(1); const auto branches=e.branchData(); Engine pasted(nullptr,Engine::InitialContent::Blank);
+        pasted.select(1); QVERIFY(pasted.pasteBranchData(branches));
+        QVERIFY(pasted.hasImage(pasted.nodes()[1].children.first()));
+    }
+    void embeddedImagePersistsAndAddsSpace() {
+        Engine original(nullptr,Engine::InitialContent::Blank);
+        QTemporaryDir dir; const auto path=dir.filePath("image.omm");
+        QVERIFY(original.save(path)); QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly));
+        auto json=QJsonDocument::fromJson(file.readAll()).object(); file.close();
+        auto nodes=json["nodes"].toArray(); auto node=nodes[0].toObject();
+        QImage image(120,60,QImage::Format_ARGB32); image.fill(Qt::red);
+        QByteArray bytes; QBuffer buffer(&bytes); buffer.open(QIODevice::WriteOnly); QVERIFY(image.save(&buffer,"PNG"));
+        node["image"]=QJsonObject{{"data",QString::fromLatin1(bytes.toBase64())},{"width",120}};
+        nodes[0]=node; json["nodes"]=nodes;
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write(QJsonDocument(json).toJson()); file.close();
+        Engine loaded; QVERIFY(loaded.open(path));
+        QCOMPARE(loaded.nodes()[1].rect.width(),original.nodes()[1].rect.width()+132);
+        QVERIFY(loaded.save(path)); QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(QJsonDocument::fromJson(file.readAll()).object()["nodes"].toArray()[0].toObject().contains("image"));
+    }
+    void batchBranchMovesAreAtomicAndPreserveManualGeometry() {
+        for(bool manual:{false,true}) for(const QString layout:{QString("Horizontal"),QString("Vertical")}) {
+            Engine e; e.loadFixture(15); e.setLayout(layout); e.setManual(manual);
+            e.selectMany({2,6,3});
+            auto snapshot=[&] {
+                QVariantList result; auto ids=e.nodes().keys(); std::sort(ids.begin(),ids.end());
+                for(int id:ids) {
+                    const auto node=e.nodes()[id]; QVariantList children;
+                    for(int child:node.children) children.append(child);
+                    result.append(QVariantMap{{"id",id},{"parent",node.parent},{"children",children},{"offset",node.manualOffset},{"rect",node.rect},{"text",node.text},{"folded",node.folded}});
+                }
+                return result;
+            };
+            const auto original=snapshot(); const auto old=e.nodes();
+            QCOMPARE(e.branchRoots({2,6,3}),QVector<int>({2,3}));
+            QVERIFY(e.moveBranches({2,6,3},4));
+            QCOMPARE(e.nodes()[2].parent,4); QCOMPARE(e.nodes()[3].parent,4); QCOMPARE(e.nodes()[6].parent,2);
+            QCOMPARE(e.nodes()[4].children,QVector<int>({14,15,2,3}));
+            QCOMPARE(e.selectedIds(),QSet<int>({2,6,3}));
+            if(manual) {
+                for(int id:{1,4,5,14,15}) QCOMPARE(e.nodes()[id].rect.center(),old[id].rect.center());
+                for(int root:{2,3}) {
+                    const auto delta=e.nodes()[root].rect.center()-old[root].rect.center();
+                    QVERIFY(QLineF({},delta).length()>1);
+                    for(int child:old[root].children) QVERIFY(QLineF(e.nodes()[child].rect.center()-old[child].rect.center(),delta).length()<.001);
+                }
+            }
+            const auto moved=snapshot(); e.undo(); QCOMPARE(snapshot(),original);
+            e.redo(); QCOMPARE(snapshot(),moved);
+            QVERIFY(!e.moveBranches({2,3},6)); QCOMPARE(snapshot(),moved);
+            QVERIFY(!e.moveBranches({1,3},4)); QCOMPARE(snapshot(),moved);
+            e.undo(); QCOMPARE(snapshot(),original);
+            if(manual) {
+                QVERIFY(e.moveBranches({2,6,3},-1,-1,{25,40}));
+                for(int root:{2,3}) {
+                    QVERIFY(QLineF(e.nodes()[root].rect.center()-old[root].rect.center(),{25,40}).length()<.001);
+                    for(int child:old[root].children) QVERIFY(QLineF(e.nodes()[child].rect.center()-old[child].rect.center(),{25,40}).length()<.001);
+                }
+                e.undo(); QCOMPARE(snapshot(),original);
+            }
+        }
+        Engine mixed; mixed.loadFixture(15); mixed.setManual(true);
+        mixed.moveManual(2,-1000,0);
+        const auto preview=mixed.manualGeometry(QSet<int>{6,10},{50,30});
+        QVERIFY(mixed.moveBranches({6,10},-1,-1,{50,30}));
+        for(int id:mixed.visibleIds()) QVERIFY(QLineF(mixed.nodes()[id].rect.center(),preview[id].center()).length()<.001);
+        QVERIFY(mixed.moveBranches({6,10},4));
+        QCOMPARE(mixed.nodes()[6].parent,4); QCOMPARE(mixed.nodes()[10].parent,4);
+        QVERIFY(!mixed.nodes()[2].children.contains(6)); QVERIFY(!mixed.nodes()[3].children.contains(10));
+        QTemporaryDir directory; const auto path=directory.filePath("moved.omm");
+        QVERIFY(mixed.save(path)); Engine reopened; QVERIFY(reopened.open(path));
+        for(int id:mixed.visibleIds()) {
+            QCOMPARE(reopened.nodes()[id].parent,mixed.nodes()[id].parent);
+            QCOMPARE(reopened.nodes()[id].manualOffset,mixed.nodes()[id].manualOffset);
+        }
+        Engine order; order.loadFixture(15);
+        QVERIFY(order.moveBranches({3,4},1,2)); QCOMPARE(order.nodes()[1].children,QVector<int>({3,4,2,5}));
+        order.undo(); QCOMPARE(order.nodes()[1].children,QVector<int>({2,3,4,5}));
+    }
+    void recentDocumentsPersistWithoutReplacingWork() {
+        QTemporaryDir dir; Engine writer(nullptr,Engine::InitialContent::Blank);
+        writer.setRecentDirectory(dir.filePath("history"));
+        QStringList paths;
+        for(int i=0;i<17;++i) { paths.append(dir.filePath(QString("map%1.omm").arg(i))); QVERIFY(writer.save(paths.last())); }
+        QCOMPARE(writer.recentDocuments().size(),15);
+        QCOMPARE(writer.recentDocuments().first().toMap()["path"].toString(),QFileInfo(paths.last()).canonicalFilePath());
+        Engine reader(nullptr,Engine::InitialContent::Blank); reader.setRecentDirectory(dir.filePath("history"));
+        QVERIFY(reader.open(paths[4])); QCOMPARE(reader.recentDocuments().size(),15);
+        QCOMPARE(writer.recentDocuments().first().toMap()["path"].toString(),QFileInfo(paths[4]).canonicalFilePath());
+        reader.setText(1,"Unsaved work"); QSignalSpy open(&reader,&Engine::openDocumentRequested);
+        QVERIFY(reader.requestOpenDocument(paths[5])); QCOMPARE(open.size(),1);
+        QCOMPARE(reader.selectedText(),QString("Unsaved work")); QVERIFY(reader.edited());
+        const auto recent=reader.recentDocuments();
+        QVERIFY(!reader.open(dir.filePath("missing.omm"))); QCOMPARE(reader.recentDocuments(),recent);
+        QVERIFY(QFile::remove(paths[4])); QVERIFY(!reader.recentDocuments().first().toMap()["available"].toBool());
+        QVERIFY(!reader.requestOpenDocument(paths[4])); QCOMPARE(open.size(),1);
+        reader.clearRecentDocuments(); QVERIFY(writer.recentDocuments().isEmpty());
+    }
+    void desktopWindowNavigationUsesLiveRegistry() {
+        Engine e; qint64 activated=0; const auto current=QCoreApplication::applicationPid();
+        e.setWindowNavigation([&] { return QVariantList{QVariantMap{{"pid",current},{"title","Current"}},QVariantMap{{"pid",current+1},{"title","Other"}}}; },[&](qint64 pid) {activated=pid;});
+        QVERIFY(e.applicationWindows()[0].toMap()["current"].toBool());
+        e.cycleApplicationWindow(1); QCOMPARE(activated,current+1);
+        activated=0; e.activateApplicationWindow(current+2); QCOMPARE(activated,0);
+        e.activateApplicationWindow(current); QCOMPARE(activated,current);
+    }
+    void resourcesRoundTripRelocateAndCopy() {
+        QTemporaryDir dir; QDir root(dir.path()); QVERIFY(root.mkpath("source")); QVERIFY(root.mkpath("destination"));
+        const QString file=dir.filePath("source/reference.txt"); QFile resource(file); QVERIFY(resource.open(QIODevice::WriteOnly)); resource.write("reference"); resource.close();
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(e.setResource(1,-1,"url","Website","example.com/path"));
+        QCOMPARE(e.selectedResources()[0].toMap()["target"].toString(),QString("https://example.com/path"));
+        QVERIFY(e.setResource(1,-1,"file","Reference",file));
+        ResourceUrlReceiver receiver;
+        QDesktopServices::setUrlHandler("https",&receiver,"receive");
+        QDesktopServices::setUrlHandler("file",&receiver,"receive");
+        auto restoreHandlers=qScopeGuard([] { QDesktopServices::unsetUrlHandler("https"); QDesktopServices::unsetUrlHandler("file"); });
+        QVERIFY(e.openResource(1,0)); QCOMPARE(receiver.opened,QUrl("https://example.com/path"));
+        QVERIFY(e.openResource(1,1)); QCOMPARE(receiver.opened,QUrl::fromLocalFile(file));
+        QVERIFY(e.save(dir.filePath("source/map.omm"))); QVERIFY(!e.edited());
+        QFile saved(dir.filePath("source/map.omm")); QVERIFY(saved.open(QIODevice::ReadOnly));
+        auto json=QJsonDocument::fromJson(saved.readAll()).object();
+        QCOMPARE(json["nodes"].toArray()[0].toObject()["resources"].toArray()[1].toObject()["target"].toString(),QString("reference.txt"));
+        Engine reopened; QVERIFY(reopened.open(saved.fileName())); QVERIFY(!reopened.edited());
+        QCOMPARE(reopened.selectedResources(),e.selectedResources());
+        QVERIFY(reopened.setResource(1,0,"url","Updated","https://example.org")); QVERIFY(reopened.edited()); reopened.undo(); QVERIFY(!reopened.edited()); reopened.redo();
+        QVERIFY(reopened.removeResource(1,0)); QCOMPARE(reopened.selectedResources().size(),1); reopened.undo();
+        QVERIFY(reopened.save(dir.filePath("destination/map.omm"))); QVERIFY(!reopened.edited());
+        Engine moved; QVERIFY(moved.open(dir.filePath("destination/map.omm")));
+        QCOMPARE(moved.selectedResources()[1].toMap()["target"].toString(),file);
+        Engine pasted(nullptr,Engine::InitialContent::Blank); QVERIFY(pasted.save(dir.filePath("destination/pasted.omm")));
+        QVERIFY2(pasted.pasteBranchData(e.branchData()),qPrintable(pasted.error())); QCOMPARE(pasted.selectedResources(),e.selectedResources());
+        QVERIFY(pasted.save(pasted.documentPath())); Engine again; QVERIFY(again.open(pasted.documentPath())); again.select(again.nodes()[1].children[0]); QCOMPARE(again.selectedResources(),e.selectedResources());
+        const auto before=e.selectedResources();
+        QVERIFY(!e.setResource(1,-1,"url","","javascript:alert(1)")); QCOMPARE(e.selectedResources(),before);
+        QVERIFY(!e.setResource(1,-1,"url","","https://user:password@example.com"));
+        QVERIFY(e.setResource(1,-1,"file","Missing",dir.filePath("missing.txt")));
+        QVERIFY(!e.openResource(1,2)); QVERIFY(e.error().contains("could not be found"));
+        QVERIFY(e.saveRecovery(dir.filePath("recovery.json"),{})); Engine recovered; QVERIFY(recovered.openRecovery(dir.filePath("recovery.json"))); QCOMPARE(recovered.selectedResources(),e.selectedResources());
+        // Moving the map and its adjacent resource preserves the relative reference.
+        QVERIFY(QFile::copy(saved.fileName(),dir.filePath("destination/portable.omm")));
+        QVERIFY(QFile::copy(file,dir.filePath("destination/reference.txt")));
+        Engine portable; QVERIFY(portable.open(dir.filePath("destination/portable.omm")));
+        QCOMPARE(portable.selectedResources()[1].toMap()["target"].toString(),dir.filePath("destination/reference.txt"));
+    }
+    void branchPastePreservesContentAndIsAtomic() {
+        Engine source(nullptr,Engine::InitialContent::Blank);
+        source.addChild(); const int branch=source.selectedId(); source.setText(branch,"<b>Plan</b>");
+        source.setNotes("Detailed notes"); source.applyNodeStyle({{"fill","#123456"}});
+        source.addChild(); const int task=source.selectedId(); source.toggleTask(); source.toggleChecked();
+        source.select(branch); source.addDateNode("week"); const int date=source.selectedId();
+        QVERIFY(source.configureDateNode(date,"week","2026-09-14")); QVERIFY(source.setDateEntry(date,"2026-09-15","Agenda"));
+        source.selectMany({task,date}); source.connectSelection();
+        source.select(1); source.addChild(); const int outside=source.selectedId();
+        source.selectMany({task,outside}); source.connectSelection();
+        source.select(branch); source.toggleFold(); source.selectMany({branch,task});
+        const auto revision=source.recoveryRevision(); const auto bytes=source.branchData();
+        QCOMPARE(source.recoveryRevision(),revision);
+        Engine target(nullptr,Engine::InitialContent::Blank); target.setThemeId("midnight");
+        QTemporaryDir dir; const auto path=dir.filePath("target.omm"); QVERIFY(target.save(path));
+        const int originalCount=target.nodeCount();
+        QVERIFY2(target.pasteBranchData(bytes),qPrintable(target.error()));
+        QCOMPARE(target.nodeCount(),4); QCOMPARE(target.nodes().value(1).children.size(),1);
+        QCOMPARE(target.connectionCount(),1); QCOMPARE(target.themeId(),QString("midnight"));
+        const int pasted=target.selectedId(); const auto node=target.nodes().value(pasted);
+        QCOMPARE(node.text,QString("<b>Plan</b>")); QCOMPARE(node.notes,QString("Detailed notes")); QVERIFY(node.folded);
+        QCOMPARE(target.appearance(pasted).fill,QColor("#123456"));
+        const auto children=node.children; QCOMPARE(children.size(),2);
+        QVERIFY(target.nodes().value(children[0]).checked);
+        QCOMPARE(target.dateEntry(children[1],"2026-09-15"),QString("Agenda"));
+        QVERIFY(target.hasUnsavedChanges()); target.undo(); QCOMPARE(target.nodeCount(),originalCount); QVERIFY(!target.hasUnsavedChanges());
+        target.redo(); QCOMPARE(target.nodeCount(),4);
+        target.select(1); QVERIFY(target.pasteBranchData(bytes)); QCOMPARE(target.nodeCount(),7);
+        QCOMPARE(target.nodes().value(1).children.size(),2); QCOMPARE(target.connectionCount(),2);
+        QVERIFY(target.save(path)); Engine loaded; QVERIFY(loaded.open(path)); QCOMPARE(loaded.nodeCount(),7);
+        target.select(1); const auto count=target.nodeCount();
+        QVERIFY(!target.pasteBranchData("{bad}")); QCOMPARE(target.nodeCount(),count);
+        auto envelope=QJsonDocument::fromJson(bytes).object(); auto doc=envelope["document"].toObject();
+        doc["connections"]=QJsonArray{QJsonArray{1,2}}; envelope["document"]=doc;
+        QVERIFY(!target.pasteBranchData(QJsonDocument(envelope).toJson())); QCOMPARE(target.nodeCount(),count);
+        source.select(1); QVERIFY(target.pasteBranchData(source.branchData()));
+        QCOMPARE(target.nodeCount(),count+source.nodeCount());
+    }
+    void outlineClipboardCreatesHierarchyAndEscapesText() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(e.pasteOutline("- Plan\n  - A < B\n  - Second\n- Another"));
+        QCOMPARE(e.nodeCount(),5); QCOMPARE(e.nodes().value(1).children.size(),2);
+        const int parent=e.nodes().value(1).children.first(); QCOMPARE(e.nodes().value(parent).children.size(),2);
+        QCOMPARE(e.nodes().value(e.nodes().value(parent).children.first()).text,QString("A &lt; B"));
+        e.undo(); QCOMPARE(e.nodeCount(),1); e.redo(); QCOMPARE(e.nodeCount(),5);
+        const auto count=e.nodeCount(); QVERIFY(!e.pasteOutline(QString(17000,'x'))); QCOMPARE(e.nodeCount(),count);
+    }
+
     void fuzzySearchFindsFoldedTitlesNotesAndDates() {
         Engine e(nullptr,Engine::InitialContent::Blank);
         e.setText(1,"Café planning"); e.addChild(); const int child=e.selectedId(); e.setText(child,"Meeting discussion");

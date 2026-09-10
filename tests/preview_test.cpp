@@ -8,6 +8,16 @@
 class PreviewTest : public QObject {
     Q_OBJECT
 private slots:
+    void embeddedImageIsPainted() {
+        Engine engine(nullptr,Engine::InitialContent::Blank);
+        QImage pixels(80,40,QImage::Format_RGB32); pixels.fill(QColor("#ff0000"));
+        NodeImage image; QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(engine.setImage(1,image));
+        const auto preview=renderMapPreview(engine); int red=0;
+        for(int y=0;y<preview.height();++y) for(int x=0;x<preview.width();++x) {
+            const auto c=preview.pixelColor(x,y); if(c.red()>245 && c.green()<10 && c.blue()<10) ++red;
+        }
+        QVERIFY(red>1000);
+    }
     void plainJsonRoundTripAndFreshPreview() {
         QTemporaryDir dir;
         Engine engine; engine.loadFixture(3); engine.select(2);

@@ -9,6 +9,7 @@ Window {
     width: 720; height: 660
     minimumWidth: 600; minimumHeight: 420
     visible: false
+    onVisibleChanged: { if(!visible && transientParent) Qt.callLater(function() { shortcuts.transientParent.requestActivate() }) }
     color: "#172129"
     readonly property var rows: [
         ["Document", "New document", "Ctrl+N"],
@@ -16,17 +17,26 @@ Window {
         ["Document", "Save", "Ctrl+S"],
         ["Document", "Close window", "Ctrl+W"],
         ["Document", "Undo / redo", "Ctrl+Z / Ctrl+Y"],
+        ["Canvas", "Copy / paste branches as children", "Ctrl+C / Ctrl+V"],
+        ["Images", "Copy / cut selected image; paste onto selected node", "Ctrl+C / Ctrl+X / Ctrl+V"],
+        ["Canvas", "Connect two selected nodes", "Ctrl+L"],
+        ["Canvas", "Toggle branch Focus mode", "Ctrl+Shift+F"],
+        ["Canvas", "Exit Focus and restore viewport", "Esc"],
         ["Canvas", "Navigate nodes", "Arrow keys"],
         ["Canvas", "Extend selection", "Shift+Arrow keys"],
         ["Canvas", "Pan view", "Ctrl+Arrow keys / Space+drag"],
         ["Canvas", "Add child / sibling", "Tab / Enter"],
         ["Canvas", "Edit node", "Ctrl+Enter / F2"],
         ["Canvas", "Delete selection", "Delete / Backspace"],
-        ["Canvas", "Fold branch / toggle task", "F / T"],
-        ["Canvas", "Zoom in / zoom out / fit", "+ or = / − / 0"],
+        ["Canvas", "Replace selected title", "Type text"],
+        ["Canvas", "Fold branch / toggle task", "Alt+F / Alt+T"],
+        ["Canvas (no selection)", "Zoom in / zoom out / fit", "+ or = / − / 0"],
         ["Canvas", "Clear selection or cancel drag", "Esc"],
         ["Search", "Find / next result", "Ctrl+F / Enter"],
         ["Search", "Close search", "Esc"],
+        ["Selected image", "Open image preview", "Space"],
+        ["Image preview", "Close preview", "Space / Esc"],
+        ["Image resizing", "Cancel resize", "Esc"],
         ["Node editing", "Finish editing", "Enter / Esc"],
         ["Node editing", "Finish and add child", "Tab"],
         ["Node editing", "Insert line break", "Shift+Enter"],
@@ -34,7 +44,7 @@ Window {
         ["Text fields", "Select all", "Ctrl+A"],
         ["Text fields", "Cut / copy / paste", "Ctrl+X / Ctrl+C / Ctrl+V"],
         ["Date entry", "Save / cancel", "Ctrl+Enter / Esc"],
-        ["Window", "Show or hide menu bar", "Alt"],
+        ["Window", Qt.platform.os === "linux" ? "Open application menu" : "Show or hide menu bar", Qt.platform.os === "linux" ? "Header menu button" : "Alt"],
         ["Window", "Dismiss menu", "Esc"]
     ]
     ColumnLayout {

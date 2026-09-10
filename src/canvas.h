@@ -5,11 +5,16 @@
 #include <QQuickItem>
 #include <QSet>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <atomic>
 
 class MindCanvas : public QQuickItem {
     Q_OBJECT
+    Q_PROPERTY(QRectF imageSelectionRect READ imageSelectionRect NOTIFY viewChanged)
+    Q_PROPERTY(QRectF imageDropRect READ imageDropRect NOTIFY viewChanged)
     Q_PROPERTY(Engine *engine READ engine WRITE setEngine NOTIFY engineChanged)
+    Q_PROPERTY(bool focusActive READ focusActive NOTIFY focusChanged)
+    Q_PROPERTY(QVariantList focusBreadcrumb READ focusBreadcrumb NOTIFY focusChanged)
     Q_PROPERTY(double zoom READ zoom NOTIFY viewChanged)
     Q_PROPERTY(QRectF searchResultRect READ searchResultRect NOTIFY viewChanged)
     Q_PROPERTY(double panX READ panX NOTIFY viewChanged)
@@ -25,9 +30,22 @@ class MindCanvas : public QQuickItem {
     Q_PROPERTY(QPointF dateHoverPosition READ dateHoverPosition NOTIFY interactionChanged)
     Q_PROPERTY(QString interactionHint READ interactionHint NOTIFY interactionChanged)
   public:
+    QRectF imageSelectionRect() const;
+    QRectF imageDropRect() const;
     explicit MindCanvas(QQuickItem *parent = nullptr);
     Engine *engine() const { return m_engine; }
     void setEngine(Engine *);
+    bool focusActive() const { return m_focusRoot >= 0; }
+    QVariantList focusBreadcrumb() const;
+    QVariantList persistentView() const {
+        const auto zoom=(focusActive() || m_focusReturning) ? m_beforeFocusZoom : m_zoom;
+        const auto pan=(focusActive() || m_focusReturning) ? m_beforeFocusPan : m_pan;
+        const auto center=(QPointF(width()/2,height()/2)-pan)/zoom;
+        return {zoom,center.x(),center.y()};
+    }
+    Q_INVOKABLE void focusBranch(int id = -1);
+    Q_INVOKABLE void exitFocus();
+    bool focusIncludes(int id) const { return !focusActive() || m_focusIds.contains(id); }
     double zoom() const { return m_zoom; }
     double panX() const { return m_pan.x(); }
     double panY() const { return m_pan.y(); }
@@ -67,6 +85,9 @@ class MindCanvas : public QQuickItem {
     Q_INVOKABLE bool commitEditing(QString text);
     Q_INVOKABLE bool exportPng(QString path);
   signals:
+    void imageMenuRequested(int id, double x, double y);
+    void imagePreviewRequested(int id);
+    void focusChanged();
     void searchResultFocused();
     void viewInitializing();
     void viewInitialized();
@@ -76,6 +97,7 @@ class MindCanvas : public QQuickItem {
     void interactionChanged();
     void editingChanged();
     void editRequested(int id, QString text);
+    void replaceEditingText(QString text);
     void exportFinished(QString path, bool success);
     void commitRequested();
     void dateEditRequested(int id, QString date, QString text);
@@ -83,6 +105,10 @@ class MindCanvas : public QQuickItem {
   protected:
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
     void geometryChange(const QRectF &, const QRectF &) override;
+    void dragEnterEvent(QDragEnterEvent *) override;
+    void dragMoveEvent(QDragMoveEvent *) override;
+    void dragLeaveEvent(QDragLeaveEvent *) override;
+    void dropEvent(QDropEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;
@@ -102,6 +128,7 @@ class MindCanvas : public QQuickItem {
         QColor color;
         NodeAppearance appearance;
         bool selected, folded, task, checked, expandsLeft;
+        bool dimmed = false;
         qreal taskOpacity = 0;
         qreal completion = -1;
     };
@@ -128,6 +155,15 @@ class MindCanvas : public QQuickItem {
         QImage image;
         quint64 key;
     };
+    double imageWidth(int id) const;
+    double imageInset(int id) const;
+    QRectF contentRect(int id, QRectF node) const;
+    QRectF imageWorldRect(int id) const;
+    int imageHandleHit(QPointF point) const;
+    void cancelImageResize();
+    int m_imageSelected=-1, m_imageDrop=-1, m_imageResizeHandle=-1;
+    double m_imageResizeWidth=0;
+    QRectF m_imageResizeStart;
     void refresh();
     void refreshView();
     void documentChanged();
@@ -143,6 +179,15 @@ class MindCanvas : public QQuickItem {
     QPointF creationAnchor(int id, std::optional<QPointF> toward = {}) const;
     QPolygonF creationPreview() const;
     void cancelCreation();
+    void updateFocusIds();
+    void animateFocusView(double zoom, QPointF pan);
+    void stopFocusAnimation();
+    QVariantAnimation m_focusAnimation;
+    bool m_focusReturning = false;
+    int m_focusRoot = -1;
+    QSet<int> m_focusIds;
+    QPointF m_beforeFocusPan;
+    double m_beforeFocusZoom = 1;
     QString m_searchQuery;
     int m_searchResult = -1;
     int m_creatingParent = -1;
@@ -162,6 +207,8 @@ class MindCanvas : public QQuickItem {
     std::atomic<double> m_sceneMs{0};
     QTimer m_metricsTimer, m_animationTimer;
     QElapsedTimer m_animationClock;
+    QElapsedTimer m_wheelClock;
+    bool m_wheelPanning = false;
     QHash<int, QRectF> m_previous, m_target, m_manualPreview;
     QHash<int, qreal> m_previousTasks, m_targetTasks;
     bool m_animating = false;
@@ -170,7 +217,10 @@ class MindCanvas : public QQuickItem {
     bool m_dragging = false, m_panning = false, m_marquee = false, m_space = false,
          m_extend = false;
     QPointF m_press, m_last, m_dragDelta;
+    QSet<int> m_dragRoots;
+    bool m_deferredSelection = false;
     QSet<int> m_dragIds;
+    QSizeF m_editContentSize;
     QRectF m_marqueeRect, m_editPreview;
     QLineF m_dropLine;
     QString m_dateHoverText;

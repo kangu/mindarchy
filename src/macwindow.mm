@@ -1,3 +1,4 @@
+#include <objc/runtime.h>
 #include <QWindow>
 #include <QVariantList>
 #include <QCoreApplication>
@@ -152,7 +153,9 @@ void installMacToolbar(QWindow *window) {
 @implementation OMMWindowMenuTarget
 - (void)activatePid:(qint64)pid {
     activateWindow(pid);
-    NSRunningApplication *application = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    bool local=false;
+    for(const auto &entry:listWindows()) if(entry.toMap().contains("windowId")) { local=true; break; }
+    NSRunningApplication *application = local ? NSRunningApplication.currentApplication : [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
     if (@available(macOS 14.0, *)) [application activateFromApplication:NSRunningApplication.currentApplication options:0];
     else [application activateWithOptions:0];
 }
@@ -162,7 +165,7 @@ void installMacToolbar(QWindow *window) {
     if (windows.isEmpty()) return;
     int current = 0;
     for (int i=0; i<windows.size(); ++i)
-        if (windows[i].toMap().value("pid").toLongLong() == QCoreApplication::applicationPid()) current=i;
+        if (windows[i].toMap().contains("windowId") ? windows[i].toMap().value("current").toBool() : windows[i].toMap().value("pid").toLongLong() == QCoreApplication::applicationPid()) current=i;
     [self activatePid:windows[(current+direction+windows.size())%windows.size()].toMap().value("pid").toLongLong()];
 }
 - (void)nextWindow:(id)sender { [self cycle:1]; }
@@ -178,7 +181,7 @@ void installMacToolbar(QWindow *window) {
     for (const auto &window : windows) {
         const auto map = window.toMap();
         // AppKit supplies the current process's window list itself.
-        if (map.value("pid").toLongLong() == QCoreApplication::applicationPid()) continue;
+        if (map.contains("windowId") || map.value("pid").toLongLong() == QCoreApplication::applicationPid()) continue;
         NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:map.value("title").toString().toNSString()
             action:@selector(selectWindow:) keyEquivalent:@""] autorelease];
         item.target=self; item.tag=9101; item.representedObject=@(map.value("pid").toLongLong());
@@ -310,6 +313,12 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
             @[@"Document", @"Quit application", @"⌘ Q"],
             @[@"Document", @"Undo", @"⌘ Z"],
             @[@"Document", @"Redo", @"⇧ ⌘ Z"],
+            @[@"Canvas", @"Copy selected branches", @"⌘ C"],
+            @[@"Images", @"Copy / cut selected image; paste onto selected node", @"⌘ C / ⌘ X / ⌘ V"],
+            @[@"Canvas", @"Paste branches or outline as children", @"⌘ V"],
+            @[@"Canvas", @"Connect two selected nodes", @"⌘ L"],
+            @[@"Canvas", @"Toggle branch Focus mode", @"⇧ ⌘ F"],
+            @[@"Canvas", @"Exit Focus and restore viewport", @"Esc"],
             @[@"Canvas", @"Navigate nodes", @"↑ ↓ ← →"],
             @[@"Canvas", @"Extend selection", @"⇧ + arrows"],
             @[@"Canvas", @"Move viewport in arrow direction", @"⌘ + arrows"],
@@ -318,15 +327,19 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
             @[@"Canvas", @"Create sibling (child of root)", @"Return"],
             @[@"Canvas", @"Edit selected node", @"⌘ Return / F2"],
             @[@"Canvas", @"Delete selected branch", @"Delete / ⌫"],
-            @[@"Canvas", @"Fold or expand branch", @"F"],
-            @[@"Canvas", @"Toggle Task node type", @"T"],
-            @[@"Canvas", @"Zoom in", @"+ / ="],
-            @[@"Canvas", @"Zoom out", @"−"],
-            @[@"Canvas", @"Fit map", @"0"],
+            @[@"Canvas", @"Replace selected title", @"Type text"],
+            @[@"Canvas", @"Fold or expand branch", @"⌥ F"],
+            @[@"Canvas", @"Toggle Task node type", @"⌥ T"],
+            @[@"Canvas (no selection)", @"Zoom in", @"+ / ="],
+            @[@"Canvas (no selection)", @"Zoom out", @"−"],
+            @[@"Canvas (no selection)", @"Fit map", @"0"],
             @[@"Search", @"Open mind map search", @"⌘ F"],
             @[@"Search", @"Next result after automatic first match", @"Return"],
             @[@"Search", @"Close search", @"Esc"],
             @[@"Canvas", @"Clear selection / cancel child drag", @"Esc"],
+            @[@"Selected image", @"Open image preview", @"Space"],
+            @[@"Image preview", @"Close preview", @"Space / Esc"],
+            @[@"Image resizing", @"Cancel resize", @"Esc"],
             @[@"Node editing", @"Commit text", @"Return / Esc"],
             @[@"Node editing", @"Commit and create child", @"Tab"],
             @[@"Node editing", @"Insert line break", @"⇧ Return"],
@@ -410,5 +423,73 @@ void installMacHelpMenu(QWindow *owner) {
     QObject::connect(owner,&QObject::destroyed,[target,root,menu] {
         if(NSApp.helpMenu==menu) NSApp.helpMenu=nil;
         [NSApp.mainMenu removeItem:root]; [target release];
+    });
+}
+
+@interface OMMFileMenuTarget : NSObject <NSMenuDelegate> {
+@public
+    std::function<void(QString,QString)> command;
+    std::function<QVariantList()> recentFiles;
+}
+- (void)invoke:(NSMenuItem *)item;
+@end
+@implementation OMMFileMenuTarget
+- (void)invoke:(NSMenuItem *)item {
+    NSDictionary *value=item.representedObject;
+    command(QString::fromNSString(value[@"action"]),QString::fromNSString(value[@"path"] ?: @""));
+}
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    [menu removeAllItems];
+    const auto files=recentFiles();
+    if(files.isEmpty()) {
+        NSMenuItem *empty=[[[NSMenuItem alloc] initWithTitle:@"No Recent Files" action:nil keyEquivalent:@""] autorelease];
+        empty.enabled=NO; [menu addItem:empty];
+    }
+    for(const auto &value:files) {
+        const auto entry=value.toMap(); const auto path=entry["path"].toString();
+        const auto title=entry["name"].toString()+" — "+QFileInfo(path).absolutePath();
+        NSMenuItem *item=[[[NSMenuItem alloc] initWithTitle:title.toNSString() action:@selector(invoke:) keyEquivalent:@""] autorelease];
+        item.target=self; item.representedObject=@{@"action":@"recent",@"path":path.toNSString()};
+        item.toolTip=path.toNSString(); item.enabled=entry["available"].toBool(); [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *clear=[[[NSMenuItem alloc] initWithTitle:@"Clear Menu" action:@selector(invoke:) keyEquivalent:@""] autorelease];
+    clear.target=self; clear.representedObject=@{@"action":@"clear"}; clear.enabled=!files.isEmpty(); [menu addItem:clear];
+}
+@end
+
+void installMacFileMenu(QWindow *owner,std::function<void(QString,QString)> command,std::function<QVariantList()> recent) {
+    OMMFileMenuTarget *target=[[OMMFileMenuTarget alloc] init]; target->command=std::move(command); target->recentFiles=std::move(recent);
+    NSMenu *menu=[[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+    NSMenuItem *root=[[[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""] autorelease]; root.submenu=menu;
+    auto add=[&](NSString *title,NSString *key,NSString *action) {
+        NSMenuItem *item=[[[NSMenuItem alloc] initWithTitle:title action:@selector(invoke:) keyEquivalent:key] autorelease];
+        item.target=target; item.representedObject=@{@"action":action}; [menu addItem:item];
+    };
+    add(@"New",@"n",@"new"); add(@"Open…",@"o",@"open");
+    NSMenuItem *recentRoot=[[[NSMenuItem alloc] initWithTitle:@"Open Recent" action:nil keyEquivalent:@""] autorelease];
+    NSMenu *recentMenu=[[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+    recentMenu.autoenablesItems=NO; recentMenu.delegate=target; recentRoot.submenu=recentMenu; [menu addItem:recentRoot];
+    add(@"Save",@"s",@"save"); [menu addItem:NSMenuItem.separatorItem]; add(@"Close Window",@"w",@"close");
+    [NSApp.mainMenu insertItem:root atIndex:MIN(1,NSApp.mainMenu.numberOfItems)];
+    QObject::connect(owner,&QObject::destroyed,[root,target] { [NSApp.mainMenu removeItem:root]; [target release]; });
+}
+
+// Qt owns the application delegate. Keep AppKit's standard Dock document list
+// (fed by NSApp.windowsMenu) and extend only reopening after the final window.
+static std::function<void()> reopenDocuments;
+static BOOL mindarchyReopen(id,SEL,NSApplication *,BOOL) {
+    if(reopenDocuments) reopenDocuments();
+    return YES;
+}
+void installMacReopenHandler(QWindow *owner,std::function<void()> reopen) {
+    reopenDocuments=std::move(reopen);
+    Class cls=object_getClass(NSApp.delegate);
+    SEL selector=@selector(applicationShouldHandleReopen:hasVisibleWindows:);
+    IMP previous=class_getInstanceMethod(cls,selector)?class_getMethodImplementation(cls,selector):nullptr;
+    class_replaceMethod(cls,selector,(IMP)mindarchyReopen,"B@:@B");
+    QObject::connect(owner,&QObject::destroyed,[cls,selector,previous] {
+        if(previous) class_replaceMethod(cls,selector,previous,"B@:@B");
+        reopenDocuments={};
     });
 }
