@@ -1,7 +1,5 @@
 #include <QtGlobal>
-#ifdef Q_OS_MACOS
 #include "macapplication.h"
-#endif
 #include "shelltheme.h"
 #ifdef Q_OS_WIN
 #include "windowsdialogs.h"
@@ -79,7 +77,7 @@ int main(int argc, char **argv) {
     app.setApplicationVersion("0.1.0");
 #endif
     app.setOrganizationName("Mindarchy");
-    app.setDesktopFileName("blue.mindmap.lab");
+    app.setDesktopFileName("org.mindarchy.app");
     QIcon applicationIcon;
 #ifdef Q_OS_MACOS
     applicationIcon.addFile(":/assets/icons/mindarchy-macos-512.png");
@@ -146,10 +144,9 @@ int main(int argc, char **argv) {
         fwrite(bytes.constData(), 1, bytes.size(), stdout);
         return 0;
     }
-#ifdef Q_OS_MACOS
     // Interactive Cocoa windows share one process. Diagnostic/headless modes
     // retain the isolated runner below so they never affect an open session.
-    if(QGuiApplication::platformName()=="cocoa" && !parser.isSet("nodes") && !parser.isSet("screenshot") &&
+    if(!parser.isSet("nodes") && !parser.isSet("screenshot") &&
        !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state")) {
         ShellTheme shellTheme;
         qmlRegisterSingletonInstance("Mindarchy",1,0,"ShellTheme",&shellTheme);
@@ -168,7 +165,6 @@ int main(int argc, char **argv) {
         desktop.start(paths,parser.isSet("new"),parser.value("theme"));
         return app.exec();
     }
-#endif
     if (parser.isSet("nodes"))
         document.loadFixture(parser.value("nodes").toInt());
     QStringList files=parser.positionalArguments();

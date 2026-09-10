@@ -61,8 +61,8 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
         const auto content=n.image.contentRect(r,engine.contentSize(n.id));
         painter.save(); painter.translate(content.topLeft());
         if(n.kind=="date") {
-            painter.translate(0,(content.height()-Calendar::size(n.calendar).height())/2);
-            MapDrawing::paintCalendar(painter,n.calendar,style);
+            painter.translate(0,(content.height()-(Calendar::size(n.calendar)*Calendar::textScale(n.text)).height())/2);
+            MapDrawing::paintCalendar(painter,n.calendar,style,n.text);
         }
         else {
             if(n.task) {

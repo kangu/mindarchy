@@ -269,7 +269,7 @@ void Engine::rebuild() {
             size = measurement.size;
             m_textCache.insert(id, measurement);
         }
-        if(n.kind=="date") size=Calendar::size(n.calendar);
+        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text);
         size=n.image.expanded(size);
         n.rect = QRectF(QPointF(), size);
         depthSize[n.depth] = std::max(depthSize[n.depth], vertical ? size.height() : size.width());
@@ -845,7 +845,7 @@ QByteArray Engine::documentBytes(QString destination) const {
     for (const auto &edge : m_connections)
         connections.append(QJsonArray{edge.first, edge.second});
     QJsonObject obj{
-        {"connections", connections}, {"format", "mindmap-lab"}, {"version", 1},
+        {"connections", connections}, {"format", "mindarchy"}, {"version", 1},
         {"layout", m_layout},         {"spacing", m_spacing},    {"branchStyle", m_branchStyle},
         {"themeId", m_themeId},       {"manual", m_manual},      {"nodes", nodes}};
     return QJsonDocument(obj).toJson();
@@ -928,7 +928,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
         return fail("Invalid JSON document.");
     QJsonObject obj = doc.object();
-    if (obj["format"] != "mindmap-lab" || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
+    if ((obj["format"] != "mindarchy" && obj["format"] != "mindmap-lab") || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
         return fail("Unsupported document format or version.");
     QString layout = obj["layout"].toString(), spacing = obj["spacing"].toString(),
             branch = obj["branchStyle"].toString();
@@ -1684,7 +1684,7 @@ bool Engine::requestOpenDocument(QString path) {
 
 QSizeF Engine::contentSize(int id) const {
     const auto n=m_nodes.value(id);
-    if(n.kind=="date") return Calendar::size(n.calendar);
+    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text);
     TextMeasure measure;
     return measureText(n.text,n.task,measure,n.style.value("width").toDouble()) ? measure.size : QSizeF(100,42);
 }

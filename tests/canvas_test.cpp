@@ -15,6 +15,21 @@
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void deleteImageKeepsNodeAndChildren() {
+        for(const auto key:{Qt::Key_Delete,Qt::Key_Backspace}) {
+            Engine e; e.loadFixture(15); e.select(2);
+            QImage pixels(80,40,QImage::Format_RGB32); pixels.fill(Qt::red);
+            NodeImage image; QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(e.setImage(2,image));
+            const auto count=e.nodeCount(); const auto children=e.nodes()[2].children;
+            MindCanvas c; c.setSize({1000,700}); c.setEngine(&e); c.m_imageSelected=2;
+            QKeyEvent press(QEvent::KeyPress,key,Qt::NoModifier); c.keyPressEvent(&press);
+            QCOMPARE(e.nodeCount(),count); QVERIFY(!e.hasImage(2)); QCOMPARE(e.nodes()[2].children,children);
+            QKeyEvent repeat(QEvent::KeyPress,key,Qt::NoModifier,QString(),true,1); c.keyPressEvent(&repeat);
+            QCOMPARE(e.nodeCount(),count);
+            e.undo(); QVERIFY(e.hasImage(2)); QCOMPARE(e.nodeCount(),count);
+            c.m_imageSelected=-1; c.keyPressEvent(&press); QVERIFY(!e.nodes().contains(2));
+        }
+    }
     void imageSpaceDoesNotStartPanOrRepeatPreview() {
         Engine e(nullptr,Engine::InitialContent::Blank); QImage pixels(80,40,QImage::Format_RGB32); pixels.fill(Qt::red);
         NodeImage image; QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(e.setImage(1,image));
@@ -61,11 +76,11 @@ class CanvasTest : public QObject {
         const auto calendar=c.contentRect(1,c.nodeRect(1));
         QCOMPARE(calendar.size(),Calendar::size(e.nodes()[1].calendar));
         QVERIFY(calendar.left()>c.imageWorldRect(1).right());
-        const auto point=c.mapFromWorld(calendar.topLeft()+Calendar::next().center());
+        const auto point=c.mapFromWorld(calendar.topLeft()+QRectF(256,10,28,28).center());
         const auto before=e.nodes()[1].calendar.anchor;
         QMouseEvent press(QEvent::MouseButtonPress,point,point,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier); c.mousePressEvent(&press);
         QMouseEvent release(QEvent::MouseButtonRelease,point,point,Qt::LeftButton,Qt::NoButton,Qt::NoModifier); c.mouseReleaseEvent(&release);
-        QVERIFY(e.nodes()[1].calendar.anchor!=before);
+        QCOMPARE(e.nodes()[1].calendar.anchor,before);
     }
     void imageEdgeResizePreservesRatioAndUndo() {
         for(const bool manual:{false,true}) for(double zoom:{.5,2.}) {

@@ -12,6 +12,49 @@
 class MacApplicationTest : public QObject {
     Q_OBJECT
 private slots:
+    void nativeTabsAndSeparateWindows() {
+        QTemporaryDir directory;
+        MacApplication app(directory.path()); app.start({},true);
+        auto *first=app.activeWindow(); QVERIFY(first);
+        first->findChild<MindCanvas *>("mindCanvas")->commitEditing("First");
+        app.tabAction("new"); auto *second=app.activeWindow(); QVERIFY(second && second!=first);
+        QTest::qWait(200);
+        NSWindow *a=reinterpret_cast<NSView *>(first->winId()).window;
+        NSWindow *b=reinterpret_cast<NSView *>(second->winId()).window;
+        QCOMPARE(a.tabbedWindows.count,NSUInteger(2)); QVERIFY([a.tabbedWindows containsObject:b]);
+        app.tabAction("next"); QTest::qWait(100); QCOMPARE(a.tabGroup.selectedWindow,a);
+        app.tabAction("previous"); QTest::qWait(100); QCOMPARE(a.tabGroup.selectedWindow,b);
+        auto *third=app.open(); QVERIFY(third); QTest::qWait(100);
+        NSWindow *c=reinterpret_cast<NSView *>(third->winId()).window;
+        QVERIFY(![a.tabbedWindows containsObject:c]);
+        app.tabAction("merge"); QTest::qWait(150); QCOMPARE(c.tabbedWindows.count,NSUInteger(3));
+        app.tabAction("detach"); QTest::qWait(150); QVERIFY(c.tabbedWindows.count<=1);
+        app.activate(first->property("macDocumentWindowId").toLongLong());
+        app.tabAction("new"); QTest::qWait(150); QCOMPARE(a.tabbedWindows.count,NSUInteger(3));
+        auto *last=app.activeWindow(); QMetaObject::invokeMethod(last,"approveClose"); QTRY_COMPARE(app.windows().size(),3);
+        QCOMPARE(a.tabbedWindows.count,NSUInteger(2));
+        QVERIFY([NSApp.windowsMenu itemWithTitle:@"Show Next Tab"]);
+        QVERIFY([NSApp.windowsMenu itemWithTitle:@"Move Tab to New Window"]);
+        while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
+    }
+    void nativeTabsRecover() {
+        QTemporaryDir directory;
+        {
+            MacApplication app(directory.path()); app.start({},true);
+            app.activeWindow()->findChild<MindCanvas *>("mindCanvas")->commitEditing("One");
+            app.tabAction("new"); app.activeWindow()->findChild<MindCanvas *>("mindCanvas")->commitEditing("Two");
+            QVERIFY(app.requestQuit()); QTRY_COMPARE(app.windows().size(),0);
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        }
+        {
+            MacApplication app(directory.path()); app.start({},false);
+            QCOMPARE(app.windows().size(),2); app.updateTabs();
+            QCOMPARE(app.activeWindow()->property("documentTabs").toList().size(),2);
+            NSWindow *native=reinterpret_cast<NSView *>(app.activeWindow()->winId()).window;
+            QCOMPARE(native.tabbedWindows.count,NSUInteger(2));
+            while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
+        }
+    }
     void documentsShareApplicationAndRecover() {
         QTemporaryDir directory;
         const auto history=directory.filePath("session");
@@ -122,7 +165,7 @@ int main(int argc,char **argv) {
     }
     QQuickStyle::setStyle("Basic");
     ShellTheme shell;
-    qmlRegisterSingletonInstance("Mindarchy",1,0,"ShellTheme",&shell);
+    qmlRegisterSingletonType<ShellTheme>("Mindarchy",1,0,"ShellTheme",[](QQmlEngine *,QJSEngine *) -> QObject * { return new ShellTheme; });
     qmlRegisterUncreatableType<Engine>("Mindarchy",1,0,"Engine","Provided by application");
     qmlRegisterType<MindCanvas>("Mindarchy",1,0,"MindCanvas");
     MacApplicationTest test;

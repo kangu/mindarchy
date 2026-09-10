@@ -361,7 +361,7 @@ void MindCanvas::refresh() {
         }
         if(m_animating && !n.image.empty()) labelRect.setSize(m_target.value(id).size());
         const QRectF content=contentRect(id,QRectF(QPointF(),labelRect.size()));
-        const QString labelKey=(n.kind=="date" ? Calendar::key(n.calendar)+appearance.branch.name(QColor::HexArgb) : n.text)
+        const QString labelKey=(n.kind=="date" ? Calendar::key(n.calendar)+n.text+appearance.branch.name(QColor::HexArgb) : n.text)
             + (id==m_searchResult ? "\nsearch:"+m_searchQuery+appearance.fill.name(QColor::HexArgb)+m_canvasColor.name(QColor::HexArgb) : QString()) + (!focusIncludes(id) ? "\nfocus-dim" : "") + "\nimage:" + QString::number(n.image.pixels.cacheKey()) + ":" + QString::number(imageWidth(id)) + n.image.placement + (m_zoom<.28 ? ":overview" : ":detail") + (editingId()==id ? "editing" : "");
         auto it = m_cache.find(id);
         if (it == m_cache.end() || it->text != labelKey || it->size != labelRect.size() ||
@@ -380,7 +380,7 @@ void MindCanvas::refresh() {
             image.setDevicePixelRatio(safeScale);
             image.fill(Qt::transparent);
             if(n.kind=="date") {
-                QPainter painter(&image); painter.translate(content.topLeft()); paintCalendar(painter,n.calendar,appearance);
+                QPainter painter(&image); painter.translate(content.topLeft()); paintCalendar(painter,n.calendar,appearance,n.text);
             } else if(editingId()!=id && m_zoom>=.28) {
             QTextDocument doc;
             QFont font(mindarchyTextFamily(), 11);
@@ -1164,14 +1164,10 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     } else if(!m_panning && !m_extend && m_pressedId>=0 && hit(e->position())==m_pressedId &&
               m_engine->nodes().value(m_pressedId).kind=="date" && m_imageSelected!=m_pressedId) {
         const int id=m_pressedId; const auto n=m_engine->nodes().value(id);
-        const QPointF local=mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft();
-        if(Calendar::previous().contains(local)) m_engine->shiftDateNode(id,-1);
-        else if(Calendar::next().contains(local)) m_engine->shiftDateNode(id,1);
-        else {
-            const auto days=Calendar::days(n.calendar);
-            for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i).contains(local)) {
-                editDateEntry(id,days[i].toString(Qt::ISODate)); break;
-            }
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text);
+        const auto days=Calendar::days(n.calendar);
+        for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
+            editDateEntry(id,days[i].toString(Qt::ISODate)); break;
         }
     } else if (m_marquee) {
         QVector<int> ids;
@@ -1239,9 +1235,9 @@ void MindCanvas::hoverMoveEvent(QHoverEvent *e) {
     }
     if(m_engine && id>=0 && m_engine->nodes().value(id).kind=="date") {
         const auto n=m_engine->nodes().value(id); const auto days=Calendar::days(n.calendar);
-        const QPointF local=mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft();
-        actionable=Calendar::previous().contains(local) || Calendar::next().contains(local);
-        for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i).contains(local)) {
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text);
+
+        for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
             text=n.calendar.entries.value(days[i].toString(Qt::ISODate)); actionable=true; break;
         }
     }
@@ -1375,7 +1371,11 @@ void MindCanvas::keyPressEvent(QKeyEvent *e) {
             break;
         case Qt::Key_Delete:
         case Qt::Key_Backspace:
-            m_engine->removeSelected();
+            // A held key must not delete the node after removing its image.
+            if(e->isAutoRepeat()) break;
+            if(m_imageSelected>=0 && m_engine->hasImage(m_imageSelected) && m_engine->selectedIds().contains(m_imageSelected))
+                m_engine->removeImage(m_imageSelected);
+            else m_engine->removeSelected();
             break;
         case Qt::Key_Space:
             if(e->modifiers()==Qt::NoModifier && m_imageSelected>=0 &&

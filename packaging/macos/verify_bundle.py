@@ -14,7 +14,7 @@ def verify_bundle(bundle, version, architectures):
     bundle = pathlib.Path(bundle).resolve()
     with (bundle / 'Contents/Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
-    assert info['CFBundleIdentifier'] == 'blue.mindmap.lab', 'Unexpected bundle identity'
+    assert info['CFBundleIdentifier'] == 'org.mindarchy.app', 'Unexpected bundle identity'
     assert info['CFBundleShortVersionString'] == version, 'Incorrect release version'
     executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
     assert executable.is_file(), 'Missing application executable'
@@ -23,7 +23,7 @@ def verify_bundle(bundle, version, architectures):
         preview_info = plistlib.load(stream)
     assert preview_info['CFBundleShortVersionString'] == version, 'Preview extension version mismatch'
     attributes = preview_info['NSExtension']['NSExtensionAttributes']
-    assert attributes['QLIsDataBasedPreview'] and 'blue.mindmap.omm' in attributes['QLSupportedContentTypes']
+    assert attributes['QLIsDataBasedPreview'] and 'org.mindarchy.omm' in attributes['QLSupportedContentTypes']
     assert (extension / 'Contents/PlugIns/platforms/libqoffscreen.dylib').is_file(), 'Preview sandbox needs its own platform plugin'
     binaries = []
     for path in bundle.rglob('*'):

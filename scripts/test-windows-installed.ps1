@@ -46,7 +46,7 @@ try {
     if ($errors -match 'module .* is not installed|failed to load|could not load|QQmlApplicationEngine failed') { throw $errors }
     # Exercise the explicitly selected offscreen platform from the installed tree.
     $documentPath = Join-Path $OutputDir 'installed-test.omm'
-    @{format='mindmap-lab';version=1;themeId='beach-day';layout='Horizontal';spacing='Standard';branchStyle='Rounded';manual=$false;connections=@();nodes=@(@{id=1;parent=-1;children=@();text='Installed runtime check';notes='';folded=$false;task=$false;checked=$false;x=0;y=0})} | ConvertTo-Json -Depth 10 | Set-Content $documentPath -Encoding UTF8
+    @{format='mindarchy';version=1;themeId='beach-day';layout='Horizontal';spacing='Standard';branchStyle='Rounded';manual=$false;connections=@();nodes=@(@{id=1;parent=-1;children=@();text='Installed runtime check';notes='';folded=$false;task=$false;checked=$false;x=0;y=0})} | ConvertTo-Json -Depth 10 | Set-Content $documentPath -Encoding UTF8
     $previewPath = Join-Path $OutputDir 'installed-preview.png'
     Remove-Item $previewPath -ErrorAction SilentlyContinue
     $previewArgs = @('--render-preview', ('"' + $documentPath + '"'), '--preview-output', ('"' + $previewPath + '"'))

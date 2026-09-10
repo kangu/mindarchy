@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
         QVariantMap{{"name","Missing"},{"path","/tmp/missing.omm"},{"available",false}}};
     installMacFileMenu(&window,[&](QString command,QString path) { fileCommand=command; chosenPath=path; if(command=="clear") recentFiles.clear(); },[&] {return recentFiles;});
     NSMenu *fileMenu=[NSApp.mainMenu itemWithTitle:@"File"].submenu;
-    if(!fileMenu || fileMenu.numberOfItems!=6) return 24;
+    if(!fileMenu || fileMenu.numberOfItems!=7) return 24;
     for(NSString *title in @[@"New",@"Open…",@"Save",@"Close Window"]) {
         NSMenuItem *item=[fileMenu itemWithTitle:title]; if(!item || !item.keyEquivalent.length) return 25;
         fileCommand.clear(); [NSApp sendAction:item.action to:item.target from:item]; if(fileCommand.isEmpty()) return 26;

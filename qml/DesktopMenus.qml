@@ -18,6 +18,7 @@ Item {
         id: fileMenu; objectName: "desktopFileMenu"; title: qsTr("&File")
         onClosed: menus.menusClosed()
         MenuItem { objectName: "desktopNewAction"; text: qsTr("&New"); onTriggered: { menus.commandChosen(); controller.newDocumentRequested() } }
+        MenuItem { text: qsTr("New Tab"); onTriggered: { menus.commandChosen(); controller.tabActionRequested("new",0) } }
         MenuItem { text: qsTr("&Open…"); onTriggered: { menus.commandChosen(); host.openDocumentMenu() } }
         Menu {
             id: recentMenu; objectName: "desktopRecentMenu"; title: qsTr("Open &Recent")
@@ -40,7 +41,7 @@ Item {
         }
         MenuItem { text: qsTr("&Save"); onTriggered: { menus.commandChosen(); host.saveDocument(false) } }
         MenuSeparator {}
-        MenuItem { text: qsTr("&Close window"); onTriggered: { menus.commandChosen(); host.requestClose(true,false) } }
+        MenuItem { text: host.documentTabs.length>1 ? qsTr("&Close Tab") : qsTr("&Close Window"); onTriggered: { menus.commandChosen(); host.requestClose(true,false) } }
         MenuItem { text: qsTr("E&xit Mindarchy"); onTriggered: { menus.commandChosen(); controller.quitRequested() } }
     }
     Menu {
@@ -59,6 +60,11 @@ Item {
         MenuItem { text: qsTr("Next Window"); enabled: windowMenu.openWindows.length>1; onTriggered: { menus.commandChosen(); menus.cycle(1) } }
         MenuItem { text: qsTr("Previous Window"); enabled: windowMenu.openWindows.length>1; onTriggered: { menus.commandChosen(); menus.cycle(-1) } }
         MenuSeparator {}
+        MenuItem { text: qsTr("Show Previous Tab"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("previous",0) }
+        MenuItem { text: qsTr("Show Next Tab"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("next",0) }
+        MenuItem { text: qsTr("Move Tab to New Window"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("detach",0) }
+        MenuItem { text: qsTr("Merge All Windows"); enabled: host.canMergeWindows; onTriggered: controller.tabActionRequested("merge",0) }
+        MenuSeparator {}
         MenuItem { text: qsTr("Bring All to Front"); enabled: windowMenu.openWindows.length>0; onTriggered: { menus.commandChosen(); for(let entry of windowMenu.openWindows) controller.activateApplicationWindow(entry.pid) } }
         MenuSeparator { visible: windowMenu.openWindows.length>0 }
         Instantiator {
@@ -68,7 +74,7 @@ Item {
                 text: modelData.title; checkable: true; checked: modelData.current || false
                 onTriggered: { menus.commandChosen(); controller.activateApplicationWindow(modelData.pid) }
             }
-            onObjectAdded: function(index,object) { windowMenu.insertItem(10+index,object) }
+            onObjectAdded: function(index,object) { windowMenu.insertItem(15+index,object) }
             onObjectRemoved: function(index,object) { windowMenu.removeItem(object) }
         }
     }

@@ -119,20 +119,22 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius, qreal detail) {
     }
     return polygon;
 }
-void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style) {
+void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style, const QString &text) {
+    painter.save();
+    const qreal scale=Calendar::textScale(text); painter.scale(scale,scale);
+    const auto base=Calendar::textFont(text);
+    const auto alignment=Calendar::textAlignment(text)|Qt::AlignVCenter;
+    const qreal gutter=Calendar::weekGutter(data);
     painter.setRenderHint(QPainter::Antialiasing); painter.setRenderHint(QPainter::TextAntialiasing);
-    QFont font(mindarchyTextFamily()); font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
-    painter.drawText(QRectF(39,10,216,28),Qt::AlignCenter,Calendar::title(data));
-    font.setPixelSize(18); painter.setFont(font);
-    painter.drawText(Calendar::previous(),Qt::AlignCenter,QStringLiteral("‹"));
-    painter.drawText(Calendar::next(),Qt::AlignCenter,QStringLiteral("›"));
-    font.setPixelSize(10); font.setBold(false); painter.setFont(font);
+    QFont font=base; font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
+    painter.drawText(QRectF(10+gutter,10,274,28),Qt::AlignCenter,Calendar::title(data));
+    font.setPixelSize(10); font.setBold(base.bold()); painter.setFont(font);
     const QStringList weekdays{"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
-    for(int i=0;i<7;++i) painter.drawText(QRectF(14+i*38,44,34,20),Qt::AlignCenter,weekdays[i]);
+    for(int i=0;i<7;++i) painter.drawText(QRectF(14+gutter+i*38,44,34,20),Qt::AlignCenter,weekdays[i]);
     const auto days=Calendar::days(data);
     for(int i=0;i<days.size();++i) {
         const auto day=days[i]; if(!day.isValid()) continue;
-        const auto cell=Calendar::cell(i); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
+        const auto cell=Calendar::cell(i,gutter); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
         const bool today=day==QDate::currentDate();
         painter.setPen(today && !assigned ? QPen(style.branch,1.5) : QPen(Qt::NoPen));
         painter.setBrush(assigned ? QBrush(style.branch) : QBrush(Qt::NoBrush));
@@ -140,22 +142,30 @@ void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearan
         else if(today) painter.drawRoundedRect(cell.adjusted(.75,.75,-.75,-.75),4.25,4.25);
         const double luminance=.2126*style.branch.redF()+.7152*style.branch.greenF()+.0722*style.branch.blueF();
         painter.setPen(assigned ? QColor(luminance>.55 ? "#172129" : "#ffffff") : style.text);
-        font.setPixelSize(12); font.setBold(assigned || today); painter.setFont(font);
-        painter.drawText(cell,Qt::AlignCenter,QString::number(day.day()));
+        font.setPixelSize(12); font.setBold(base.bold() || assigned || today); painter.setFont(font);
+        painter.drawText(cell,alignment,QString::number(day.day()));
+    }
+    if(data.view=="month") {
+        QColor muted=style.text; muted.setAlphaF(muted.alphaF()*.55);
+        painter.setPen(muted); font.setPixelSize(8); font.setBold(base.bold()); painter.setFont(font);
+        for(int row=0;row<days.size()/7;++row)
+            painter.drawText(Calendar::weekCell(row),Qt::AlignCenter,
+                             QString::number(Calendar::weekNumber(data,row)));
     }
     const auto sums=Calendar::totals(data);
     if(sums.enabled) {
         painter.setPen(style.text); font.setPixelSize(11); font.setBold(true); painter.setFont(font);
-        painter.drawText(QRectF(294,44,108,20),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Sum"));
+        painter.drawText(QRectF(294+gutter,44,108,20),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Sum"));
         for(int row=0;row<sums.weeks.size();++row)
-            painter.drawText(Calendar::sumCell(row),Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.weeks[row]));
+            painter.drawText(Calendar::sumCell(row,gutter),Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.weeks[row]));
         if(data.view=="month") {
-            const auto total=Calendar::sumCell(sums.weeks.size()).translated(0,4);
-            painter.setPen(QPen(style.branch,1)); painter.drawLine(QPointF(294,total.top()),QPointF(402,total.top()));
+            const auto total=Calendar::sumCell(sums.weeks.size(),gutter).translated(0,4);
+            painter.setPen(QPen(style.branch,1)); painter.drawLine(QPointF(294+gutter,total.top()),QPointF(402+gutter,total.top()));
             painter.setPen(style.text);
-            painter.drawText(QRectF(14,total.y(),265,total.height()),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Month total"));
+            painter.drawText(QRectF(14,total.y(),265+gutter,total.height()),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Month total"));
             painter.drawText(total,Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.month));
         }
     }
+    painter.restore();
 }
 }

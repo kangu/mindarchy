@@ -17,7 +17,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>blue.mindmap.omm</string>
+				<string>org.mindarchy.omm</string>
 			</array>
 		</dict>
 	</array>
@@ -26,7 +26,7 @@
 	<key>CFBundleIconFile</key>
 	<string>mindarchy.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>blue.mindmap.lab</string>
+	<string>org.mindarchy.app</string>
 	<key>CFBundleName</key>
 	<string>Mindarchy</string>
 	<key>CFBundlePackageType</key>
@@ -51,7 +51,7 @@
 			<key>UTTypeDescription</key>
 			<string>Open Mindmap document</string>
 			<key>UTTypeIdentifier</key>
-			<string>blue.mindmap.omm</string>
+			<string>org.mindarchy.omm</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

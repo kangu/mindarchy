@@ -61,6 +61,11 @@ ApplicationWindow {
     KeyboardShortcuts { id: windowsShortcuts; transientParent: window }
     color: (ShellTheme.colors["#111920"] || "#111920")
     property var controller: engine
+    property real nativeTabInset: 0
+    property var documentTabs: []
+    property double documentTabId: 0
+    property bool canMergeWindows: false
+    function commitForTabSwitch() { return commitEditor("") }
     property bool outlineVisible: false
     property bool inspectorVisible: width >= 1000
     property string exportStatus: ""
@@ -337,6 +342,9 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Find]; onActivated: window.openSearch() }
     Shortcut { sequences: [StandardKey.Close]; onActivated: window.requestClose(true, false) }
     Shortcut { sequences: [StandardKey.Quit]; onActivated: controller.quitRequested() }
+    Shortcut { sequence: "Ctrl+T"; onActivated: controller.tabActionRequested("new",0) }
+    Shortcut { sequence: "Ctrl+Tab"; enabled: Qt.platform.os !== "osx"; onActivated: controller.tabActionRequested("next",0) }
+    Shortcut { sequence: "Ctrl+Shift+Tab"; enabled: Qt.platform.os !== "osx"; onActivated: controller.tabActionRequested("previous",0) }
     Shortcut { sequences: [StandardKey.New]; onActivated: controller.newDocumentRequested() }
     Shortcut { sequences: [StandardKey.Open]; onActivated: openDialog.open() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveDocument(false) }
@@ -390,7 +398,46 @@ ApplicationWindow {
     }
 
     ColumnLayout {
-        anchors.fill: parent; spacing: 0
+        anchors.fill: parent; anchors.topMargin: window.nativeTabInset; spacing: 0
+        Rectangle {
+            objectName: "documentTabStrip"
+            visible: Qt.platform.os !== "osx" && window.documentTabs.length>1
+            Layout.fillWidth: true; implicitHeight: visible?36:0
+            color: ShellTheme.colors["#111920"] || "#111920"
+            Flickable {
+                id: tabScroller
+                anchors.fill: parent; anchors.rightMargin: 38
+                contentWidth: tabRow.width; clip: true; flickableDirection: Flickable.HorizontalFlick
+                Row {
+                    id: tabRow; height: parent.height; spacing: 1
+                    Repeater {
+                        model: window.documentTabs
+                        delegate: Rectangle {
+                            id: tabButton
+                            required property var modelData
+                            objectName: "document-tab-"+modelData.id
+                            width: Math.max(120,Math.min(240,tabScroller.width/Math.max(1,window.documentTabs.length))); height: 36
+                            color: modelData.id===window.documentTabId ? (ShellTheme.colors["#253540"] || "#253540") : "transparent"
+                            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: ShellTheme.colors["#2a3943"] || "#2a3943" }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 4
+                                Label { Layout.fillWidth: true; text: (modelData.edited?"• ":"")+modelData.title; elide: Text.ElideRight; color: window.ink }
+                                ToolButton {
+                                    id: closeTab; text: "×"; implicitWidth: 24; implicitHeight: 24
+                                    background: Rectangle { radius: 4; color: closeTab.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent" }
+                                    onClicked: controller.tabActionRequested("close",modelData.id)
+                                    ToolTip.visible: hovered; ToolTip.delay: 0; ToolTip.text: "Close tab"
+                                }
+                            }
+                            TapHandler { onTapped: controller.tabActionRequested("activate",modelData.id) }
+                            Component.onCompleted: if(modelData.id===window.documentTabId) Qt.callLater(function() { if(typeof tabButton === "undefined" || !tabButton || typeof tabScroller === "undefined" || !tabScroller) return; tabScroller.contentX=Math.max(0,Math.min(tabScroller.contentWidth-tabScroller.width,x+width-tabScroller.width)) })
+                        }
+                    }
+                }
+            }
+            ToolButton { objectName: "newTabButton"; anchors.right: parent.right; width: 38; height: parent.height; text: "+"; onClicked: controller.tabActionRequested("new",0) }
+        }
+
         Rectangle {
             objectName: "mainToolbar"
             Layout.fillWidth: true; implicitHeight: 60
@@ -861,7 +908,7 @@ ApplicationWindow {
                                 MeetingPanel { Layout.fillWidth: true; controller: window.controller }
                                 ResourcePanel { id: resourcePanel; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 Rule {}
-                                NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                NodeStylePanel { calendarNode: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}
                                 SmallButton { text: controller.selectedFolded ? "Expand branch" : "Fold branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }

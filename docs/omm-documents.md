@@ -15,7 +15,7 @@ The preview command needs no display and accepts `--preview-size 512` (32–4096
 
 ## macOS
 
-The application exports UTI `blue.mindmap.omm`, conforming to `public.json`, with MIME type `application/x-omm+json`. It registers only `.omm` as an owned document; other apps' JSON associations are unaffected. Finder Open events and command-line documents are supported. Later Finder opens create another application instance so they cannot replace an unsaved map.
+The application exports UTI `org.mindarchy.omm`, conforming to `public.json`, with MIME type `application/x-omm+json`. It registers only `.omm` as an owned document; other apps' JSON associations are unaffected. Finder Open events and command-line documents are supported. Later Finder opens create another application instance so they cannot replace an unsaved map.
 
 The CMake macOS build includes `Contents/PlugIns/OMMPreview.appex`, a modern, sandboxed Quick Look Preview extension. Finder selects this extension for `.omm` and pressing Space requests a new PNG from the saved JSON. The helper uses Qt Core/Gui with the offscreen platform plugin, not the app's QML interface. It reads the file granted by Quick Look and does not write the document. The release workflow deploys its Qt dependencies and signs the extension before sealing the enclosing application. Developer ID signing and notarization use the existing release credentials.
 

@@ -205,6 +205,7 @@ class Engine : public QObject {
     void quitDecision(bool accepted);
     void windowCloseApproved(bool forget);
     void newDocumentRequested();
+    void tabActionRequested(QString action, qint64 target);
     void changed();
     void outlineChanged();
     void editRequested(int id);

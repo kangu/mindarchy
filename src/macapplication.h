@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+class QTimer;
 class Engine;
 class QQuickWindow;
 class MacDocumentWindow;
@@ -25,6 +26,9 @@ public:
     QVariantList windows() const;
     void activate(qint64 id);
     void reopen();
+    void tabAction(const QString &action, qint64 target = 0);
+    void updateTabs();
+    void saveTabs();
     Engine *activeDocument() const;
     QQuickWindow *activeWindow() const;
     QString error() const { return m_error; }
@@ -42,4 +46,6 @@ private:
     QPointer<QQuickWindow> m_active;
     qint64 m_nextId = 1;
     bool m_quitting = false;
+    bool m_restoringTabs = false;
+    QTimer *m_tabTimer = nullptr;
 };

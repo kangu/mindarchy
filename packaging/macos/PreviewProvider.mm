@@ -32,7 +32,7 @@
         if(scoped) [url stopAccessingSecurityScopedResource];
         if(!loaded) {
             NSString *message=[NSString stringWithUTF8String:engine.error().toUtf8().constData()];
-            handler(nil,[NSError errorWithDomain:@"blue.mindmap.omm" code:1
+            handler(nil,[NSError errorWithDomain:@"org.mindarchy.omm" code:1
                 userInfo:@{NSLocalizedDescriptionKey:message}]);
             return;
         }

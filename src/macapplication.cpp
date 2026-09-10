@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QGuiApplication>
 
+#ifdef Q_OS_MACOS
 void installMacFileMenu(QWindow *, std::function<void(QString,QString)>, std::function<QVariantList()>);
 void installMacHelpMenu(QWindow *);
 void installMacToolbar(QWindow *);
@@ -23,10 +24,21 @@ void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int
 void showMacSavePanel(QWindow *, const QString &, std::function<void(QString)>);
 void showMacParentFolderMenu(QWindow *, const QString &, double, double);
 
+void joinMacTabs(QWindow *, QWindow *);
+QList<QWindow *> macTabs(QWindow *);
+bool macTabSelected(QWindow *);
+void updateMacTabInset(QWindow *);
+void macTabAction(QWindow *, const QString &);
+#else
+#include "windowsdialogs.h"
+#include "windowmenubar.h"
+#endif
+
 class MacDocumentWindow : public QObject {
 public:
     MacApplication *application;
     qint64 id;
+    qint64 group=0;
     Engine engine{nullptr,Engine::InitialContent::Blank};
     std::unique_ptr<DocumentSession> session;
     QQmlContext context;
@@ -63,7 +75,7 @@ public:
         session->setDocument(engine.documentPath());
         context.setContextProperty("engine",&engine);
         context.setContextProperty("deferWindowShow",true);
-        context.setContextProperty("nativeCloseAvailable",true);
+        context.setContextProperty("nativeCloseAvailable",QGuiApplication::platformName()=="cocoa" || QGuiApplication::platformName()=="windows");
         QQmlComponent component(&application->m_qml,QUrl("qrc:/qml/Main.qml"));
         window=qobject_cast<QQuickWindow *>(component.create(&context));
         if(!window) { application->m_error=component.errorString(); return false; }
@@ -79,20 +91,29 @@ public:
             individual.sync();
         }
         placement=new WindowPlacement(window,placementFile);
+#ifdef Q_OS_MACOS
         installMacToolbar(window);
-        connect(window,&QWindow::activeChanged,this,[this] { if(window->isActive()) application->m_active=window; });
+#elif defined(Q_OS_WIN)
+        installWindowsDialogs(&engine,window); new WindowMenuBar(window);
+#endif
+        connect(window,&QWindow::activeChanged,this,[this] { if(window->isActive() && window->isVisible()) application->m_active=window; });
+        connect(window,&QQuickWindow::closing,this,[this] {
+            QTimer::singleShot(0,this,[this] { if(window->property("allowClose").toBool()) application->remove(this); });
+        });
         connect(window,&QWindow::visibleChanged,this,[this](bool visible) {
             if(!visible && window->property("allowClose").toBool()) {
                 savePlacement(); viewport->flush(); poll.stop();
                 application->remove(this);
             }
         });
-        connect(&engine,&Engine::changed,this,[this] { session->setDocument(engine.documentPath()); });
+        connect(&engine,&Engine::changed,this,[this] { session->setDocument(engine.documentPath()); application->updateTabs(); });
+        connect(&engine,&Engine::tabActionRequested,this,[this](QString action,qint64 target) { application->m_active=window; application->tabAction(action,target); });
         connect(&engine,&Engine::newDocumentRequested,this,[this] { application->open(); });
         connect(&engine,&Engine::openDocumentRequested,this,[this](QString file) { application->open(file); });
         connect(&engine,&Engine::windowCloseApproved,this,[this](bool) { recovery->remove(); session->forgetDocument(); });
         connect(&engine,&Engine::quitRequested,this,[this] { application->requestQuit(); });
         engine.setWindowNavigation([this] { return application->windows(); },[this](qint64 identity) { application->activate(identity); });
+#ifdef Q_OS_MACOS
         connect(&engine,&Engine::nativeFolderMenuRequested,this,[this](double x,double y) {
             if(!engine.documentPath().isEmpty()) showMacParentFolderMenu(window,engine.documentPath(),x,y);
         });
@@ -117,6 +138,7 @@ public:
                 QMetaObject::invokeMethod(guard->window,choice==1?"saveBeforeClosing":choice==2?"approveClose":"cancelClose");
             }); });
         });
+#endif
         connect(&poll,&QTimer::timeout,this,[this] {
             switch(session->pollQuit()) {
             case DocumentSession::QuitAction::Confirm: session->voteToQuit(recovery->prepareQuit()); break;
@@ -178,13 +200,38 @@ MacApplication::Launch MacApplication::startOrForward(const QStringList &files,b
     return Launch::Primary;
 }
 void MacApplication::start(const QStringList &files,bool fresh,const QString &theme) {
+#ifdef Q_OS_MACOS
     installMacFileMenu(&m_menuOwner,[this](QString action,QString path) { command(action,path); },[this] { return RecentDocuments(m_directory).list(); });
     installMacHelpMenu(&m_menuOwner);
     installMacWindowMenu(&m_menuOwner,[this] { return windows(); },[this](qint64 id) { activate(id); });
     installMacReopenHandler(&m_menuOwner,[this] { reopen(); });
+#endif
+    m_restoringTabs=true;
     const auto paths=files.isEmpty()&&!fresh?DocumentSession::restorePaths(m_directory,true):files;
     for(const auto &path:paths) open(path,theme);
     if(m_documents.empty()) open({},theme);
+    if(files.isEmpty() && !fresh) {
+        QSettings saved(m_directory+"/tabs.ini",QSettings::IniFormat);
+        for(const auto &value:saved.value("groups").toList()) {
+            MacDocumentWindow *first=nullptr;
+            for(const auto &snapshot:value.toMap().value("paths").toStringList()) for(auto *d:m_documents) if(d->session->recoveryPath()==snapshot) {
+                if(!first) first=d;
+                else {
+#ifdef Q_OS_MACOS
+                    joinMacTabs(first->window,d->window);
+#else
+                    if(!first->group) first->group=first->id;
+                    d->group=first->group; d->window->hide();
+#endif
+                }
+            }
+            if(first) activate(first->id);
+            for(auto *d:m_documents) if(d->session->recoveryPath()==value.toMap().value("active").toString()) activate(d->id);
+        }
+    }
+    m_restoringTabs=false; updateTabs();
+    m_tabTimer=new QTimer(this); m_tabTimer->setInterval(500);
+    connect(m_tabTimer,&QTimer::timeout,this,[this] { updateTabs(); saveTabs(); }); m_tabTimer->start();
 }
 QQuickWindow *MacApplication::open(const QString &path,const QString &theme) {
     if(m_quitting) return nullptr;
@@ -201,9 +248,13 @@ QQuickWindow *MacApplication::open(const QString &path,const QString &theme) {
     m_documents.push_back(document); activate(document->id); return document->window;
 }
 void MacApplication::remove(MacDocumentWindow *document) {
+    if(std::find(m_documents.begin(),m_documents.end(),document)==m_documents.end()) return;
+    const auto group=document->group;
     std::erase(m_documents,document);
+    if(!m_quitting && group) for(auto *d:m_documents) if(d->group==group) { activate(d->id); break; }
     if(m_active==document->window) m_active=nullptr;
     document->deleteLater();
+    updateTabs();
     if(m_quitting && m_documents.empty()) QTimer::singleShot(0,qApp,[] { QCoreApplication::exit(0); });
 }
 bool MacApplication::requestQuit() {
@@ -211,7 +262,7 @@ bool MacApplication::requestQuit() {
     if(m_quitting) return true;
     // Do not interrupt an in-flight native save/discard sheet.
     for(auto *document:m_documents) if(document->saveSheet || document->closeSheet) return true;
-    m_quitting=true; m_documents.front()->session->beginQuit(); return true;
+    saveTabs(); m_quitting=true; m_documents.front()->session->beginQuit(); return true;
 }
 QQuickWindow *MacApplication::activeWindow() const {
     if(m_active && m_active->isVisible()) return m_active;
@@ -229,6 +280,12 @@ QVariantList MacApplication::windows() const {
 void MacApplication::activate(qint64 id) {
     for(auto *document:m_documents) if(document->id==id) {
         auto *window=document->window;
+#ifndef Q_OS_MACOS
+        if(document->group) for(auto *peer:m_documents) if(peer!=document && peer->group==document->group && peer->window->isVisible()) {
+            window->setGeometry(peer->window->geometry()); window->setWindowState(peer->window->windowState()); peer->window->hide();
+        }
+        window->show();
+#endif
         if(window->windowState()==Qt::WindowMinimized) window->showNormal();
         window->raise(); window->requestActivate(); m_active=window; return;
     }
@@ -236,6 +293,7 @@ void MacApplication::activate(qint64 id) {
 void MacApplication::reopen() { if(m_documents.empty()) open(); else for(auto *d:m_documents) if(d->window==activeWindow()) { activate(d->id); break; } }
 void MacApplication::command(const QString &action,const QString &path) {
     if(action=="new") { open(); return; }
+    if(action=="newtab") { tabAction("new"); return; }
     if(action=="recent") { open(path); return; }
     if(action=="clear") { RecentDocuments(m_directory).clear(); return; }
     auto *window=activeWindow();
@@ -244,4 +302,76 @@ void MacApplication::command(const QString &action,const QString &path) {
     if(action=="open") QMetaObject::invokeMethod(window,"openDocumentMenu");
     else if(action=="save") QMetaObject::invokeMethod(window,"saveDocument",Q_ARG(QVariant,false));
     else if(action=="close") QMetaObject::invokeMethod(window,"requestClose",Q_ARG(QVariant,true),Q_ARG(QVariant,false));
+}
+
+void MacApplication::tabAction(const QString &action,qint64 target) {
+    auto *current=activeWindow(); if(!current) { if(action=="new") open(); return; }
+    if(!current->property("allowClose").toBool()) QMetaObject::invokeMethod(current,"commitForTabSwitch");
+#ifdef Q_OS_MACOS
+    if(action=="new") { auto *next=open(); if(next) joinMacTabs(current,next); }
+    else if(action=="activate") activate(target);
+    else macTabAction(current,action);
+#else
+    MacDocumentWindow *selected=nullptr; for(auto *d:m_documents) if(d->window==current) selected=d;
+    if(!selected) return;
+    if(action=="new") {
+        if(!selected->group) selected->group=selected->id;
+        auto *next=open();
+        for(auto *d:m_documents) if(d->window==next) { d->group=selected->group; activate(d->id); break; }
+    } else if(action=="merge") {
+        selected->group=selected->id;
+        for(auto *d:m_documents) { d->group=selected->group; if(d!=selected) d->window->hide(); }
+        activate(selected->id);
+    } else if(action=="detach") {
+        const auto old=selected->group; selected->group=0;
+        for(auto *d:m_documents) if(d!=selected && d->group==old) { activate(d->id); break; }
+        selected->window->setPosition(selected->window->position()+QPoint(30,30)); activate(selected->id);
+    } else if(action=="activate") activate(target);
+    else if(action=="next" || action=="previous") {
+        QList<MacDocumentWindow *> peers;
+        for(auto *d:m_documents) if(d==selected || (selected->group && d->group==selected->group)) peers.append(d);
+        const auto index=peers.indexOf(selected); activate(peers[(index+(action=="next"?1:peers.size()-1))%peers.size()]->id);
+    } else if(action=="close") {
+        for(auto *d:m_documents) if(d->id==target) { activate(target); QMetaObject::invokeMethod(d->window,"requestClose",Q_ARG(QVariant,true),Q_ARG(QVariant,false)); break; }
+    }
+#endif
+    updateTabs(); saveTabs();
+}
+void MacApplication::updateTabs() {
+    for(auto *d:m_documents) {
+        QVariantList entries;
+#ifdef Q_OS_MACOS
+        updateMacTabInset(d->window);
+        const auto peers=macTabs(d->window);
+        for(auto *member:peers) for(auto *peer:m_documents) if(peer->window==member) entries.append(QVariantMap{{"id",peer->id},{"title",peer->engine.documentName()},{"edited",peer->engine.edited()}});
+#else
+        for(auto *peer:m_documents) if(peer==d || (d->group && peer->group==d->group)) entries.append(QVariantMap{{"id",peer->id},{"title",peer->engine.documentName()},{"edited",peer->engine.edited()}});
+#endif
+        if(d->window->property("documentTabs").toList()!=entries) d->window->setProperty("documentTabs",entries);
+        d->window->setProperty("documentTabId",d->id);
+        d->window->setProperty("canMergeWindows",m_documents.size()>size_t(entries.size()));
+    }
+}
+void MacApplication::saveTabs() {
+    if(m_restoringTabs || m_quitting) return;
+    QVariantList groups; QSet<qint64> seen;
+    for(auto *d:m_documents) {
+        if(seen.contains(d->id)) continue;
+        QStringList paths;
+#ifdef Q_OS_MACOS
+        const auto peers=macTabs(d->window);
+        for(auto *member:peers) for(auto *peer:m_documents) if(peer->window==member) { paths.append(peer->session->recoveryPath()); seen.insert(peer->id); }
+#else
+        for(auto *peer:m_documents) if(peer==d || (d->group && d->group==peer->group)) { paths.append(peer->session->recoveryPath()); seen.insert(peer->id); }
+#endif
+        QString active;
+        for(auto *peer:m_documents) if(paths.contains(peer->session->recoveryPath()) && peer->window->isVisible()) {
+#ifdef Q_OS_MACOS
+            if(!macTabSelected(peer->window)) continue;
+#endif
+            active=peer->session->recoveryPath();
+        }
+        if(paths.size()>1) groups.append(QVariantMap{{"paths",paths},{"active",active}});
+    }
+    QSettings saved(m_directory+"/tabs.ini",QSettings::IniFormat); saved.setValue("groups",groups);
 }

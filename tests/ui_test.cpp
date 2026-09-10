@@ -99,12 +99,35 @@ class UiTest : public QObject {
         const auto point=canvas->mapToScene(canvas->mapFromWorld(node.image.rect(node.rect).center())).toPoint();
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point);
         const auto view=canvas->persistentView(); const auto revision=document->recoveryRevision();
+#ifdef Q_OS_LINUX
+        auto *popup=window->findChild<QObject*>("borderlessImagePreview"); QVERIFY(popup);
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(!popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!popup->property("opened").toBool());
+        QCOMPARE(canvas->persistentView(),view); QCOMPARE(document->recoveryRevision(),revision);
+        return;
+#endif
         auto preview=window->findChild<QQuickWindow*>("nodeImagePreview"); QVERIFY(preview);
         QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
+#ifdef Q_OS_MACOS
+        QVERIFY(preview->flags() & Qt::FramelessWindowHint);
+        QCOMPARE(preview->flags() & Qt::WindowType_Mask,Qt::Tool);
+        QVERIFY(preview->width()>0 && preview->height()>0);
+
+#endif
         QTest::keyClick(preview,Qt::Key_Space); QTRY_VERIFY(!preview->isVisible());
         window->requestActivate(); canvas->forceActiveFocus();
         QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
         QTest::keyClick(preview,Qt::Key_Escape); QTRY_VERIFY(!preview->isVisible());
+#ifdef Q_OS_MACOS
+        window->requestActivate(); canvas->forceActiveFocus();
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
+        QTRY_VERIFY(preview->isActive());
+        QTest::qWait(100);
+        if(qEnvironmentVariableIsSet("MINDARCHY_PANEL_EVIDENCE")) QVERIFY(preview->grabWindow().save(qEnvironmentVariable("MINDARCHY_PANEL_EVIDENCE")));
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(QPointF(20,20)).toPoint()); QTRY_VERIFY(!preview->isVisible());
+#endif
         QCOMPARE(canvas->persistentView(),view); QCOMPARE(document->recoveryRevision(),revision);
     }
     void imageFileDropResizeAndPreview() {
@@ -139,8 +162,13 @@ class UiTest : public QObject {
         }
         const auto imageRect=canvas->imageSelectionRect();
         QTest::mouseDClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(imageRect.center()).toPoint());
-        auto preview=window->findChild<QQuickWindow*>("nodeImagePreview"); QVERIFY(preview); QTRY_VERIFY(preview->isVisible());
-        preview->close(); window->requestActivate(); canvas->forceActiveFocus();
+#ifdef Q_OS_LINUX
+        auto *popup=window->findChild<QObject*>("borderlessImagePreview"); QVERIFY(popup); QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup,"close"));
+#else
+        auto preview=window->findChild<QQuickWindow*>("nodeImagePreview"); QVERIFY(preview); QTRY_VERIFY(preview->isVisible()); preview->close();
+#endif
+        window->requestActivate(); canvas->forceActiveFocus();
         document->undo(); QCOMPARE(document->nodes()[2].image.width,120.);
     }
     void recentMenuRefreshesAndClearsSharedHistory() {
@@ -161,7 +189,7 @@ class UiTest : public QObject {
         auto *windows=window->findChild<QObject *>("desktopWindowMenu");
         auto *help=window->findChild<QObject *>("desktopHelpMenu");
         QVERIFY(file); QVERIFY(windows); QVERIFY(help);
-        QCOMPARE(file->property("count").toInt(),7); QCOMPARE(help->property("count").toInt(),1);
+        QCOMPARE(file->property("count").toInt(),8); QCOMPARE(help->property("count").toInt(),1);
         QVERIFY(windows->property("count").toInt()>=10);
         auto *button=window->findChild<QQuickItem *>("applicationMenuButton"); QVERIFY(button);
 #ifdef Q_OS_LINUX
@@ -857,7 +885,7 @@ class UiTest : public QObject {
         auto button=[this](const QString &name) { auto *item=window->findChild<QQuickItem *>(name); if(item) {item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);} return item!=nullptr; };
         const auto days=Calendar::days(document->nodes().value(id).calendar);
         const int index=days.indexOf(QDate(2026,9,8)); QVERIFY(index>=0);
-        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index).center())).toPoint(); };
+        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index,Calendar::weekGutter(document->nodes().value(id).calendar)).center())).toPoint(); };
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point());
         QTRY_VERIFY(dialog->property("opened").toBool()); QVERIFY(!dialog->property("existing").toBool());
         field->setProperty("text","Design review"); QVERIFY(button("dateEntryCancel"));
@@ -891,11 +919,18 @@ class UiTest : public QObject {
                 canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+control.center())).toPoint());
             QTest::qWait(200);
         };
-        clickControl(Calendar::next());
-        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,15));
-        QVERIFY(!dialog->property("opened").toBool());
-        clickControl(Calendar::previous());
-        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+        // The old arrow locations are inert in both calendar views.
+        for(const QString &mode : {QString("week"),QString("month")}) {
+            QVERIFY(document->configureDateNode(id,mode,"2026-09-08"));
+            canvas->fit(); QTest::qWait(250);
+            clickControl(QRectF(256,10,28,28));
+            QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+            clickControl(QRectF(10,10,28,28));
+            QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+            QVERIFY(!dialog->property("opened").toBool());
+        }
+        QVERIFY(!window->findChild<QObject *>("dateNodePrevious"));
+        QVERIFY(!window->findChild<QObject *>("dateNodeNext"));
         window->setProperty("inspectorVisible",true);
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
         auto *view=window->findChild<QQuickItem *>("dateNodeMonth"); QVERIFY(view);
@@ -919,6 +954,43 @@ class UiTest : public QObject {
         QVERIFY(document->setDateEntry(id,"2026-09-16","-2.5"));
         canvas->fit(); QTest::qWait(250);
         if(!dir.isEmpty()) QVERIFY(window->grabWindow().save(dir+"/month-sums.png"));
+    }
+    void dateInspectorStylesAndScaledDayTargets() {
+        document->select(2); QVERIFY(document->setNodeKind(2,"date"));
+        QVERIFY(document->configureDateNode(2,"month","2026-09-08"));
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs);
+        tabs->setProperty("currentIndex",1);
+        auto *panel=window->findChild<QQuickItem *>("nodeStylePanel"); QVERIFY(panel);
+        for(const auto &name : {"style-borderWidth","style-border","style-fontFamily","style-fontSize","style-textColor"}) {
+            auto *control=window->findChild<QQuickItem *>(name); QVERIFY(control);
+            QTRY_VERIFY(control->isVisible());
+        }
+        QVERIFY(!window->findChild<QQuickItem *>("style-fixedWidth")->isVisible());
+        const auto before=document->contentSize(2);
+        auto apply=[panel](QString key,QVariant value) {
+            QVariant accepted;
+            return QMetaObject::invokeMethod(panel,"apply",Q_RETURN_ARG(QVariant,accepted),
+                Q_ARG(QVariant,key),Q_ARG(QVariant,value)) && accepted.toBool();
+        };
+        QVERIFY(apply("fontSize",30)); QVERIFY(apply("italic",true));
+        QVERIFY(apply("textColor",QString("#683286"))); QVERIFY(apply("borderWidth",3));
+        QCOMPARE(document->contentSize(2),before*2);
+        QVERIFY(Calendar::textFont(document->nodes().value(2).text).italic());
+        QCOMPARE(document->appearance(2).text,QColor("#683286"));
+        QCOMPARE(document->appearance(2).borderWidth,3.);
+        canvas->fit(); QTest::qWait(300);
+        const auto data=document->nodes().value(2).calendar;
+        const int index=Calendar::days(data).indexOf(QDate(2026,9,8));
+        const auto cell=Calendar::cell(index,Calendar::weekGutter(data));
+        const auto point=canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(2).topLeft()+cell.center()*2)).toPoint();
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point);
+        auto *dialog=window->findChild<QObject *>("dateEntryDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *cancel=window->findChild<QQuickItem *>("dateEntryCancel"); QVERIFY(cancel);
+        cancel->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(!dialog->property("opened").toBool());
+        document->resetNodeStyle(); QCOMPARE(document->contentSize(2),before);
     }
     void nodePanelAppliesStylesAndProtectsDraft() {
         window->setProperty("inspectorVisible",true);

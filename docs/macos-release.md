@@ -32,7 +32,7 @@ sudo installer -pkg "/path/to/Mindarchy-0.1.0-macos-arm64.pkg" -target /
 open "/Applications/Mindarchy.app"
 ```
 
-The package uses receipt ID `blue.mindmap.lab.installer` and stable app bundle ID `blue.mindmap.lab`. Relocation is disabled, so the installer cannot accidentally update a development bundle elsewhere. Bundle version checking is enabled; release a higher numeric `major.minor.patch` for an upgrade. Upgrades replace the installed application bundle, including obsolete bundled libraries. There are no custom privileged installer scripts, launch agents, automatic app termination or automatic launch. User documents and settings are not included in the package and are not removed.
+The package uses receipt ID `org.mindarchy.app.installer` and stable app bundle ID `org.mindarchy.app`. Relocation is disabled, so the installer cannot accidentally update a development bundle elsewhere. Bundle version checking is enabled; release a higher numeric `major.minor.patch` for an upgrade. Upgrades replace the installed application bundle, including obsolete bundled libraries. There are no custom privileged installer scripts, launch agents, automatic app termination or automatic launch. User documents and settings are not included in the package and are not removed.
 
 This is an installer deployment workflow, not an in-app auto-updater or a hosting service. Distribute a new installer to deploy each version. Installer upgrades and downgrade behavior still need a clean-machine administrative install test; the automated check verifies the expanded payload without changing the host installation.
 

@@ -137,9 +137,9 @@ Toolbar actions now use local [Lucide icons from Iconify](https://icon-sets.icon
 
 The application uses `assets/mindarchy-icon.png`, derived from the primary logo in `assets/minarchy-logo-concept.png`, on every supported platform:
 
-- macOS: `build-macos/mindarchy.app`, with an ICNS resource and bundle identifier `blue.mindmap.lab`. Open the bundle in Finder or use `./run.sh`.
+- macOS: `build-macos/mindarchy.app`, with an ICNS resource and bundle identifier `org.mindarchy.app`. Open the bundle in Finder or use `./run.sh`.
 - Windows: multi-resolution ICO embedded through CMake RC or qmake RC_ICONS. The Windows installer is built and tested in a Windows 11 ARM64 VM using x64 emulation.
-- Linux/Omarchy: Qt runtime icon and a matching `blue.mindmap.lab.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
+- Linux/Omarchy: Qt runtime icon and a matching `org.mindarchy.app.desktop` launcher with hicolor PNG sizes. For this development checkout, run `python3 packaging/install-linux-icon.py`; CMake install also installs the launcher/icons.
 
 The toolbar uses the same artwork. Native icon assets are committed-source build inputs; regenerating them on macOS uses `python3 packaging/generate-icons.py` (sips/iconutil and Swift/AppKit). The macOS icon uses 85% artwork size with transparent margins, including the runtime Dock icon. No icon-generation tools are needed to build on Linux or Windows.
 
@@ -168,7 +168,7 @@ On Omarchy, the existing coordinated Save/Discard/Cancel quit flow remains in us
 
 ## Mindarchy rename compatibility
 
-The application, executable, artwork resources and release packages now use Mindarchy. The repository directory is unchanged. The internal `blue.mindmap.lab` application/launcher identity, `blue.mindmap.omm` document type, and `mindmap-lab` v1 JSON format remain stable so existing file associations and documents continue to work. Window preferences and the session registry retain their historical storage namespace through `src/appidentity.h`; existing window geometry and reopened documents are preserved. Archived release artifacts retain their original names; the release workflow produces new `Mindarchy` packages.
+The application, executable, artwork resources and release packages now use Mindarchy. The repository directory is unchanged. The internal `org.mindarchy.app` application/launcher identity, `org.mindarchy.omm` document type, and `mindmap-lab` v1 JSON format remain stable so existing file associations and documents continue to work. Window preferences and the session registry retain their historical storage namespace through `src/appidentity.h`; existing window geometry and reopened documents are preserved. Archived release artifacts retain their original names; the release workflow produces new `Mindarchy` packages.
 
 ### Live Omarchy shell theme
 
@@ -223,8 +223,51 @@ Automatic placement also supports sibling insertion targets. In manual placement
 
 Drag a local image file onto a node to attach it on the left of its content. A highlighted outline identifies the drop target. In the Node inspector, use Image Placement to choose Left, Right, Top, or Bottom. Placement is saved with the document and retained when replacing the image. Click the image to reveal resize handles; drag an edge or corner to resize proportionally, or press Escape to cancel. Each completed resize is one undo step. Images work with text, tasks, and calendar nodes in both placement modes.
 
-Right-click an image for Preview, Replace Image, Cut Image, Copy Image, Paste Image, Reset Image Size, and Remove Image. With an image selected, Cmd+C / Cmd+X (Ctrl+C / Ctrl+X on Linux and Windows) copy or cut the image. Select a destination node and press Cmd+V / Ctrl+V to paste, replacing its existing image if present. Transfers preserve size and placement and support undo; regular image clipboard data from other apps is accepted too. Double-click or press Space while the image is selected to open the preview window. Space or Escape closes it and returns keyboard focus to the canvas. Space-drag still pans when no image is selected. Removing the image leaves the node and its children intact.
+Right-click an image for Preview, Replace Image, Cut Image, Copy Image, Paste Image, Reset Image Size, and Remove Image. With an image selected, Cmd+C / Cmd+X (Ctrl+C / Ctrl+X on Linux and Windows) copy or cut the image. Select a destination node and press Cmd+V / Ctrl+V to paste, replacing its existing image if present. Transfers preserve size and placement and support undo; regular image clipboard data from other apps is accepted too. Double-click or press Space while the image is selected to open the preview window. On Omarchy, preview is a borderless in-app image overlay, dismissed with Space, Escape, or an outside click. On macOS, preview uses a rounded floating panel without a title bar or window buttons; clicking back on the document dismisses it. Space or Escape closes it and returns keyboard focus to the canvas. Space-drag still pans when no image is selected. Delete or Backspace removes a selected image, leaving its node and children intact. Undo restores the image. Holding the key does not continue into deleting the node.
 
 Images are embedded in the regular JSON `.omm` document, so they travel between macOS and Omarchy without their original source files. Save/reopen, recovery, branch copy/paste, and preview rendering preserve them. Imports are downsampled to a maximum of 2,048 pixels on the longest side without enlarging small originals. Transparent images remain PNG. Opaque images use JPEG at quality 88 when it is at least 20% smaller than PNG; otherwise PNG is retained. The original source file is never modified. Animated inputs use their first decoded frame.
 
 The default displayed longest side is at most 120 logical pixels. Resizing changes display dimensions, not the stored pixels. Imports are limited to 64 MB/64 megapixels; embedded images collectively have a 12 MB compressed and 128 MB decoded budget within the existing 20 MB document limit.
+
+## One-command installer builds
+
+From `qt-prototype`, run any of:
+
+```bash
+VERSION=0.1.0 ./scripts/build_macos.sh
+VERSION=0.1.0 ./scripts/build_omarchy.sh
+WINDOWS_QT_DIR='C:\Qt\6.11.2\msvc2022_64' ./scripts/build_windows.sh
+./scripts/build_all.sh
+```
+
+macOS uses the existing build/test/DMG+PKG workflow, unsigned by default. Set `MACOS_SIGN=1` for signing with the existing release credentials; extra arguments such as `--qt` and `--arch` pass to the release tool. Output: `dist/macos/`.
+
+Omarchy uses `makepkg` to produce a native `.pkg.tar.zst` package in `artifacts/omarchy/`. Run as a normal user with `base-devel`, `qt6-base`, `qt6-declarative`, and `qt6-wayland` installed. The package declares its Qt dependencies and installs the executable, desktop launcher, MIME association, thumbnailer, and icon. Install it with `sudo pacman -U <package>`. This build does not run the GUI test suite.
+
+Windows uses the existing PowerShell/MSVC/Qt/Inno Setup build and test workflow. Run the shell wrapper in Git Bash, or invoke `scripts/release-windows.ps1` directly from PowerShell. Output: `artifacts/windows/`. See `docs/platforms/windows.md` for prerequisites.
+
+To orchestrate all three from macOS, configure SSH build hosts:
+
+```bash
+export VERSION=0.1.0
+export OMARCHY_HOST=user@omarchy-host
+export OMARCHY_SOURCE=/home/user/mindmap-qt-lab
+export WINDOWS_HOST='your-user@your-windows-host'
+export WINDOWS_SOURCE='C:\Projects\mindmap-blue\qt-prototype'
+export WINDOWS_QT_DIR='C:\Qt\6.11.2\msvc2022_64'
+./scripts/build_all.sh
+```
+
+Each remote machine must already have the **same current source checkout** and its build prerequisites. The scripts do not sync source, install dependencies, start VMs, or use CI. Windows must expose SSH and PowerShell. Artifacts stay on the machine that builds them. `build_all.sh` runs all three sequentially, reports each result, and returns a nonzero exit status if any build fails. Missing host configuration is reported as a failure, never silently skipped.
+
+## Document tabs and windows
+
+- Cmd+T on macOS / Ctrl+T elsewhere creates a new tab in the current window.
+- Cmd+N / Ctrl+N creates a separate window.
+- Physical Control+Tab cycles forward through the current window's tabs; Control+Shift+Tab cycles backward, wrapping at the ends on every platform.
+- Window → Move Tab to New Window detaches the current tab. Window → Merge All Windows groups the open documents.
+- Close affects the current document and uses its existing save/discard behavior. Quit preserves recovery snapshots and tab groups for startup.
+
+macOS uses AppKit's tab bar, including the native plus/close buttons and tab dragging. Omarchy and Windows use a matching scrollable strip with document titles, edited markers, close buttons, and a plus button. The shared application manager keeps all documents in one process; on these platforms only the active document window in each tab group is shown. The Omarchy strip and menu follow the live shell palette. Each document retains its own canvas, undo history, file path, viewport, and recovery snapshot. Group membership is stored outside `.omm` files in the session directory's `tabs.ini`.
+
+After updating from the earlier separate-process Omarchy/Windows build, fully quit existing instances before launching the new executable. Windows uses the shared implementation, but this tab feature has not yet been runtime-tested on Windows.

@@ -27,6 +27,18 @@ public slots:
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void calendarWeekNumbersAcrossYearBoundary() {
+        CalendarData data; data.view="month"; data.anchor=QDate(2021,1,15);
+        QCOMPARE(Calendar::weekNumber(data,0),53);
+        QCOMPARE(Calendar::weekNumber(data,1),1);
+        QCOMPARE(Calendar::weekNumber(data,4),4);
+        QCOMPARE(Calendar::size(data).width(),326.);
+        data.entries["2021-01-01"]="2";
+        QCOMPARE(Calendar::size(data).width(),446.);
+        QVERIFY(Calendar::weekCell(0).right()<Calendar::cell(0,Calendar::weekGutter(data)).left());
+        data.view="week";
+        QCOMPARE(Calendar::size(data).width(),294.);
+    }
     void imageClipboardPreservesImageAndUndo() {
         Engine source(nullptr,Engine::InitialContent::Blank), target(nullptr,Engine::InitialContent::Blank);
         NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);

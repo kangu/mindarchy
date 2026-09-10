@@ -5,7 +5,7 @@
 	<key>CFBundleExecutable</key>
 	<string>OMMPreview</string>
 	<key>CFBundleIdentifier</key>
-	<string>blue.mindmap.lab.preview</string>
+	<string>org.mindarchy.app.preview</string>
 	<key>CFBundleName</key>
 	<string>Mindarchy Preview</string>
 	<key>CFBundlePackageType</key>
@@ -24,7 +24,7 @@
 			<true/>
 			<key>QLSupportedContentTypes</key>
 			<array>
-				<string>blue.mindmap.omm</string>
+				<string>org.mindarchy.omm</string>
 			</array>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>

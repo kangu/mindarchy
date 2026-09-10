@@ -30,7 +30,7 @@ private slots:
         QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly));
         auto json=QJsonDocument::fromJson(file.readAll());
         file.close(); // Windows cannot atomically replace a file held open by this reader.
-        QVERIFY(json.isObject()); QCOMPARE(json.object()["format"].toString(),QString("mindmap-lab"));
+        QVERIFY(json.isObject()); QCOMPARE(json.object()["format"].toString(),QString("mindarchy"));
         Engine loaded; QVERIFY(loaded.open(QUrl::fromLocalFile(path).toString()));
         QCOMPARE(loaded.dateEntry(2,"2026-09-08"),QString("125.50"));
         const auto before=renderMapPreview(loaded);
