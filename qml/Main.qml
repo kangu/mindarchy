@@ -10,15 +10,62 @@ ApplicationWindow {
     minimumWidth: 600; minimumHeight: 640
     visible: typeof deferWindowShow === "undefined" || !deferWindowShow
     readonly property bool integratedMacToolbar: Qt.platform.os === "osx"
-    flags: integratedMacToolbar
-        ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
-        : Qt.Window
+    readonly property bool integratedWindowsToolbar: Qt.platform.os === "windows"
+    readonly property bool integratedToolbar: integratedMacToolbar || integratedWindowsToolbar
+    // Keep the native resize frame without a separate caption or caption overlay.
+    flags: integratedWindowsToolbar
+        ? Qt.Window | Qt.CustomizeWindowHint | Qt.WindowSystemMenuHint
+        : integratedMacToolbar
+          ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
+          : Qt.Window
+    readonly property real windowsCaptionWidth: integratedWindowsToolbar && visibility !== Window.FullScreen ? 138 : 0
     // The toolbar reserves horizontal space for the native window controls.
     // Avoid ApplicationWindow's automatic inset below the macOS title bar.
-    Binding { target: window; property: "topPadding"; value: 0; when: window.integratedMacToolbar }
+    Binding { target: window; property: "topPadding"; value: 0; when: window.integratedToolbar }
     title: controller.documentName
+    property bool windowsMenuVisible: false
+    property var windowsMenuPreviousFocus: null
+    readonly property real windowsMenuHeight: windowsMenus.height
+    readonly property bool windowsMenuPopupOpen: windowsMenus.item ? windowsMenus.item.popupOpen : false
+    function showWindowsMenu() {
+        if (Qt.platform.os !== "windows") return
+        windowsMenuPreviousFocus = activeFocusItem
+        windowsMenuVisible = true
+        if (windowsMenus.item) windowsMenus.item.itemAt(0).forceActiveFocus()
+    }
+    function hideWindowsMenu(restoreFocus) {
+        windowsMenuVisible = false
+        if (windowsMenus.item) windowsMenus.item.closeMenus()
+        if (restoreFocus && windowsMenuPreviousFocus) windowsMenuPreviousFocus.forceActiveFocus()
+        windowsMenuPreviousFocus = null
+    }
+    menuBar: Loader {
+        id: windowsMenus
+        active: Qt.platform.os === "windows"
+        visible: active && window.windowsMenuVisible
+        height: visible && item ? item.implicitHeight : 0
+        sourceComponent: MenuBar {
+            id: windowsMenuContent
+            readonly property bool popupOpen: desktopMenus.popupOpen
+            function closeMenus() { desktopMenus.closeMenus() }
+            Component.onCompleted: Qt.callLater(function() { windowsMenuContent.addMenu(desktopMenus.fileMenu); windowsMenuContent.addMenu(desktopMenus.windowMenu); windowsMenuContent.addMenu(desktopMenus.helpMenu) })
+
+        }
+    }
+    function openDocumentMenu() { openDialog.open() }
+    DesktopMenus {
+        id: desktopMenus; host: window; controller: window.controller; shortcutsWindow: windowsShortcuts
+        onCommandChosen: { window.hideWindowsMenu(true); applicationMenu.close() }
+        onMenusClosed: Qt.callLater(function() { if (!desktopMenus.popupOpen && Qt.platform.os === "windows") window.hideWindowsMenu(false) })
+    }
+    KeyboardShortcuts { id: windowsShortcuts; transientParent: window }
     color: (ShellTheme.colors["#111920"] || "#111920")
     property var controller: engine
+    property real nativeTabInset: 0
+    property var documentTabs: []
+    property double documentTabId: 0
+    property bool canMergeWindows: false
+    function commitForTabSwitch() { return commitEditor("") }
     property bool outlineVisible: false
     property bool inspectorVisible: width >= 1000
     property string exportStatus: ""
@@ -146,7 +193,7 @@ ApplicationWindow {
     palette.placeholderText: muted
     palette.mid: (ShellTheme.colors["#34434c"] || "#34434c")
     palette.highlightedText: (ShellTheme.colors["#ffffff"] || "#ffffff")
-    font.family: "Sans Serif"
+    font.family: Qt.platform.os === "windows" ? "Segoe UI" : "Sans Serif"
     font.pixelSize: 13
 
     function localPath(url) {
@@ -199,18 +246,19 @@ ApplicationWindow {
     component IconButton: Button {
         id: iconButton
         required property string iconName
+        property bool showFocusFeedback: true
         implicitWidth: 36; implicitHeight: 36
         padding: 8
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
         Accessible.name: text
-        ToolTip.visible: hovered || activeFocus
+        ToolTip.visible: hovered || (showFocusFeedback && activeFocus)
         ToolTip.delay: hovered ? 500 : 0
         ToolTip.text: text
         background: Rectangle {
             radius: 7
             color: iconButton.down ? (ShellTheme.colors["#35505a"] || "#35505a") : iconButton.checked ? (ShellTheme.colors["#29463f"] || "#29463f") : iconButton.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent"
-            border.width: iconButton.activeFocus || iconButton.checked ? 1 : 0
+            border.width: (iconButton.showFocusFeedback && iconButton.activeFocus) || iconButton.checked ? 1 : 0
             border.color: window.accent
         }
         icon.source: iconButton.iconName.length ? "qrc:/qml/icons/" + iconButton.iconName + ".svg" : ""
@@ -224,6 +272,8 @@ ApplicationWindow {
         icon.color: window.ink
     }
     component ToolbarButton: IconButton {
+        focusPolicy: Qt.NoFocus
+        showFocusFeedback: false
         implicitWidth: window.width < 800 ? 32 : 36
         implicitHeight: implicitWidth
     }
@@ -295,11 +345,14 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Find]; onActivated: window.openSearch() }
     Shortcut { sequences: [StandardKey.Close]; onActivated: window.requestClose(true, false) }
     Shortcut { sequences: [StandardKey.Quit]; onActivated: controller.quitRequested() }
+    Shortcut { sequence: "Ctrl+T"; onActivated: controller.tabActionRequested("new",0) }
+    Shortcut { sequence: "Ctrl+Tab"; enabled: Qt.platform.os !== "osx"; onActivated: controller.tabActionRequested("next",0) }
+    Shortcut { sequence: "Ctrl+Shift+Tab"; enabled: Qt.platform.os !== "osx"; onActivated: controller.tabActionRequested("previous",0) }
     Shortcut { sequences: [StandardKey.New]; onActivated: controller.newDocumentRequested() }
     Shortcut { sequences: [StandardKey.Open]; onActivated: openDialog.open() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveDocument(false) }
-    Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.undo() }
-    Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus; onActivated: controller.redo() }
+    Shortcut { sequences: [StandardKey.Undo]; enabled: !editor.activeFocus && !notes.activeFocus && !resourcePanel.editingResource; onActivated: controller.undo() }
+    Shortcut { sequences: [StandardKey.Redo]; enabled: !editor.activeFocus && !notes.activeFocus && !resourcePanel.editingResource; onActivated: controller.redo() }
 
     DateEntryDialog { id: dateDialog; controller: window.controller; canvas: canvas; parent: Overlay.overlay }
 
@@ -333,7 +386,7 @@ ApplicationWindow {
 
     FileDialog {
         id: openDialog; title: "Open Mindarchy document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
-        onAccepted: { if (!window.commitEditor("")) return; if (controller.open(window.localPath(selectedFile))) canvas.initializeView(); canvas.forceActiveFocus() }
+        onAccepted: { if (!window.commitEditor("")) return; controller.requestOpenDocument(window.localPath(selectedFile)); canvas.forceActiveFocus() }
     }
     FileDialog {
         id: saveDialog; title: "Save Mindarchy document"; fileMode: FileDialog.SaveFile
@@ -348,23 +401,116 @@ ApplicationWindow {
     }
 
     ColumnLayout {
-        anchors.fill: parent; spacing: 0
+        anchors.fill: parent; anchors.topMargin: window.nativeTabInset; spacing: 0
+        Rectangle {
+            objectName: "documentTabStrip"
+            visible: Qt.platform.os !== "osx" && window.documentTabs.length>1
+            Layout.fillWidth: true; implicitHeight: visible?36:0
+            color: ShellTheme.colors["#111920"] || "#111920"
+            Flickable {
+                id: tabScroller
+                anchors.fill: parent; anchors.rightMargin: 38
+                contentWidth: tabRow.width; clip: true; flickableDirection: Flickable.HorizontalFlick
+                Row {
+                    id: tabRow; height: parent.height; spacing: 1
+                    Repeater {
+                        model: window.documentTabs
+                        delegate: Rectangle {
+                            id: tabButton
+                            required property var modelData
+                            objectName: "document-tab-"+modelData.id
+                            width: Math.max(120,Math.min(240,tabScroller.width/Math.max(1,window.documentTabs.length))); height: 36
+                            color: modelData.id===window.documentTabId ? (ShellTheme.colors["#253540"] || "#253540") : "transparent"
+                            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: ShellTheme.colors["#2a3943"] || "#2a3943" }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 4
+                                Label { Layout.fillWidth: true; text: (modelData.edited?"• ":"")+modelData.title; elide: Text.ElideRight; color: window.ink }
+                                ToolButton {
+                                    id: closeTab; text: "×"; implicitWidth: 24; implicitHeight: 24
+                                    background: Rectangle { radius: 4; color: closeTab.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent" }
+                                    onClicked: controller.tabActionRequested("close",modelData.id)
+                                    ToolTip.visible: hovered; ToolTip.delay: 0; ToolTip.text: "Close tab"
+                                }
+                            }
+                            TapHandler { onTapped: controller.tabActionRequested("activate",modelData.id) }
+                            Component.onCompleted: if(modelData.id===window.documentTabId) Qt.callLater(function() { if(typeof tabButton === "undefined" || !tabButton || typeof tabScroller === "undefined" || !tabScroller) return; tabScroller.contentX=Math.max(0,Math.min(tabScroller.contentWidth-tabScroller.width,x+width-tabScroller.width)) })
+                        }
+                    }
+                }
+            }
+            ToolButton { objectName: "newTabButton"; anchors.right: parent.right; width: 38; height: parent.height; text: "+"; onClicked: controller.tabActionRequested("new",0) }
+        }
+
         Rectangle {
             objectName: "mainToolbar"
-            Layout.fillWidth: true; implicitHeight: 60; color: (ShellTheme.colors["#19242d"] || "#19242d")
+            Layout.fillWidth: true; implicitHeight: 60
+            color: ShellTheme.colors["#19242d"] || "#19242d"
             MouseArea {
+                objectName: "headerDragArea"
                 anchors.fill: parent
-                enabled: window.integratedMacToolbar
+                enabled: window.integratedToolbar
                 acceptedButtons: Qt.LeftButton
                 onPressed: window.startSystemMove()
                 onDoubleClicked: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
             }
+            Row {
+                objectName: "windowControls"
+                anchors.right: parent.right
+                height: parent.height
+                visible: window.windowsCaptionWidth > 0
+                Repeater {
+                    model: 3
+                    Button {
+                        required property int index
+                        objectName: ["minimizeWindow", "maximizeWindow", "closeWindow"][index]
+                        focusPolicy: Qt.NoFocus
+                        width: 46; height: 60
+                        hoverEnabled: true
+                        text: index === 0 ? "Minimize" : index === 1
+                            ? (window.visibility === Window.Maximized ? "Restore" : "Maximize") : "Close"
+                        background: Rectangle {
+                            color: parent.down ? (parent.index === 2 ? "#b3261e" : "#455560")
+                                : parent.hovered ? (parent.index === 2 ? "#c42b1c" : "#344650") : "transparent"
+                        }
+                        contentItem: Text {
+                            text: parent.index === 0 ? "\ue921" : parent.index === 1
+                                ? (window.visibility === Window.Maximized ? "\ue923" : "\ue922") : "\ue8bb"
+                            font.family: "Segoe MDL2 Assets"; font.pixelSize: 11
+                            color: parent.index === 2 && parent.hovered ? "white" : window.ink
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: text
+                        onClicked: {
+                            if (index === 0) window.showMinimized()
+                            else if (index === 1) {
+                                if (window.visibility === Window.Maximized) window.showNormal()
+                                else window.showMaximized()
+                            } else window.close()
+                        }
+                    }
+                }
+            }
+                        ToolbarButton {
+                            id: applicationMenuButton; objectName: "applicationMenuButton"
+                            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                            ToolTip.visible: hovered && !applicationMenu.visible
+                            visible: Qt.platform.os === "linux"; iconName: "menu"; text: "Application menu"
+                            checked: applicationMenu.visible
+                            onClicked: applicationMenu.visible ? applicationMenu.close() : applicationMenu.open()
+                            Menu {
+                                id: applicationMenu; objectName: "applicationMenu"
+                                y: applicationMenuButton.height+4; x: applicationMenuButton.width-width
+                                Component.onCompleted: { if(Qt.platform.os === "linux") { addMenu(desktopMenus.fileMenu); addMenu(desktopMenus.windowMenu); addMenu(desktopMenus.helpMenu) } }
+                            }
+                        }
             Flickable {
-                id: toolbarViewport
+                id: toolbarViewport; objectName: "toolbarViewport"
                 anchors.fill: parent
                 anchors.leftMargin: window.integratedMacToolbar && window.visibility !== Window.FullScreen ? 96 : 12
-                anchors.rightMargin: 12
-                interactive: !window.integratedMacToolbar || contentWidth > width
+                anchors.rightMargin: 12 + window.windowsCaptionWidth + (applicationMenuButton.visible ? applicationMenuButton.width + 8 : 0)
+                interactive: contentWidth > width
                 contentWidth: toolbarRow.width; contentHeight: height; clip: true
                 flickableDirection: Flickable.HorizontalFlick
                 Item {
@@ -381,7 +527,9 @@ ApplicationWindow {
                             visible: window.width >= 1100
                             readonly property bool canReveal: { controller.documentName; return window.integratedMacToolbar && controller.documentPath().length > 0 }
                             implicitWidth: Math.min(180, documentNameLabel.implicitWidth) + 20
-                            implicitHeight: documentTitleColumn.implicitHeight
+                            implicitHeight: documentNameLabel.implicitHeight + documentEditedLabel.implicitHeight + 2
+                            property real editedProgress: window.documentEdited ? 1 : 0
+                            Behavior on editedProgress { NumberAnimation { duration: 240; easing.type: Easing.InOutCubic } }
                             Layout.leftMargin: 6; Layout.rightMargin: 12
                             Image {
                                 source: "qrc:/qml/icons/folder-open.svg"
@@ -390,12 +538,20 @@ ApplicationWindow {
                                 opacity: titleMouse.containsMouse && documentTitleArea.canReveal ? 1 : 0
                                 Behavior on opacity { NumberAnimation { duration: 140 } }
                             }
-                            ColumnLayout {
-                                id: documentTitleColumn; spacing: 2
+                            Item {
+                                id: documentTitleColumn
+                                width: parent.width; height: parent.height
                                 x: titleMouse.containsMouse && documentTitleArea.canReveal ? 20 : 0
                                 Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                            Label { id: documentNameLabel; objectName: "documentNameLabel"; text: controller.documentName; textFormat: Text.PlainText; Layout.maximumWidth: 180; elide: Text.ElideRight; font.pixelSize: 16; font.bold: true; color: window.ink }
-                            Label { objectName: "documentEditedLabel"; visible: window.documentEdited; text: "Edited"; color: window.muted; font.pixelSize: 10 }
+                            Label { id: documentNameLabel; objectName: "documentNameLabel"; text: controller.documentName; textFormat: Text.PlainText; width: Math.min(180, implicitWidth); elide: Text.ElideRight; font.pixelSize: 16; font.bold: true; color: window.ink
+                                y: (parent.height-height)/2 - documentTitleArea.editedProgress*(documentEditedLabel.height+2)/2
+                            }
+                            Label {
+                                id: documentEditedLabel; objectName: "documentEditedLabel"
+                                y: documentNameLabel.y + documentNameLabel.height + 2
+                                opacity: documentTitleArea.editedProgress; visible: opacity > 0
+                                text: "Edited"; color: window.muted; font.pixelSize: 10
+                            }
                             }
                             MouseArea {
                                 id: titleMouse; objectName: "documentTitleMouse"
@@ -409,7 +565,7 @@ ApplicationWindow {
                             }
                         }
                         ToolbarButton { objectName: "newDocumentButton"; iconName: "file-plus-2"; text: "New mindmap"; onClicked: controller.newDocumentRequested() }
-                        ToolbarButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
+                        ToolbarButton { objectName: "openDocumentButton"; iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
                         ToolbarButton { objectName: "saveDocumentButton"; iconName: "save"; text: "Save document"; onClicked: window.saveDocument(false) }
                         ToolbarButton { iconName: "image-down"; text: "Export canvas as PNG"; onClicked: imageDialog.open() }
                     }
@@ -427,7 +583,6 @@ ApplicationWindow {
                         ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
                         ToolbarButton { objectName: "nodeTemplatesButton"; iconName: "calendar-week"; text: "Add node template"; enabled: controller.selection.length === 1; onClicked: { if (window.commitEditor("")) nodeTemplateDialog.open() } }
                         ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
-                        ToolbarButton { iconName: "link"; text: "Connect selected nodes"; enabled: controller.selection.length === 2; onClicked: { if (!window.commitEditor("")) return; controller.connectSelection(); canvas.forceActiveFocus() } }
                         ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                     }
                     RowLayout {
@@ -446,7 +601,9 @@ ApplicationWindow {
                                 Keys.onEscapePressed: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() }
                             }
                             Label { objectName: "searchResultCount"; text: searchField.text.trim().length ? (window.searchResults.length ? (window.searchIndex+1) + " / " + window.searchResults.length : "No matches") : ""; color: window.muted }
-                            ToolButton { text: "×"; Accessible.name: "Close search"; onClicked: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() } }
+                            ToolButton { text: "×"; Accessible.name: "Close search"; focusPolicy: Qt.NoFocus
+                                background: Rectangle { radius: 6; color: parent.down ? (ShellTheme.colors["#35505a"] || "#35505a") : parent.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent" }
+ onClicked: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() } }
                         }
                         RowLayout {
                             id: zoomControls; objectName: "zoomControls"; spacing: 0
@@ -454,7 +611,7 @@ ApplicationWindow {
                                 id: zoomButton; objectName: "zoomPercentage"
                                 iconName: ""; text: "Zoom options"; Layout.preferredWidth: 76
                                 checked: zoomMenu.visible
-                                ToolTip.visible: (hovered || activeFocus) && !zoomMenu.visible
+                                ToolTip.visible: hovered && !zoomMenu.visible
                                 onClicked: zoomMenu.visible ? zoomMenu.close() : zoomMenu.open()
                                 contentItem: RowLayout {
                                     spacing: 6
@@ -490,6 +647,7 @@ ApplicationWindow {
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c"); Layout.leftMargin: 4; Layout.rightMargin: 4 }
                         ToolbarButton { iconName: "panel-left"; text: "Toggle outline"; checkable: true; checked: window.outlineVisible; onClicked: window.outlineVisible = !window.outlineVisible }
                         ToolbarButton { iconName: "panel-right"; text: "Toggle inspector"; checkable: true; checked: window.inspectorVisible; onClicked: window.inspectorVisible = !window.inspectorVisible }
+
                     }
                 }
             }
@@ -529,8 +687,38 @@ ApplicationWindow {
             Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: (ShellTheme.colors["#2a3943"] || "#2a3943") }
             Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
+                Connections { target: controller; function onClipboardMessage(message) { window.exportStatus=message; exportTimer.restart() } }
+                Rectangle {
+                    objectName: "focusBreadcrumbBar"
+                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                    height: 36; z: 20; visible: canvas.focusActive
+                    color: window.controller.canvasColor
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8
+                        Flickable {
+                            Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                            contentWidth: crumbs.width; contentHeight: height
+                            Row {
+                                id: crumbs; height: parent.height; spacing: 4
+                                Repeater {
+                                    model: canvas.focusBreadcrumb
+                                    Button {
+                                        required property var modelData
+                                        text: modelData.text; height: 32
+                                        width: Math.min(220,implicitWidth)
+                                        onClicked: { if(window.commitEditor("")) canvas.focusBranch(modelData.id); canvas.forceActiveFocus() }
+                                    }
+                                }
+                            }
+                        }
+                        Button { text: "Exit Focus · Esc"; onClicked: { if(window.commitEditor("")) canvas.exitFocus();canvas.forceActiveFocus() } }
+                    }
+                }
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; engine: window.controller; focus: true
+                    NodeImageTools { id: nodeImageTools; anchors.fill: parent; z: 9; canvas: parent; controller: window.controller; hostWindow: window }
+                    onImageMenuRequested: function(id,x,y) { nodeImageTools.showMenu(id,x,y) }
+                    onImagePreviewRequested: function(id) { nodeImageTools.preview(id) }
                     onCommitRequested: window.commitEditor("")
                     onSearchResultFocused: searchFlash.restart()
                     Rectangle {
@@ -559,6 +747,7 @@ ApplicationWindow {
                         y: Math.max(0,Math.min(canvas.height-height,canvas.dateHoverPosition.y+16))
                     }
                     onEditRequested: function(id, text) { editor.text = text; editor.initialText = editor.text; editor.forceActiveFocus(); editor.selectAll() }
+                    onReplaceEditingText: function(text) { editor.text = text; editor.cursorPosition = editor.length }
                     onExportFinished: function(path, success) { window.exportStatus = success ? "PNG exported" : "PNG export failed"; exportTimer.restart() }
                     Item {
                         id: inlineEditor; objectName: "inlineNodeEditor"
@@ -578,7 +767,7 @@ ApplicationWindow {
                             height: Math.max(22, inlineEditor.height - y)
                             clip: true; textMargin: 0
                             textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
-                            font.family: "sans-serif"; font.pixelSize: 15
+                            font.family: controller.textFamily; font.pixelSize: 15
                             color: inlineEditor.nodeAppearance.text || "#f1fff9"; selectionColor: "#438b78"
                             onTextChanged: { if (canvas.editing) canvas.updateEditingText(text) }
                             Text {
@@ -610,9 +799,9 @@ ApplicationWindow {
                     Caption { text: "INSPECTOR" }
                     TabBar {
                         id: inspectorTabs; objectName: "inspectorTabs"; Layout.fillWidth: true
-                        TabButton { text: "Map"; icon.source: "qrc:/qml/icons/inspector-map.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
-                        TabButton { text: "Node"; icon.source: "qrc:/qml/icons/inspector-node.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
-                        TabButton { text: "Themes"; objectName: "themesTab"; icon.source: "qrc:/qml/icons/inspector-themes.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
+                        TabButton { text: "Map"; icon.source: "qrc:/qml/icons/inspector-map.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
+                        TabButton { text: "Node"; icon.source: "qrc:/qml/icons/inspector-node.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
+                        TabButton { text: "Theme"; objectName: "themesTab"; icon.source: "qrc:/qml/icons/inspector-themes.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
                     }
                     ScrollView {
                         objectName: "inspectorScroll"
@@ -715,8 +904,27 @@ ApplicationWindow {
                                         }
                                     }
                                 }
+                                ColumnLayout {
+                                    objectName: "imagePlacementSection"
+                                    visible: controller.selection.length === 1 && controller.selectedHasImage
+                                    Layout.fillWidth: true; spacing: 8
+                                    Caption { text: "IMAGE PLACEMENT" }
+                                    MapOptionBar {
+                                        Layout.fillWidth: true; optionPrefix: "image-placement-"
+                                        selectedValue: controller.selectedImagePlacement
+                                        options: [
+                                            {value:"left",label:"Image on left",path:"M3 5h7v14H3z M14 7h7 M14 12h7 M14 17h7"},
+                                            {value:"right",label:"Image on right",path:"M14 5h7v14h-7z M3 7h7 M3 12h7 M3 17h7"},
+                                            {value:"top",label:"Image on top",path:"M5 3h14v7H5z M5 14h14 M5 19h14"},
+                                            {value:"bottom",label:"Image on bottom",path:"M5 14h14v7H5z M5 4h14 M5 9h14"}
+                                        ]
+                                        onChosen: function(value) { if(window.commitEditor("")) controller.setImagePlacement(controller.selectedId,value) }
+                                    }
+                                }
                                 MeetingPanel { Layout.fillWidth: true; controller: window.controller }
-                                NodeStylePanel { shapeOnly: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                ResourcePanel { id: resourcePanel; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
+                                Rule {}
+                                NodeStylePanel { calendarNode: controller.selectedKind === "date"; Layout.fillWidth: true; controller: window.controller; commitEditor: window.commitEditor }
                                 SmallButton { visible: controller.selectedKind !== "date"; text: "Edit title"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; canvas.editSelected() } }
                                 Rule {}
                                 SmallButton { text: controller.selectedFolded ? "Expand branch" : "Fold branch"; Layout.fillWidth: true; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }

@@ -4,6 +4,6 @@
     <comment>Open Mindmap document</comment>
     <sub-class-of type="application/json"/>
     <glob pattern="*.omm"/>
-    <icon name="blue.mindmap.lab"/>
+    <icon name="org.mindarchy.app"/>
   </mime-type>
 </mime-info>

@@ -1,0 +1,265 @@
+{
+  "format": "mindarchy",
+  "version": 1,
+  "themeId": "starlight",
+  "layout": "Horizontal",
+  "spacing": "Standard",
+  "branchStyle": "Rounded",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "children": [
+        2,
+        5,
+        8,
+        11,
+        14,
+        17
+      ],
+      "text": "<span style=\"font-size:22px;font-weight:600\">A little more clarity</span>",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "children": [
+        3,
+        4
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Make room</span>",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "children": [],
+      "text": "One meaningful idea",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "children": [],
+      "text": "Space to follow it",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 5,
+      "parent": 1,
+      "children": [
+        6,
+        7
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Notice the details</span>",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 6,
+      "parent": 5,
+      "children": [],
+      "text": "A considered palette",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 7,
+      "parent": 5,
+      "children": [],
+      "text": "Type that feels effortless",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 8,
+      "parent": 1,
+      "children": [
+        9,
+        10
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Finish what matters</span>",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 9,
+      "parent": 8,
+      "children": [],
+      "text": "Sketch the first direction",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 10,
+      "parent": 8,
+      "children": [],
+      "text": "Bring it into focus",
+      "notes": "",
+      "folded": false,
+      "task": true,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 11,
+      "parent": 1,
+      "children": [
+        12,
+        13
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Keep a quiet rhythm</span>",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 12,
+      "parent": 11,
+      "children": [],
+      "text": "A plan for the week",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 13,
+      "parent": 11,
+      "children": [],
+      "text": "Time for something new",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 14,
+      "parent": 1,
+      "children": [
+        15,
+        16
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Collect the possibilities</span>",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 15,
+      "parent": 14,
+      "children": [],
+      "text": "A place for questions",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 16,
+      "parent": 14,
+      "children": [],
+      "text": "A spark worth keeping",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 17,
+      "parent": 1,
+      "children": [
+        18,
+        19
+      ],
+      "text": "<span style=\"font-size:16px;font-weight:500\">Make it your own</span>",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 18,
+      "parent": 17,
+      "children": [],
+      "text": "Colors with character",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 19,
+      "parent": 17,
+      "children": [],
+      "text": "Ideas, given structure",
+      "notes": "",
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

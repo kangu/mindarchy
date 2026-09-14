@@ -1,5 +1,9 @@
 #pragma once
 #include <QDate>
+#include <QTextDocument>
+#include <QTextCursor>
+#include <QTextBlockFormat>
+#include "appfont.h"
 #include <QMap>
 #include <QRectF>
 #include <QSizeF>
@@ -14,6 +18,22 @@ struct CalendarData {
     QMap<QString,QString> entries;
 };
 namespace Calendar {
+inline QFont textFont(const QString &text, const QString &family = {}) {
+    QFont base(family.isEmpty() ? mindarchyTextFamily() : family); base.setPixelSize(15);
+    QTextDocument doc; doc.setDefaultFont(base); doc.setHtml(text);
+    QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter,QTextCursor::KeepAnchor);
+    return cursor.charFormat().font().resolve(base);
+}
+inline qreal textScale(const QString &text, const QString &family = {}) {
+    const auto font=textFont(text,family);
+    return (font.pixelSize()>0 ? font.pixelSize() : font.pointSizeF()*96./72.)/15.;
+}
+inline Qt::Alignment textAlignment(const QString &text) {
+    QTextDocument doc; doc.setHtml(text); QTextCursor cursor(&doc);
+    const auto format=cursor.blockFormat();
+    return format.hasProperty(QTextFormat::BlockAlignment) ? format.alignment() : Qt::AlignHCenter;
+}
+
 inline QDate start(const CalendarData &data) {
     return data.view=="month" ? QDate(data.anchor.year(),data.anchor.month(),1)
                               : data.anchor.addDays(1-data.anchor.dayOfWeek());
@@ -55,14 +75,18 @@ inline QString totalText(double value) {
     if(!std::isfinite(value)) return QStringLiteral("Overflow");
     return QString::number(value==0 ? 0 : value,'g',12);
 }
-inline QRectF sumCell(int row) { return {294,70.+row*32.,108,28}; }
+inline qreal weekGutter(const CalendarData &data) { return data.view=="month" ? 32. : 0.; }
+inline int weekNumber(const CalendarData &data, int row) {
+    const auto first=start(data);
+    return first.addDays(1-first.dayOfWeek()+row*7).weekNumber();
+}
+inline QRectF weekCell(int row) { return {8,70.+row*32.,30,28}; }
+inline QRectF sumCell(int row, qreal offset=0) { return {294+offset,70.+row*32.,108,28}; }
 inline QSizeF size(const CalendarData &data) {
     const auto sums=totals(data);
-    return {sums.enabled ? 414. : 294.,82.+(days(data).size()/7)*32.+(sums.enabled && data.view=="month" ? 36. : 0.)};
+    return {(sums.enabled ? 414. : 294.)+weekGutter(data),82.+(days(data).size()/7)*32.+(sums.enabled && data.view=="month" ? 36. : 0.)};
 }
-inline QRectF cell(int index) { return {14.+(index%7)*38.,70.+(index/7)*32.,34.,28.}; }
-inline QRectF previous() { return {10,10,28,28}; }
-inline QRectF next() { return {256,10,28,28}; }
+inline QRectF cell(int index, qreal offset=0) { return {14.+offset+(index%7)*38.,70.+(index/7)*32.,34.,28.}; }
 inline QString title(const CalendarData &data) {
     const auto first=start(data);
     if(data.view=="month") return first.toString("MMMM yyyy");

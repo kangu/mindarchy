@@ -49,10 +49,6 @@ ColumnLayout {
             Accessible.name: "Date within displayed week or month"
             onEditingFinished: { if(panel.commitEditor("")) controller.configureDateNode(controller.selectedId,panel.settings.view,text) }
         }
-        Action { objectName: "dateNodePrevious"; iconName: "chevron-left"; text: "Previous"
-            onClicked: { if(panel.commitEditor("")) controller.shiftDateNode(controller.selectedId,-1) } }
-        Action { objectName: "dateNodeNext"; iconName: "chevron-right"; text: "Next"
-            onClicked: { if(panel.commitEditor("")) controller.shiftDateNode(controller.selectedId,1) } }
         Action { objectName: "dateNodeToday"; iconName: "calendar-today"; text: "Today"
             onClicked: { if(panel.commitEditor("")) controller.configureDateNode(controller.selectedId,panel.settings.view,Qt.formatDate(new Date(),"yyyy-MM-dd")) } }
     }

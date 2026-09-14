@@ -9,7 +9,7 @@ ColumnLayout {
     required property var commitEditor
     readonly property var values: controller.selectedStyle
     readonly property bool bare: values.shape === 3 || values.shape === 6
-    property bool shapeOnly: false
+    property bool calendarNode: false
     spacing: 10
     enabled: values.count > 0
     function mixed(key) { return values.mixed.indexOf(key) >= 0 }
@@ -85,13 +85,13 @@ ColumnLayout {
         {label:"Rounded",value:0}, {label:"Pill",value:2}, {label:"Cloud",value:5},
         {label:"Hexagon",value:4}, {label:"Octagon",value:7}] }
     ColumnLayout {
-        visible: !panel.shapeOnly; Layout.fillWidth: true; spacing: 10
+        Layout.fillWidth: true; spacing: 10
     CheckBox {
-        objectName: "style-fixedWidth"; text: "Fixed width" + (panel.mixed("width") ? " · Mixed" : "")
+        visible: !panel.calendarNode; objectName: "style-fixedWidth"; text: "Fixed width" + (panel.mixed("width") ? " · Mixed" : "")
         checked: panel.values.width > 0
         onClicked: panel.apply("width", checked ? Math.max(70,Math.min(1200,panel.values.actualWidth)) : 0)
     }
-    NumberField { label: "Width (px)"; field: "width"; minimum: 70; maximum: 1200; enabled: panel.values.width > 0 }
+    NumberField { visible: !panel.calendarNode; label: "Width (px)"; field: "width"; minimum: 70; maximum: 1200; enabled: panel.values.width > 0 }
     ColorField { label: "Fill"; field: "fill"; enabled: !panel.bare }
     Section { text: "BORDER" }
     Choice { label: "Stroke"; field: "borderStyle"; enabled: !panel.bare

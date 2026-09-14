@@ -1,5 +1,14 @@
+#include "manualplacement.h"
+#include "appfont.h"
+#include "noderesources.h"
+#include "recentdocuments.h"
+#include <QDesktopServices>
 #include "engine.h"
 #include "searchmatch.h"
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMimeData>
+#include <QRegularExpression>
 #include <QTime>
 #include <QElapsedTimer>
 #include <QFile>
@@ -21,6 +30,21 @@
 
 namespace {
 constexpr int MaxNodes = 10000, MaxText = 16384, MaxDepth = 512;
+// Qt serializes the editor's default family on body. Keep that default
+// inherited from the theme; explicit font choices remain on text spans.
+QString inheritedThemeFont(QString html, const QString &family) {
+    if (!html.contains(QStringLiteral("qrichtext"))) return html;
+    const QRegularExpression body(QStringLiteral("<body\\b[^>]*>"), QRegularExpression::CaseInsensitiveOption);
+    const auto match=body.match(html);
+    if (!match.hasMatch()) return html;
+    QString tag=match.captured();
+    const QRegularExpression declaration(QStringLiteral("font-family:\\s*['\"]?")
+        +QRegularExpression::escape(family)+QStringLiteral("['\"]?\\s*;"));
+    tag.remove(declaration);
+    html.replace(match.capturedStart(),match.capturedLength(),tag);
+    return html;
+}
+
 QString localPath(const QString &path) {
     return path.startsWith("file:") ? QUrl(path).toLocalFile() : path;
 }
@@ -40,6 +64,7 @@ bool validNodeStyle(const QVariantMap &s) {
             if (k=="shape") { if (n<0 || n>7 || std::floor(n)!=n) return false; }
             else if (k=="borderStyle" || k=="branchStroke") { if (n<1 || n>3 || std::floor(n)!=n) return false; }
             else if (k=="width") { if (n!=0 && (n<70 || n>1200)) return false; }
+            else if (k=="radius") { if(n<0 || n>1000) return false; }
             else if (k=="borderWidth" || k=="branchWidth") { if(n<0 || n>20) return false; }
             else return false;
         }
@@ -49,7 +74,7 @@ bool validNodeStyle(const QVariantMap &s) {
 } // namespace
 Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
     if(content==InitialContent::Blank) {
-        m_themeId = "beach-day";
+        m_themeId = Themes::defaultId();
         MapNode root; root.id=1; root.text="Central idea";
         m_nodes.insert(1,root); m_nextId=2;
         rebuild(); m_savedBytes = documentBytes(); return;
@@ -152,9 +177,9 @@ QVariantList Engine::outline() const {
     }
     return result;
 }
-bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth) {
+bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth, QString family) const {
     QTextDocument doc;
-    QFont font("sans-serif", 11);
+    QFont font(family.isEmpty() ? textFamily() : family, 11);
     font.setPixelSize(15);
     doc.setDefaultFont(font);
     doc.setDocumentMargin(0);
@@ -180,7 +205,7 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
     if (!std::isfinite(measured.width()) || !std::isfinite(measured.height()) ||
         measured.height() < 0 || measured.width() < 0 || height > 4096)
         return false;
-    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth};
+    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth, font.family()};
     return true;
 }
 void Engine::rebuild() {
@@ -235,6 +260,9 @@ void Engine::rebuild() {
         m_selection.insert(m_selected);
     const double gap =
         m_layout == "Compact" ? 32 : (m_spacing == "Narrow" ? 18 : (m_spacing == "Wide" ? 52 : 32));
+    // Manual offsets need a stable base even while descendants are hidden.
+    // Reserve the full tree's geometry; folding changes visibility only.
+    const auto &layoutOrder = m_manual ? taskOrder : m_visible;
     bool vertical = m_layout == "Vertical";
     QHash<int, double> span;
     QVector<double> depthSize(MaxDepth + 1, 0), depthPos(MaxDepth + 1, 0);
@@ -244,11 +272,12 @@ void Engine::rebuild() {
         else
             ++it;
     }
-    for (int id : m_visible) {
+    for (int id : layoutOrder) {
         auto &n = m_nodes[id];
+        n.depth = n.parent < 0 ? 0 : m_nodes[n.parent].depth + 1;
         QSizeF size;
         auto cached = m_textCache.constFind(id);
-        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble())
+        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble() && cached->family == textFamily())
             size = cached->size;
         else {
             TextMeasure measurement;
@@ -260,7 +289,8 @@ void Engine::rebuild() {
             size = measurement.size;
             m_textCache.insert(id, measurement);
         }
-        if(n.kind=="date") size=Calendar::size(n.calendar);
+        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
+        size=n.image.expanded(size);
         n.rect = QRectF(QPointF(), size);
         depthSize[n.depth] = std::max(depthSize[n.depth], vertical ? size.height() : size.width());
     }
@@ -274,10 +304,10 @@ void Engine::rebuild() {
             y += n.rect.height() + gap * .5;
         }
     } else {
-        for (auto it = m_visible.crbegin(); it != m_visible.crend(); ++it) {
+        for (auto it = layoutOrder.crbegin(); it != layoutOrder.crend(); ++it) {
             const auto &n = m_nodes[*it];
             double children = 0;
-            if (!n.folded)
+            if (m_manual || !n.folded)
                 for (int child : n.children)
                     children += span[child] + gap;
             if (children)
@@ -286,7 +316,7 @@ void Engine::rebuild() {
         }
         QHash<int, double> start;
         start[1] = 0;
-        for (int id : m_visible) {
+        for (int id : layoutOrder) {
             auto &n = m_nodes[id];
             double cross =
                 start[id] + (span[id] - (vertical ? n.rect.width() : n.rect.height())) * .5;
@@ -301,7 +331,7 @@ void Engine::rebuild() {
             n.rect.moveTopLeft(vertical ? QPointF(cross, along)
                                         : QPointF(along, cross));
             double cursor = start[id];
-            if (!n.folded)
+            if (m_manual || !n.folded)
                 for (int child : n.children) {
                     start[child] = cursor;
                     cursor += span[child] + gap;
@@ -335,6 +365,7 @@ NodeAppearance Engine::appearance(int id) const {
     auto a = Themes::appearance(m_themeId, it->depth, m_branchIndices.value(id));
     const auto &s = it->style;
     if (s.contains("shape")) a.shape = NodeShape(s["shape"].toInt());
+    if (s.contains("radius")) a.radius = s["radius"].toDouble();
     if (s.contains("fill")) a.fill = QColor(s["fill"].toString());
     if (s.contains("border")) a.border = QColor(s["border"].toString());
     if (s.contains("textColor")) a.text = QColor(s["textColor"].toString());
@@ -350,6 +381,7 @@ NodeAppearance Engine::appearance(int id) const {
     // an underline/rectangle theme. Rounded must still have curved corners.
     if (a.shape==NodeShape::Rounded && a.radius<=0)
         a.radius=NodeAppearance{}.radius;
+    a.task=Themes::taskAppearance(m_themeId,a.fill.alpha() ? a.fill : canvasColor());
     return a;
 }
 void Engine::setLayout(QString value) {
@@ -391,7 +423,7 @@ void Engine::setThemeId(QString value) {
     }
     checkpoint();
     m_themeId = std::move(value);
-    emit changed();
+    rebuild();
 }
 void Engine::select(int id, bool extend) {
     if (id == -1) {
@@ -426,6 +458,8 @@ void Engine::add(int parent, int after, QString kind, QString dateView, std::opt
         fail("Maximum tree depth reached.");
         return;
     }
+    const auto previousNodes=m_manual ? m_nodes : QHash<int,MapNode>();
+    const auto previousVisible=m_visible;
     checkpoint();
     MapNode n;
     n.id = m_nextId++;
@@ -445,11 +479,27 @@ void Engine::add(int parent, int after, QString kind, QString dateView, std::opt
     m_selected = n.id;
     m_selection = {n.id};
     rebuild();
-    if (position && m_manual) {
-        QPointF delta = *position - m_nodes[n.id].rect.center();
-        if (m_layout=="Horizontal" && parent>1 &&
-            m_nodes[parent].rect.center().x()<m_nodes[1].rect.center().x()) delta.setX(-delta.x());
-        m_nodes[n.id].manualOffset += delta;
+    if (m_manual) {
+        QHash<int,QPointF> desired;
+        const auto correction=previousNodes[parent].rect.center()-m_nodes[parent].rect.center();
+        for(int id:m_visible)
+            desired[id]=previousVisible.contains(id)?previousNodes[id].rect.center():m_nodes[id].rect.center()+correction;
+        auto surroundings=m_nodes;
+        auto surroundingIds=m_visible; surroundingIds.removeAll(n.id);
+        surroundings[parent].children.removeAll(n.id);
+        for(int id:surroundingIds) surroundings[id].rect.moveCenter(desired[id]);
+        desired[n.id]=position ? *position : ManualPlacement::nextChildCenter(surroundings,surroundingIds,
+            parent,m_nodes[n.id].rect.size(),m_layout=="Vertical",after);
+        // Rebase local offsets after topology changes without moving existing nodes.
+        for(int id:m_visible) {
+            auto &node=m_nodes[id]; const auto base=m_layoutRects[id].center();
+            if(node.parent<0) node.manualOffset=desired[id]-base;
+            else if(m_layout=="Horizontal") {
+                auto relative=desired[id]-desired[node.parent];
+                if(node.parent!=1 && desired[node.parent].x()<desired[1].x()) relative.setX(-relative.x());
+                node.manualOffset=relative-(base-m_layoutRects[node.parent].center());
+            } else node.manualOffset=(desired[id]-base)-(desired[node.parent]-m_layoutRects[node.parent].center());
+        }
         rebuild();
     }
     if(kind=="text") emit editRequested(n.id);
@@ -519,12 +569,16 @@ void Engine::toggleChecked() {
     rebuild();
 }
 QSizeF Engine::previewTextSize(int id, const QString &text) const {
+    return m_nodes.value(id).image.expanded(previewContentSize(id,text));
+}
+QSizeF Engine::previewContentSize(int id, const QString &text) const {
     if (!m_nodes.contains(id) || text.size() > MaxText) return {};
     TextMeasure measurement;
     if (!measureText(text, m_nodes.value(id).task, measurement, m_nodes.value(id).style.value("width").toDouble())) return {};
     return measurement.size;
 }
 bool Engine::setText(int id, QString text) {
+    text=inheritedThemeFont(text,textFamily());
     if (!m_nodes.contains(id) || m_nodes.value(id).kind!="text")
         return false;
     if (m_nodes[id].text == text)
@@ -677,6 +731,107 @@ void Engine::moveNode(int id, int parent, int beforeId) {
     m_nodes[parent].folded = false;
     rebuild();
 }
+QVector<int> Engine::branchRoots(const QSet<int> &selection) const {
+    QVector<int> result, pending{1};
+    while(!pending.isEmpty()) {
+        const int id=pending.takeLast();
+        if(selection.contains(id)) { result.append(id); continue; }
+        const auto children=m_nodes.value(id).children;
+        for(auto it=children.crbegin();it!=children.crend();++it) pending.append(*it);
+    }
+    return result;
+}
+bool Engine::moveBranches(const QSet<int> &selection,int parent,int beforeId,QPointF delta) {
+    const auto roots=branchRoots(selection);
+    if(roots.isEmpty()) return false;
+    if(!std::isfinite(delta.x()) || !std::isfinite(delta.y()) || std::abs(delta.x())>1e6 || std::abs(delta.y())>1e6) return false;
+    if(parent<0 && !m_manual) return false;
+    if(parent>=0) {
+        if(!m_nodes.contains(parent)) return false;
+        for(int id:roots) if(id==1 || id==parent || isDescendant(parent,id))
+            return fail("Branches cannot be moved into themselves or their descendants.");
+        if(beforeId>=0 && !m_nodes[parent].children.contains(beforeId)) return false;
+        // A selected insertion anchor moves with the batch. Find the next
+        // surviving sibling before removing any source branches.
+        const auto siblings=m_nodes[parent].children;
+        while(roots.contains(beforeId)) {
+            const int next=siblings.indexOf(beforeId)+1;
+            beforeId=next<siblings.size()?siblings[next]:-1;
+        }
+    }
+    Engine candidate(nullptr,InitialContent::Blank); candidate.restore(state());
+    if(parent<0) {
+        for(int id:roots) {
+            auto local=delta; const int p=m_nodes[id].parent;
+            if(m_layout=="Horizontal" && p>1 && m_nodes[p].rect.center().x()<m_nodes[1].rect.center().x()) local.setX(-local.x());
+            const auto offset=m_nodes[id].manualOffset+local;
+            if(std::abs(offset.x())>1e6 || std::abs(offset.y())>1e6) return fail("Move exceeds manual placement limits.");
+            candidate.m_nodes[id].manualOffset=offset;
+        }
+        candidate.rebuild();
+    } else {
+        int depth=0;
+        for(int p=parent;p>=0;p=m_nodes[p].parent) ++depth;
+        for(int root:roots) {
+            QVector<QPair<int,int>> pending{{root,depth}};
+            while(!pending.isEmpty()) {
+                const auto entry=pending.takeLast();
+                if(entry.second>MaxDepth) return fail("Move would exceed maximum tree depth.");
+                for(int child:m_nodes[entry.first].children) pending.append({child,entry.second+1});
+            }
+        }
+        for(int id:roots) candidate.m_nodes[candidate.m_nodes[id].parent].children.removeAll(id);
+        auto &children=candidate.m_nodes[parent].children;
+        int index=beforeId<0?children.size():children.indexOf(beforeId);
+        for(int id:roots) { children.insert(index++,id); candidate.m_nodes[id].parent=parent; }
+        candidate.m_nodes[parent].folded=false;
+        candidate.rebuild();
+        if(m_manual) {
+            // Topology changes alter layout bases. Recompute local offsets so
+            // unrelated branches stay put and each moved subtree stays intact.
+            QHash<int,QPointF> desired;
+            const QSet<int> visible(m_visible.begin(),m_visible.end());
+            const auto destination=m_nodes[parent].rect;
+            const auto correction=destination.center()-candidate.m_nodes[parent].rect.center();
+            for(int id:candidate.m_visible) desired[id]=visible.contains(id)?m_nodes[id].rect.center():candidate.m_nodes[id].rect.center()+correction;
+            const bool vertical=m_layout=="Vertical";
+            const bool left=!vertical && parent!=1 && destination.center().x()<m_nodes[1].rect.center().x();
+            qreal cursor=vertical?destination.center().x():destination.center().y();
+            for(int child:m_nodes[parent].children) if(!roots.contains(child))
+                for(int id:candidate.m_visible) if(id==child || candidate.isDescendant(id,child)) {
+                    const auto size=candidate.m_nodes[id].rect.size();
+                    cursor=std::max(cursor,(vertical?desired[id].x()+size.width()/2:desired[id].y()+size.height()/2)+32.);
+                }
+            for(int root:roots) {
+                QRectF bounds;
+                for(int id:m_visible) if(id==root || isDescendant(id,root)) bounds=bounds.united(m_nodes[id].rect);
+                const auto rect=m_nodes[root].rect;
+                QPointF shift;
+                if(vertical) shift={cursor-bounds.left(),destination.bottom()+64.-rect.top()};
+                else shift={left?destination.left()-64.-rect.right():destination.right()+64.-rect.left(),cursor-bounds.top()};
+                for(int id:m_visible) if(id==root || isDescendant(id,root)) desired[id]=m_nodes[id].rect.center()+shift;
+                cursor+=(vertical?bounds.width():bounds.height())+32.;
+            }
+            for(int id:candidate.m_visible) {
+                auto &node=candidate.m_nodes[id];
+                const auto base=candidate.m_layoutRects[id].center();
+                QPointF offset;
+                if(node.parent<0) offset=desired[id]-base;
+                else if(m_layout=="Horizontal") {
+                    auto relative=desired[id]-desired[node.parent];
+                    if(node.parent!=1 && desired[node.parent].x()<desired[1].x()) relative.setX(-relative.x());
+                    offset=relative-(base-candidate.m_layoutRects[node.parent].center());
+                } else offset=(desired[id]-base)-(desired[node.parent]-candidate.m_layoutRects[node.parent].center());
+                if(std::abs(offset.x())>1e6 || std::abs(offset.y())>1e6) return fail("Move exceeds manual placement limits.");
+                node.manualOffset=offset;
+            }
+            candidate.rebuild();
+        }
+    }
+    if(candidate.documentBytes(m_documentPath)==documentBytes()) return false;
+    checkpoint(); restore(candidate.state());
+    return true;
+}
 void Engine::moveManual(int id, double dx, double dy) {
     // Offsets belong to the parent's local growth direction. Pointer movement
     // stays in world coordinates, including inside an already mirrored branch.
@@ -694,7 +849,8 @@ void Engine::moveManual(int id, double dx, double dy) {
     m_nodes[id].manualOffset = next;
     rebuild();
 }
-QByteArray Engine::documentBytes() const {
+QByteArray Engine::documentBytes(QString destination) const {
+    if(destination.isEmpty()) destination=m_documentPath;
     QJsonArray nodes;
     QList<int> ids = m_nodes.keys();
     std::sort(ids.begin(), ids.end());
@@ -708,7 +864,7 @@ QByteArray Engine::documentBytes() const {
             QJsonObject entries; for(auto it=n.calendar.entries.begin();it!=n.calendar.entries.end();++it) entries[it.key()]=it.value();
             calendar={{"view",n.calendar.view},{"anchor",n.calendar.anchor.toString(Qt::ISODate)},{"entries",entries}};
         }
-        nodes.append(QJsonObject{{"kind",n.kind},{"calendar",calendar},{"id", id},
+        QJsonObject record{{"kind",n.kind},{"calendar",calendar},{"id", id},
                                  {"meeting",QJsonObject::fromVariantMap(n.meeting)},
                                  {"meetingSection",n.meetingSection},
                                  {"parent", n.parent},
@@ -720,13 +876,16 @@ QByteArray Engine::documentBytes() const {
                                  {"task", n.task},
                                  {"checked", n.checked},
                                  {"x", n.manualOffset.x()},
-                                 {"y", n.manualOffset.y()}});
+                                 {"y", n.manualOffset.y()}};
+        if(!n.resources.isEmpty()) record["resources"]=NodeResources::encode(n.resources,destination);
+        if(!n.image.empty()) record["image"]=n.image.json();
+        nodes.append(record);
     }
     QJsonArray connections;
     for (const auto &edge : m_connections)
         connections.append(QJsonArray{edge.first, edge.second});
     QJsonObject obj{
-        {"connections", connections}, {"format", "mindmap-lab"}, {"version", 1},
+        {"connections", connections}, {"format", "mindarchy"}, {"version", 1},
         {"layout", m_layout},         {"spacing", m_spacing},    {"branchStyle", m_branchStyle},
         {"themeId", m_themeId},       {"manual", m_manual},      {"nodes", nodes}};
     return QJsonDocument(obj).toJson();
@@ -749,7 +908,7 @@ bool Engine::save(QString path) {
     QSaveFile file(localPath(path));
     if (!file.open(QIODevice::WriteOnly))
         return fail(file.errorString());
-    QByteArray bytes = documentBytes();
+    QByteArray bytes = documentBytes(localPath(path));
     if (file.write(bytes) != bytes.size() || !file.commit())
         return fail(file.errorString());
     m_savedBytes = bytes;
@@ -757,6 +916,7 @@ bool Engine::save(QString path) {
     m_documentPath = localPath(path);
     m_error.clear();
     emit changed();
+    RecentDocuments(m_recentDirectory).record(m_documentPath);
     emit documentSaved();
     return true;
 }
@@ -787,6 +947,7 @@ bool Engine::openRecovery(const QString &path, QVariantMap *ui) {
     if(!QJsonDocument::fromJson(baseline).isObject()) return fail("Invalid recovery baseline.");
     if(!loadDocumentBytes(QJsonDocument(envelope["document"].toObject()).toJson(),envelope["originalPath"].toString())) return false;
     m_savedBytes=baseline; m_checkedRevision=~quint64(0);
+    RecentDocuments(m_recentDirectory).record(m_documentPath);
     if(ui) *ui=envelope["ui"].toObject().toVariantMap();
     emit changed();
     return true;
@@ -797,7 +958,9 @@ bool Engine::open(QString path) {
         return fail(file.errorString());
     if (file.size() > 20 * 1024 * 1024)
         return fail("Document exceeds the 20 MB prototype limit.");
-    return loadDocumentBytes(file.readAll(), localPath(path));
+    if(!loadDocumentBytes(file.readAll(), localPath(path))) return false;
+    RecentDocuments(m_recentDirectory).record(m_documentPath);
+    return true;
 }
 bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     QJsonParseError parse;
@@ -805,7 +968,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
         return fail("Invalid JSON document.");
     QJsonObject obj = doc.object();
-    if (obj["format"] != "mindmap-lab" || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
+    if (obj["format"] != "mindarchy" || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
         return fail("Unsupported document format or version.");
     QString layout = obj["layout"].toString(), spacing = obj["spacing"].toString(),
             branch = obj["branchStyle"].toString();
@@ -821,6 +984,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     QHash<int, MapNode> candidate;
     QHash<int, TextMeasure> candidateMeasurements;
     int nextId = 1;
+    qint64 imageBytes=0, imagePixels=0;
     auto integer = [](const QJsonValue &v, int min, int max) {
         double d = v.toDouble(std::numeric_limits<double>::quiet_NaN());
         return v.isDouble() && std::isfinite(d) && d >= min && d <= max && std::floor(d) == d;
@@ -867,8 +1031,14 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
         n.meetingSection=o["meetingSection"].toString();
         if(!QStringList{"","agenda","notes","decisions","actions"}.contains(n.meetingSection))
             return fail("Invalid meeting section.");
+        if(o.contains("image")) {
+            if(!NodeImage::fromJson(o["image"],n.image)) return fail("Invalid embedded image.");
+            imageBytes+=n.image.data.size(); imagePixels+=n.image.pixels.sizeInBytes();
+            if(imageBytes>NodeImage::DocumentImageLimit || imagePixels>NodeImage::DecodedLimit) return fail("Document image memory limit exceeded.");
+        }
         n.text = o["text"].toString();
         n.notes = o["notes"].toString();
+        if(o.contains("resources") && !NodeResources::decode(o["resources"],localPath(path),n.resources)) return fail("Invalid node resources.");
         if (o.contains("style") && !o["style"].isObject()) return fail("Invalid node style.");
         n.style = o["style"].toObject().toVariantMap();
         if (!validNodeStyle(n.style)) return fail("Invalid node style.");
@@ -888,7 +1058,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
             n.children.append(c.toInt());
         }
         TextMeasure measurement;
-        if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble()))
+        if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble(),Themes::fontFamily(themeId)))
             return fail("Node text is too tall (maximum measured height is 4,096 pixels).");
         candidateMeasurements.insert(n.id, measurement);
         candidate.insert(n.id, n);
@@ -946,8 +1116,8 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     m_selected = 1;
     m_selection = {1};
     rebuild();
-    m_savedBytes = documentBytes();
     m_documentPath = localPath(path);
+    m_savedBytes = documentBytes();
     m_checkedRevision = ~quint64(0);
     emit changed();
     return true;
@@ -989,11 +1159,12 @@ void Engine::selectMany(QVariantList ids, bool extend) {
     emit changed();
 }
 
+QString Engine::textFamily() const { return Themes::fontFamily(m_themeId); }
 QStringList Engine::fontFamilies() const { return QFontDatabase::families(); }
 QVariantMap Engine::selectedStyle() const {
     auto values = [this](int id) {
         const auto n=m_nodes.value(id); const auto a=appearance(id);
-        QTextDocument doc; QFont font("sans-serif"); font.setPixelSize(15);
+        QTextDocument doc; QFont font(textFamily()); font.setPixelSize(15);
         doc.setDefaultFont(font); doc.setHtml(n.text);
         QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         const auto f=cursor.charFormat().font().resolve(font);
@@ -1034,7 +1205,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
     for(int id:m_selection) {
         auto &n=next[id];
         for(auto it=visual.begin();it!=visual.end();++it) n.style.insert(it.key(),it.value());
-        QTextDocument doc; QFont base("sans-serif"); base.setPixelSize(15); doc.setDefaultFont(base);
+        QTextDocument doc; QFont base(textFamily()); base.setPixelSize(15); doc.setDefaultFont(base);
         doc.setDocumentMargin(0); doc.setHtml(n.text);
         if(patch.contains("fontSize")) {
             // Imported point sizes take precedence over pixel sizes during HTML
@@ -1067,7 +1238,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
             block.setAlignment(alignments[patch["alignment"].toInt()]); cursor.mergeBlockFormat(block);
         }
         bool hasTypography=patch.contains("textColor"); for(const auto &key:typography) hasTypography |= patch.contains(key);
-        if(hasTypography) n.text=doc.toHtml();
+        if(hasTypography) n.text=inheritedThemeFont(doc.toHtml(),textFamily());
         TextMeasure measurement;
         if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement,n.style.value("width").toDouble()))
             return fail("This style makes the title too large.");
@@ -1097,23 +1268,24 @@ void Engine::resetBranchWidth() {
     checkpoint(); for(int id:m_selection) m_nodes[id].style.remove("branchWidth"); rebuild();
 }
 
-QHash<int,QRectF> Engine::manualGeometry(int movingId, QPointF delta) const {
+QHash<int,QRectF> Engine::manualGeometry(int movingId,QPointF delta) const {
+    return manualGeometry(movingId<0?QSet<int>{}:QSet<int>{movingId},delta);
+}
+QHash<int,QRectF> Engine::manualGeometry(const QSet<int> &movingRoots,QPointF delta) const {
     QHash<int,QRectF> result;
     result.reserve(m_visible.size());
-    const int movingParent=m_nodes.value(movingId).parent;
-    if(movingId>=0 && movingParent>1 &&
-       m_nodes.value(movingParent).rect.center().x()<m_nodes.value(1).rect.center().x())
-        delta.setX(-delta.x());
-    if(movingId>=0) {
-        const auto next=m_nodes.value(movingId).manualOffset+delta;
-        if(!std::isfinite(delta.x()) || !std::isfinite(delta.y()) ||
-           std::abs(delta.x())>1e6 || std::abs(delta.y())>1e6 ||
-           std::abs(next.x())>1e6 || std::abs(next.y())>1e6) return manualGeometry();
+    QHash<int,QPointF> offsets;
+    for(int id:movingRoots) {
+        auto local=delta; const int parent=m_nodes.value(id).parent;
+        if(parent>1 && m_nodes.value(parent).rect.center().x()<m_nodes.value(1).rect.center().x()) local.setX(-local.x());
+        const auto next=m_nodes.value(id).manualOffset+local;
+        if(!std::isfinite(delta.x()) || !std::isfinite(delta.y()) || std::abs(delta.x())>1e6 || std::abs(delta.y())>1e6 || std::abs(next.x())>1e6 || std::abs(next.y())>1e6) return manualGeometry();
+        offsets[id]=local;
     }
     for(int id:m_visible) {
         const auto &n=m_nodes[id];
         QRectF rect=m_layoutRects.value(id);
-        QPointF offset=n.manualOffset+(id==movingId ? delta : QPointF());
+        const auto offset=n.manualOffset+offsets.value(id);
         if(n.parent<0) rect.translate(offset);
         else {
             const auto parent=result.value(n.parent);
@@ -1345,4 +1517,277 @@ bool Engine::revealSearchNode(int id) {
         checkpoint(); for(int p:folded) m_nodes[p].folded=false; rebuild();
     }
     select(id); return true;
+}
+
+// Clipboard branches are a validated document with a synthetic root. This keeps
+// the import boundary subject to the same content, topology and size checks.
+QByteArray Engine::branchData() const {
+    QVector<int> roots, order, pending{1};
+    QSet<int> included;
+    while (!pending.isEmpty()) {
+        const int id=pending.takeLast();
+        const auto &n=m_nodes[id];
+        if (m_selection.contains(id) && !included.contains(n.parent)) roots.append(id);
+        if (m_selection.contains(id) || included.contains(n.parent)) included.insert(id);
+        if (included.contains(id)) order.append(id);
+        for (auto it=n.children.crbegin();it!=n.children.crend();++it) pending.append(*it);
+    }
+    if (order.isEmpty()) return {};
+    QHash<int,int> remap;
+    for (int id:order) remap[id]=remap.size()+2;
+    auto document=QJsonDocument::fromJson(documentBytes()).object();
+    QHash<int,QJsonObject> records;
+    for (auto v:document["nodes"].toArray()) records[v.toObject()["id"].toInt()]=v.toObject();
+    QJsonArray children;
+    for (int id:roots) children.append(remap[id]);
+    QJsonArray output{QJsonObject{{"id",1},{"parent",-1},{"children",children},
+        {"text","Clipboard"},{"notes",""},{"folded",false},{"task",false},{"checked",false},{"x",0},{"y",0}}};
+    for (int id:order) {
+        auto record=records[id];
+        record["resources"]=NodeResources::encode(m_nodes[id].resources,{});
+        record["id"]=remap[id]; record["parent"]=remap.value(m_nodes[id].parent,1);
+        QJsonArray kids; for (int child:m_nodes[id].children) kids.append(remap[child]); record["children"]=kids;
+        // Freeze inherited colors/shapes so cross-document paste keeps its look.
+        const auto a=appearance(id); auto style=record["style"].toObject();
+        style["fill"]=a.fill.name(QColor::HexArgb); style["border"]=a.border.name(QColor::HexArgb);
+        style["textColor"]=a.text.name(QColor::HexArgb); style["branch"]=a.branch.name(QColor::HexArgb);
+        style["shape"]=int(a.shape); style["radius"]=a.radius; style["borderWidth"]=a.borderWidth; style["branchWidth"]=a.branchWidth;
+        style["borderStyle"]=int(a.borderStyle); style["branchStroke"]=int(a.branchStroke);
+        record["style"]=style; output.append(record);
+    }
+    QJsonArray connections;
+    for (const auto &edge:m_connections)
+        if (included.contains(edge.first) && included.contains(edge.second))
+            connections.append(QJsonArray{remap[edge.first],remap[edge.second]});
+    document["nodes"]=output; document["connections"]=connections;
+    return QJsonDocument(QJsonObject{{"format","mindarchy-branches"},{"version",1},{"document",document}}).toJson();
+}
+
+bool Engine::pasteBranchData(const QByteArray &bytes) {
+    if (!m_nodes.contains(m_selected)) return fail("Select a parent node before pasting branches.");
+    if (bytes.size()>20*1024*1024) return fail("Clipboard exceeds the 20 MB limit.");
+    const auto envelope=QJsonDocument::fromJson(bytes).object();
+    if (envelope["format"]!="mindarchy-branches" || envelope["version"].toInt()!=1 || !envelope["document"].isObject())
+        return fail("Invalid branch clipboard format.");
+    Engine imported(nullptr,InitialContent::Blank);
+    if (!imported.loadDocumentBytes(QJsonDocument(envelope["document"].toObject()).toJson(),{})) return fail(imported.error());
+    const auto roots=imported.m_nodes[1].children;
+    if (roots.isEmpty()) return fail("Clipboard has no branches.");
+    if (m_nodes.size()+imported.nodeCount()-1>MaxNodes || m_nextId>1000000000-imported.nodeCount())
+        return fail("Pasting would exceed the node limit.");
+    auto merged=QJsonDocument::fromJson(documentBytes()).object();
+    auto records=merged["nodes"].toArray();
+    QHash<int,int> remap; int next=m_nextId;
+    auto ids=imported.m_nodes.keys(); std::sort(ids.begin(),ids.end());
+    for (int id:ids) if(id!=1) remap[id]=next++;
+    for (int i=0;i<records.size();++i) {
+        auto n=records[i].toObject();
+        if(n["id"].toInt()==m_selected) {
+            auto kids=n["children"].toArray(); for(int id:roots) kids.append(remap[id]);
+            n["children"]=kids; n["folded"]=false; records[i]=n;
+        }
+    }
+    for (auto value:envelope["document"].toObject()["nodes"].toArray()) {
+        auto n=value.toObject(); const int old=n["id"].toInt(); if(old==1) continue;
+        n["id"]=remap[old]; n["parent"]=remap.value(n["parent"].toInt(),m_selected);
+        QJsonArray kids; for(auto child:n["children"].toArray()) kids.append(remap[child.toInt()]); n["children"]=kids;
+        // Offsets are relative to a different automatic layout in the source.
+        // Start new branches at a clean destination placement, without overlap.
+        n["x"]=0; n["y"]=0; records.append(n);
+    }
+    auto edges=merged["connections"].toArray();
+    for(const auto &edge:imported.m_connections) {
+        if(edge.first==1 || edge.second==1) return fail("Invalid clipboard root relationship.");
+        edges.append(QJsonArray{remap[edge.first],remap[edge.second]});
+    }
+    merged["nodes"]=records; merged["connections"]=edges;
+    const auto candidate=QJsonDocument(merged).toJson();
+    if(candidate.size()>20*1024*1024) return fail("Pasting would exceed the document size limit.");
+    Engine validated(nullptr,InitialContent::Blank);
+    if(!validated.loadDocumentBytes(candidate,m_documentPath)) return fail(validated.error());
+    checkpoint();
+    m_nodes=validated.m_nodes; m_connections=validated.m_connections; m_nextId=validated.m_nextId;
+    m_textCache.clear(); m_selection.clear(); for(int id:roots) m_selection.insert(remap[id]);
+    m_selected=remap[roots.first()]; rebuild();
+    emit clipboardMessage(QString("Pasted %1 nodes").arg(imported.nodeCount()-1));
+    return true;
+}
+
+bool Engine::pasteOutline(const QString &text) {
+    if(text.toUtf8().size()>20*1024*1024) return fail("Clipboard exceeds the 20 MB limit.");
+    Engine outline(nullptr,InitialContent::Blank);
+    auto document=QJsonDocument::fromJson(outline.documentBytes()).object();
+    QJsonArray records=document["nodes"].toArray();
+    QVector<int> stack{1}, indents{-1}; QHash<int,QJsonArray> children;
+    int id=2;
+    for(QString line:text.split('\n')) {
+        if(line.trimmed().isEmpty()) continue;
+        int indent=0, pos=0;
+        while(pos<line.size() && line[pos].isSpace()) { indent+=line[pos]=='\t'?4:1; ++pos; }
+        auto title=line.mid(pos).trimmed();
+        title.remove(QRegularExpression("^(?:[-*+] |[0-9]+[.)] |#{1,6} )"));
+        if(title.isEmpty()) continue;
+        if(title.size()>MaxText || id>MaxNodes) return fail("Outline exceeds the node or text limit.");
+        while(indents.size()>1 && indent<=indents.last()) { indents.removeLast(); stack.removeLast(); }
+        const int parent=stack.last(); children[parent].append(id);
+        records.append(QJsonObject{{"id",id},{"parent",parent},{"children",QJsonArray{}},
+            {"text",title.toHtmlEscaped()},{"notes",""},{"folded",false},{"task",false},{"checked",false},{"x",0},{"y",0}});
+        stack.append(id++); indents.append(indent);
+    }
+    for(int i=0;i<records.size();++i) { auto n=records[i].toObject();n["children"]=children[n["id"].toInt()];records[i]=n; }
+    document["nodes"]=records;
+    return pasteBranchData(QJsonDocument(QJsonObject{{"format","mindarchy-branches"},{"version",1},{"document",document}}).toJson());
+}
+
+bool Engine::copyBranches() {
+    const auto bytes=branchData(); if(bytes.isEmpty()) return fail("Select a branch to copy.");
+    if(bytes.size()>20*1024*1024) return fail("Copied branches exceed the 20 MB clipboard limit.");
+    auto *mime=new QMimeData;
+    mime->setData("application/x-mindarchy-branches+json",bytes);
+    const auto doc=QJsonDocument::fromJson(bytes).object()["document"].toObject();
+    QHash<int,QJsonObject> nodes; for(auto v:doc["nodes"].toArray()) nodes[v.toObject()["id"].toInt()]=v.toObject();
+    QStringList lines; QVector<QPair<int,int>> pending{{1,-1}};
+    while(!pending.isEmpty()) {
+        auto entry=pending.takeLast(); const auto n=nodes[entry.first];
+        if(entry.first!=1) { QTextDocument text;text.setHtml(n["text"].toString());lines.append(QString(entry.second*2,' ')+text.toPlainText().replace('\n',' ')); }
+        auto kids=n["children"].toArray(); for(auto it=kids.end();it!=kids.begin();) { --it;pending.append({(*it).toInt(),entry.second+1}); }
+    }
+    mime->setText(lines.join('\n')); QGuiApplication::clipboard()->setMimeData(mime);
+    emit clipboardMessage("Branches copied"); return true;
+}
+bool Engine::pasteBranches() {
+    const auto *mime=QGuiApplication::clipboard()->mimeData(); if(!mime) return false;
+    if(mime->hasFormat("application/x-mindarchy-branches+json")) return pasteBranchData(mime->data("application/x-mindarchy-branches+json"));
+    if(mime->hasText()) return pasteOutline(mime->text());
+    return fail("Clipboard has no branches or outline text.");
+}
+
+
+bool Engine::setResource(int node, int index, QString kind, QString name, QString target) {
+    if(!m_nodes.contains(node)) return fail("The node no longer exists.");
+    auto &items=m_nodes[node].resources;
+    if(index < -1 || index>=items.size() || (index==-1 && items.size()>=100)) return fail("Resource limit or invalid selection.");
+    target=target.trimmed(); name=name.trimmed();
+    if(kind=="file") {
+        if(target.startsWith("file:")) target=QUrl(target).toLocalFile();
+        if(target.isEmpty()) return fail("Choose a file.");
+        if(QDir::isRelativePath(target)) {
+            if(m_documentPath.isEmpty()) return fail("Save the mind map before using a relative file path.");
+            target=QFileInfo(m_documentPath).absoluteDir().absoluteFilePath(target);
+        }
+        target=QDir::cleanPath(target);
+    } else if(kind=="url" && !target.contains("://")) target="https://"+target;
+    QVariantMap resource{{"kind",kind},{"name",name},{"target",target}};
+    if(!NodeResources::valid(resource)) return fail("Enter an HTTP(S) web address or a valid file path.");
+    if(index>=0 && items[index].toMap()==resource) return true;
+    checkpoint();
+    if(index<0) m_nodes[node].resources.append(resource); else m_nodes[node].resources[index]=resource;
+    m_error.clear(); rebuild(); return true;
+}
+bool Engine::removeResource(int node,int index) {
+    if(!m_nodes.contains(node) || index<0 || index>=m_nodes[node].resources.size()) return false;
+    checkpoint(); m_nodes[node].resources.removeAt(index); m_error.clear(); rebuild(); return true;
+}
+bool Engine::openResource(int node,int index) {
+    if(!m_nodes.contains(node) || index<0 || index>=m_nodes[node].resources.size()) return false;
+    const auto r=m_nodes[node].resources[index].toMap();
+    if(!NodeResources::valid(r)) return fail("Invalid resource.");
+    const bool file=r["kind"]=="file"; const auto target=r["target"].toString();
+    if(file && !QFileInfo::exists(target)) return fail("This file could not be found. Edit the resource to choose its new location.");
+    if(!QDesktopServices::openUrl(file?QUrl::fromLocalFile(target):QUrl(target))) return fail("The resource could not be opened by the system.");
+    return true;
+}
+
+QVariantList Engine::applicationWindows() const {
+    auto windows=m_listWindows ? m_listWindows() : QVariantList();
+    for(auto &item:windows) { auto entry=item.toMap(); if(!entry.contains("windowId")) entry["current"]=entry["pid"].toLongLong()==QCoreApplication::applicationPid(); item=entry; }
+    return windows;
+}
+void Engine::activateApplicationWindow(qint64 pid) {
+    if(!m_activateWindow) return;
+    for(const auto &item:applicationWindows()) if(item.toMap()["pid"].toLongLong()==pid) { m_activateWindow(pid); return; }
+}
+void Engine::cycleApplicationWindow(int direction) {
+    const auto windows=applicationWindows(); if(windows.isEmpty()) return;
+    int current=-1; for(int i=0;i<windows.size();++i) if(windows[i].toMap()["current"].toBool()) current=i;
+    const int next=(current+(direction<0 ? -1 : 1)+windows.size())%windows.size();
+    activateApplicationWindow(windows[next].toMap()["pid"].toLongLong());
+}
+
+QVariantList Engine::recentDocuments() const { return RecentDocuments(m_recentDirectory).list(); }
+void Engine::clearRecentDocuments() { RecentDocuments(m_recentDirectory).clear(); }
+bool Engine::requestOpenDocument(QString path) {
+    path=QFileInfo(localPath(path)).absoluteFilePath();
+    Engine candidate(nullptr,InitialContent::Blank);
+    if(!candidate.open(path)) return fail(candidate.error());
+    emit openDocumentRequested(path); return true;
+}
+
+QSizeF Engine::contentSize(int id) const {
+    const auto n=m_nodes.value(id);
+    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
+    TextMeasure measure;
+    return measureText(n.text,n.task,measure,n.style.value("width").toDouble()) ? measure.size : QSizeF(100,42);
+}
+bool Engine::importImage(int id,QString path) {
+    NodeImage image;
+    if(!NodeImage::importFile(path,image)) return fail("Cannot read this image. Use a supported image under 64 MB and 64 megapixels.");
+    return setImage(id,image);
+}
+bool Engine::setImage(int id,const NodeImage &image,bool preservePlacement) {
+    if(!m_nodes.contains(id) || image.empty()) return false;
+    NodeImage validated;
+    if(!NodeImage::fromJson(image.json(),validated)) return fail("Invalid image.");
+    qint64 bytes=validated.data.size(), pixels=validated.pixels.sizeInBytes();
+    for(auto it=m_nodes.cbegin();it!=m_nodes.cend();++it) if(it.key()!=id) {
+        bytes+=it->image.data.size(); pixels+=it->image.pixels.sizeInBytes();
+    }
+    if(bytes>NodeImage::DocumentImageLimit || pixels>NodeImage::DecodedLimit) return fail("Images exceed the document limit (12 MB compressed or 128 MB decoded). Remove an image before adding another.");
+    if(documentBytes().size()+validated.data.size()*4/3-m_nodes[id].image.data.size()*4/3>20*1024*1024-1024)
+        return fail("Adding this image would exceed the 20 MB document limit.");
+    if(preservePlacement && hasImage(id)) validated.placement=m_nodes[id].image.placement;
+    checkpoint(); m_nodes[id].image=validated; rebuild(); return true;
+}
+bool Engine::resizeImage(int id,double width) {
+    if(!m_nodes.contains(id) || m_nodes[id].image.empty() || !std::isfinite(width)) return false;
+    const auto next=m_nodes[id].image.boundedWidth(width);
+    if(qFuzzyCompare(next,m_nodes[id].image.width)) return false;
+    checkpoint(); m_nodes[id].image.width=next; rebuild(); return true;
+}
+bool Engine::removeImage(int id) {
+    if(!m_nodes.contains(id) || m_nodes[id].image.empty()) return false;
+    checkpoint(); m_nodes[id].image={}; rebuild(); return true;
+}
+void Engine::copyImage(int id) {
+    if(!hasImage(id)) return;
+    auto *mime=new QMimeData;
+    mime->setImageData(m_nodes[id].image.pixels);
+    mime->setData("application/x-mindarchy-image+json",QJsonDocument(m_nodes[id].image.json()).toJson(QJsonDocument::Compact));
+    QGuiApplication::clipboard()->setMimeData(mime);
+}
+
+bool Engine::setImagePlacement(int id,QString placement) {
+    if(!hasImage(id) || !NodeImage::validPlacement(placement) || m_nodes[id].image.placement==placement) return false;
+    checkpoint(); m_nodes[id].image.placement=placement; rebuild(); return true;
+}
+
+bool Engine::clipboardHasImage() const {
+    const auto *mime=QGuiApplication::clipboard()->mimeData();
+    return mime && (mime->hasFormat("application/x-mindarchy-image+json") || mime->hasImage());
+}
+bool Engine::cutImage(int id) {
+    if(!hasImage(id)) return false;
+    copyImage(id); return removeImage(id);
+}
+bool Engine::pasteImage(int id) {
+    if(!m_nodes.contains(id)) return false;
+    const auto *mime=QGuiApplication::clipboard()->mimeData();
+    if(!mime) return false;
+    NodeImage image;
+    if(mime->hasFormat("application/x-mindarchy-image+json")) {
+        if(!NodeImage::fromJson(QJsonDocument::fromJson(mime->data("application/x-mindarchy-image+json")).object(),image)) return false;
+    } else if(!mime->hasImage() || !NodeImage::importPixels(qvariant_cast<QImage>(mime->imageData()),image)) return false;
+    // setImage validates all budgets and creates one undo checkpoint. Paste uses
+    // the source placement, whereas replacement from a file retains the target's.
+    return setImage(id,image,false);
 }

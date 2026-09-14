@@ -136,7 +136,7 @@ def main():
             name = f'Mindarchy-{args.version}-macos-{args.arch}' + ('-unsigned' if args.unsigned else '')
             package = release / f'{name}.pkg'
             command = ['pkgbuild', '--root', root, '--component-plist', component_file,
-                       '--identifier', 'blue.mindmap.lab.installer', '--version', args.version,
+                       '--identifier', 'org.mindarchy.app.installer', '--version', args.version,
                        '--install-location', '/', '--ownership', 'recommended']
             if args.sign:
                 command += ['--sign', installer_identity]

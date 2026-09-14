@@ -35,12 +35,12 @@ def copy(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(project / source, destination)
 
-copy('packaging/blue.mindmap.omm.xml', data / 'mime/packages/blue.mindmap.omm.xml')
-copy('assets/icons/mindarchy-512.png', data / 'icons/hicolor/512x512/apps/blue.mindmap.lab.png')
+copy('packaging/org.mindarchy.omm.xml', data / 'mime/packages/org.mindarchy.omm.xml')
+copy('assets/icons/mindarchy-512.png', data / 'icons/hicolor/512x512/apps/org.mindarchy.app.png')
 # Desktop Exec values have their own escaping rules (not shell syntax).
 quoted = '"' + str(installed).replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$') + '"'
-for source, destination in [('packaging/blue.mindmap.lab.desktop', 'applications/blue.mindmap.lab.desktop'),
-                            ('packaging/blue.mindmap.lab.thumbnailer', 'thumbnailers/blue.mindmap.lab.thumbnailer')]:
+for source, destination in [('packaging/org.mindarchy.app.desktop', 'applications/org.mindarchy.app.desktop'),
+                            ('packaging/org.mindarchy.app.thumbnailer', 'thumbnailers/org.mindarchy.app.thumbnailer')]:
     text = (project / source).read_text().replace('Exec=mindarchy', 'Exec=' + quoted)
     # TryExec is a path, not a command line.
     text = text.replace('TryExec=' + quoted, 'TryExec=' + str(installed))
@@ -50,7 +50,7 @@ for source, destination in [('packaging/blue.mindmap.lab.desktop', 'applications
 subprocess.run(['update-mime-database', str(data / 'mime')], check=True)
 subprocess.run(['update-desktop-database', str(data / 'applications')], check=True)
 if not args.system:
-    subprocess.run(['xdg-mime', 'default', 'blue.mindmap.lab.desktop', 'application/x-omm+json'], check=True)
+    subprocess.run(['xdg-mime', 'default', 'org.mindarchy.app.desktop', 'application/x-omm+json'], check=True)
 print(f'Installed {installed}; OMM metadata registered. JSON file associations are unchanged.')
 if not args.system:
     print('Nautilus sandboxed thumbnails need the --system installation; file opening and standalone PNG rendering work with this user installation.')

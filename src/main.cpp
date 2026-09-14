@@ -1,4 +1,10 @@
+#include <QtGlobal>
+#include "macapplication.h"
 #include "shelltheme.h"
+#ifdef Q_OS_WIN
+#include "windowsdialogs.h"
+#include "windowmenubar.h"
+#endif
 #include "viewportstate.h"
 #include "canvas.h"
 #include "preview.h"
@@ -55,7 +61,14 @@ int main(int argc, char **argv) {
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
-    for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") qputenv("QT_QPA_PLATFORM","offscreen");
+    for(int i=1;i<argc;++i) if(QByteArray(argv[i])=="--render-preview") {
+        qputenv("QT_QPA_PLATFORM","offscreen");
+#ifdef Q_OS_WIN
+        // Unlike the native Windows QPA plugin, offscreen needs a font path.
+        if (!qEnvironmentVariableIsSet("QT_QPA_FONTDIR"))
+            qputenv("QT_QPA_FONTDIR", (qEnvironmentVariable("WINDIR", "C:/Windows") + "/Fonts").toUtf8());
+#endif
+    }
     DocumentApplication app(argc, argv);
     app.setApplicationName("Mindarchy");
 #ifdef MINDMAP_VERSION
@@ -64,7 +77,7 @@ int main(int argc, char **argv) {
     app.setApplicationVersion("0.1.0");
 #endif
     app.setOrganizationName("Mindarchy");
-    app.setDesktopFileName("blue.mindmap.lab");
+    app.setDesktopFileName("org.mindarchy.app");
     QIcon applicationIcon;
 #ifdef Q_OS_MACOS
     applicationIcon.addFile(":/assets/icons/mindarchy-macos-512.png");
@@ -131,6 +144,27 @@ int main(int argc, char **argv) {
         fwrite(bytes.constData(), 1, bytes.size(), stdout);
         return 0;
     }
+    // Interactive Cocoa windows share one process. Diagnostic/headless modes
+    // retain the isolated runner below so they never affect an open session.
+    if(!parser.isSet("nodes") && !parser.isSet("screenshot") &&
+       !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state")) {
+        ShellTheme shellTheme;
+        qmlRegisterSingletonInstance("Mindarchy",1,0,"ShellTheme",&shellTheme);
+        qmlRegisterUncreatableType<Engine>("Mindarchy",1,0,"Engine","Provided by application");
+        qmlRegisterType<MindCanvas>("Mindarchy",1,0,"MindCanvas");
+        MacApplication desktop(DocumentSession::defaultDirectory());
+        QStringList paths=parser.positionalArguments();
+        if(parser.isSet("document")) paths.prepend(parser.value("document"));
+        if(parser.isSet("recover")) paths.prepend(parser.value("recover"));
+        paths.append(app.pendingFiles); app.pendingFiles.clear(); paths.removeDuplicates();
+        const auto launch=desktop.startOrForward(paths,parser.isSet("new"));
+        if(launch==MacApplication::Launch::Forwarded) return 0;
+        if(launch==MacApplication::Launch::Failed) { fprintf(stderr,"%s\n",qPrintable(desktop.error())); return 1; }
+        app.openFile=[&](QString path) { desktop.open(path); };
+        app.requestQuit=[&] { return desktop.requestQuit(); };
+        desktop.start(paths,parser.isSet("new"),parser.value("theme"));
+        return app.exec();
+    }
     if (parser.isSet("nodes"))
         document.loadFixture(parser.value("nodes").toInt());
     QStringList files=parser.positionalArguments();
@@ -138,7 +172,8 @@ int main(int argc, char **argv) {
     files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
     const bool sessionEnabled = !parser.isSet("nodes") && !parser.isSet("screenshot") &&
         !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state");
-    const bool recoveryEnabled = sessionEnabled && QGuiApplication::platformName()=="cocoa";
+    if(sessionEnabled) document.setRecentDirectory(DocumentSession::defaultDirectory());
+    const bool recoveryEnabled = sessionEnabled && (QGuiApplication::platformName()=="cocoa" || QGuiApplication::platformName()=="windows");
     QString recoveryFile=parser.value("recover");
     if(!recoveryFile.isEmpty() && (!recoveryEnabled ||
        QFileInfo(recoveryFile).absolutePath()!=QFileInfo(DocumentSession::defaultDirectory()).absoluteFilePath() ||
@@ -159,6 +194,7 @@ int main(int argc, char **argv) {
     auto openInNewInstance=[](QString path) {
         QProcess::startDetached(QCoreApplication::applicationFilePath(), {path.endsWith(".recovery") ? "--recover" : "--document",path});
     };
+    QObject::connect(&document,&Engine::openDocumentRequested,&app,openInNewInstance);
     if(recoveryFile.isEmpty() && !files.isEmpty() && recoveryEnabled && files.first().endsWith(".recovery"))
         recoveryFile=files.takeFirst();
     QVariantMap recoveredUi;
@@ -193,7 +229,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("engine", &document);
     qml.rootContext()->setContextProperty("deferWindowShow", true);
-    qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa");
+    qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa" || QGuiApplication::platformName() == "windows");
     QObject::connect(
         &qml, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
@@ -222,6 +258,7 @@ int main(int argc, char **argv) {
     }
     QTimer sessionPoll;
     if (session && window) {
+        document.setWindowNavigation([&] { return session->liveWindows(); }, [&](qint64 pid) { session->activateWindow(pid); });
         QObject::connect(&document, &Engine::windowCloseApproved, &app, [&](bool forget) {
             if (recovery) recovery->remove();
             if (forget) session->forgetDocument();
@@ -272,7 +309,26 @@ int main(int argc, char **argv) {
             defaults->sync();
         });
     }
+#ifdef Q_OS_WIN
+    if (window && QGuiApplication::platformName() == "windows") {
+        installWindowsDialogs(&document, window);
+        new WindowMenuBar(window);
+    }
+#endif
 #ifdef Q_OS_MACOS
+    void installMacFileMenu(QWindow *, std::function<void(QString,QString)>, std::function<QVariantList()>);
+    if(window && QGuiApplication::platformName()=="cocoa") {
+        QTimer::singleShot(0,window,[&] {
+            installMacFileMenu(window,[&](QString action,QString path) {
+                if(action=="new") emit document.newDocumentRequested();
+                else if(action=="open") QMetaObject::invokeMethod(window,"openDocumentMenu");
+                else if(action=="save") QMetaObject::invokeMethod(window,"saveDocument",Q_ARG(QVariant,false));
+                else if(action=="recent") document.requestOpenDocument(path);
+                else if(action=="clear") document.clearRecentDocuments();
+                else if(action=="close") QMetaObject::invokeMethod(window,"requestClose",Q_ARG(QVariant,true),Q_ARG(QVariant,false));
+            },[&] { return document.recentDocuments(); });
+        });
+    }
     void installMacHelpMenu(QWindow *);
     if (window && QGuiApplication::platformName() == "cocoa")
         QTimer::singleShot(0, window, [window] { installMacHelpMenu(window); });
@@ -435,6 +491,6 @@ int main(int argc, char **argv) {
         });
     }
     if (parser.isSet("quit-after"))
-        QTimer::singleShot(parser.value("quit-after").toInt(), &app, &QCoreApplication::quit);
+        QTimer::singleShot(parser.value("quit-after").toInt(), &app, [&app] { app.exit(0); });
     return app.exec();
 }

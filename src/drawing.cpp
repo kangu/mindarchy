@@ -1,14 +1,15 @@
+#include "appfont.h"
 #include "drawing.h"
 #include <QPainterPath>
 #include <cmath>
 #include <numbers>
 namespace MapDrawing {
-QPolygonF taskCheckPath(QRectF box) {
-    // Oversize the tick while keeping the checkbox and text positions stable.
-    const QRectF overlay = box.adjusted(-7, -8, 7, 6);
+QPolygonF taskCheckPath(QRectF box,bool compact) {
+    // A long rising finish and short rounded foot give the mark a clear silhouette.
+    const QRectF overlay=compact ? box.adjusted(1,1,-1,-1) : box.adjusted(-4,-5,7,4);
     QPolygonF points;
-    for (const QPointF p : {QPointF(3.74, 7.85), QPointF(7.32, 11.5), QPointF(13.26, 4.5)})
-        points << overlay.topLeft() + QPointF(p.x()*overlay.width()/16, p.y()*overlay.height()/16);
+    for(const QPointF p : {QPointF(.12,.49),QPointF(.37,.77),QPointF(.88,.15)})
+        points << overlay.topLeft()+QPointF(p.x()*overlay.width(),p.y()*overlay.height());
     return points;
 }
 QPolygonF taskProgressArc(QRectF box, qreal progress) {
@@ -21,23 +22,28 @@ QPolygonF taskProgressArc(QRectF box, qreal progress) {
     }
     return points;
 }
-void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked, qreal progress) {
+void paintTask(QPainter &painter, QRectF box, QColor frame, bool checked, qreal progress, const TaskAppearance &task) {
+    const auto completionColor=task.accent;
     if(progress>=0) {
         painter.save();
-        frame.setAlphaF(frame.alphaF()*.25);
-        painter.setPen(QPen(frame,2.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+        frame.setAlphaF(frame.alphaF()*task.trackOpacity);
+        painter.setPen(QPen(frame,task.progressWidth,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
         painter.drawPolyline(taskProgressArc(box,1));
-        painter.setPen(QPen(taskCheckColor,2.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+        painter.setPen(QPen(completionColor,task.progressWidth,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
         if(progress>0) painter.drawPolyline(taskProgressArc(box,progress));
+        if(progress>=1) {
+            painter.setPen(QPen(completionColor,1.8,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+            painter.drawPolyline(taskCheckPath(box,true));
+        }
         painter.restore(); return;
     }
     painter.save();
-    if (checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
+    if (checked) frame.setAlphaF(frame.alphaF() * task.completedFrameOpacity);
     painter.setPen(QPen(frame, 1.5));
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(box, 2, 2);
+    painter.drawRoundedRect(box, task.cornerRadius, task.cornerRadius);
     if (checked) {
-        painter.setPen(QPen(taskCheckColor, taskCheckWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setPen(QPen(completionColor, task.checkWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         painter.drawPolyline(taskCheckPath(box));
     }
     painter.restore();
@@ -118,43 +124,52 @@ QPolygonF shapePolygon(QRectF r, NodeShape shape, qreal radius, qreal detail) {
     }
     return polygon;
 }
-void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style) {
+void paintCalendar(QPainter &painter,const CalendarData &data,const NodeAppearance &style, const QString &text) {
+    painter.save();
+    const qreal scale=Calendar::textScale(text,style.fontFamily); painter.scale(scale,scale);
+    const auto base=Calendar::textFont(text,style.fontFamily);
+    const auto alignment=Calendar::textAlignment(text)|Qt::AlignVCenter;
+    const qreal gutter=Calendar::weekGutter(data);
     painter.setRenderHint(QPainter::Antialiasing); painter.setRenderHint(QPainter::TextAntialiasing);
-    QFont font("sans-serif"); font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
-    painter.drawText(QRectF(39,10,216,28),Qt::AlignCenter,Calendar::title(data));
-    font.setPixelSize(18); painter.setFont(font);
-    painter.drawText(Calendar::previous(),Qt::AlignCenter,QStringLiteral("‹"));
-    painter.drawText(Calendar::next(),Qt::AlignCenter,QStringLiteral("›"));
-    font.setPixelSize(10); font.setBold(false); painter.setFont(font);
+    QFont font=base; font.setPixelSize(11); font.setBold(true); painter.setFont(font); painter.setPen(style.text);
+    painter.drawText(QRectF(10+gutter,10,274,28),Qt::AlignCenter,Calendar::title(data));
+    font.setPixelSize(10); font.setBold(base.bold()); painter.setFont(font);
     const QStringList weekdays{"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
-    for(int i=0;i<7;++i) painter.drawText(QRectF(14+i*38,44,34,20),Qt::AlignCenter,weekdays[i]);
+    for(int i=0;i<7;++i) painter.drawText(QRectF(14+gutter+i*38,44,34,20),Qt::AlignCenter,weekdays[i]);
     const auto days=Calendar::days(data);
     for(int i=0;i<days.size();++i) {
         const auto day=days[i]; if(!day.isValid()) continue;
-        const auto cell=Calendar::cell(i); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
+        const auto cell=Calendar::cell(i,gutter); const bool assigned=data.entries.contains(day.toString(Qt::ISODate));
         const bool today=day==QDate::currentDate();
         painter.setPen(today && !assigned ? QPen(style.branch,1.5) : QPen(Qt::NoPen));
         painter.setBrush(assigned ? QBrush(style.branch) : QBrush(Qt::NoBrush));
         if(assigned) painter.drawRoundedRect(cell,5,5);
         else if(today) painter.drawRoundedRect(cell.adjusted(.75,.75,-.75,-.75),4.25,4.25);
-        const double luminance=.2126*style.branch.redF()+.7152*style.branch.greenF()+.0722*style.branch.blueF();
-        painter.setPen(assigned ? QColor(luminance>.55 ? "#172129" : "#ffffff") : style.text);
-        font.setPixelSize(12); font.setBold(assigned || today); painter.setFont(font);
-        painter.drawText(cell,Qt::AlignCenter,QString::number(day.day()));
+        painter.setPen(assigned ? Themes::contrastInk(style.branch) : style.text);
+        font.setPixelSize(12); font.setBold(base.bold() || assigned || today); painter.setFont(font);
+        painter.drawText(cell,alignment,QString::number(day.day()));
+    }
+    if(data.view=="month") {
+        QColor muted=style.text; muted.setAlphaF(muted.alphaF()*.55);
+        painter.setPen(muted); font.setPixelSize(8); font.setBold(base.bold()); painter.setFont(font);
+        for(int row=0;row<days.size()/7;++row)
+            painter.drawText(Calendar::weekCell(row),Qt::AlignCenter,
+                             QString::number(Calendar::weekNumber(data,row)));
     }
     const auto sums=Calendar::totals(data);
     if(sums.enabled) {
         painter.setPen(style.text); font.setPixelSize(11); font.setBold(true); painter.setFont(font);
-        painter.drawText(QRectF(294,44,108,20),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Sum"));
+        painter.drawText(QRectF(294+gutter,44,108,20),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Sum"));
         for(int row=0;row<sums.weeks.size();++row)
-            painter.drawText(Calendar::sumCell(row),Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.weeks[row]));
+            painter.drawText(Calendar::sumCell(row,gutter),Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.weeks[row]));
         if(data.view=="month") {
-            const auto total=Calendar::sumCell(sums.weeks.size()).translated(0,4);
-            painter.setPen(QPen(style.branch,1)); painter.drawLine(QPointF(294,total.top()),QPointF(402,total.top()));
+            const auto total=Calendar::sumCell(sums.weeks.size(),gutter).translated(0,4);
+            painter.setPen(QPen(style.branch,1)); painter.drawLine(QPointF(294+gutter,total.top()),QPointF(402+gutter,total.top()));
             painter.setPen(style.text);
-            painter.drawText(QRectF(14,total.y(),265,total.height()),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Month total"));
+            painter.drawText(QRectF(14,total.y(),265+gutter,total.height()),Qt::AlignRight|Qt::AlignVCenter,QStringLiteral("Month total"));
             painter.drawText(total,Qt::AlignRight|Qt::AlignVCenter,Calendar::totalText(sums.month));
         }
     }
+    painter.restore();
 }
 }

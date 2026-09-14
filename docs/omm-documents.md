@@ -2,7 +2,7 @@
 
 An `.omm` document is the existing UTF-8 JSON document, saved with a dedicated extension. There is no archive, binary header, embedded screenshot, or platform-specific wrapper. The schema remains `format: "mindarchy"`, `version: 1`. Text, Task, Date, calendar entries, themes, layout, manual offsets, notes, folding and relationships retain their existing representation.
 
-Save dialogs default to `.omm`. Open dialogs accept `.omm` and older `.json` documents. Existing JSON documents need no migration: open and save them as `.omm`, or rename a copy. The app still validates the content regardless of its extension and saves atomically.
+Save dialogs default to `.omm`. Open dialogs accept `.omm` and `.json` files containing the current `mindarchy` v1 document format. Older prototype format identifiers are not supported. The app still validates the content regardless of its extension and saves atomically.
 
 ```sh
 jq . 'Project.omm'                 # inspect/format the JSON
@@ -15,7 +15,7 @@ The preview command needs no display and accepts `--preview-size 512` (32–4096
 
 ## macOS
 
-The application exports UTI `blue.mindmap.omm`, conforming to `public.json`, with MIME type `application/x-omm+json`. It registers only `.omm` as an owned document; other apps' JSON associations are unaffected. Finder Open events and command-line documents are supported. Later Finder opens create another application instance so they cannot replace an unsaved map.
+The application exports UTI `org.mindarchy.omm`, conforming to `public.json`, with MIME type `application/x-omm+json`. It registers only `.omm` as an owned document; other apps' JSON associations are unaffected. Finder Open events and command-line documents are supported. Later Finder opens create another application instance so they cannot replace an unsaved map.
 
 The CMake macOS build includes `Contents/PlugIns/OMMPreview.appex`, a modern, sandboxed Quick Look Preview extension. Finder selects this extension for `.omm` and pressing Space requests a new PNG from the saved JSON. The helper uses Qt Core/Gui with the offscreen platform plugin, not the app's QML interface. It reads the file granted by Quick Look and does not write the document. The release workflow deploys its Qt dependencies and signs the extension before sealing the enclosing application. Developer ID signing and notarization use the existing release credentials.
 

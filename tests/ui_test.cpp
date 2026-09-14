@@ -1,12 +1,21 @@
+#include "../src/windowmenubar.h"
 #include "shelltheme.h"
 #include "documentrecovery.h"
 #include "../src/canvas.h"
 #include "../src/engine.h"
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QPainter>
+#include <QScopeGuard>
 #include <QDir>
 #include <QTemporaryDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTextDocument>
@@ -56,6 +65,251 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void imageClipboardShortcuts() {
+        NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
+        QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(document->setImage(2,image));
+        canvas->fit(); QTest::qWait(250);
+        const auto n=document->nodes()[2];
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(canvas->mapFromWorld(n.image.rect(n.rect).center())).toPoint());
+        QTest::keyClick(window,Qt::Key_C,Qt::ControlModifier);
+        document->select(3); canvas->forceActiveFocus(); QTest::keyClick(window,Qt::Key_V,Qt::ControlModifier);
+        QVERIFY(document->hasImage(2)); QTRY_VERIFY(document->hasImage(3));
+        QCOMPARE(document->nodes()[3].image.data,document->nodes()[2].image.data);
+        QTest::keyClick(window,Qt::Key_X,Qt::ControlModifier); QTRY_VERIFY(!document->hasImage(3));
+        QTest::keyClick(window,Qt::Key_Z,Qt::ControlModifier); QTRY_VERIFY(document->hasImage(3));
+    }
+    void imagePlacementSidebar() {
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+        document->select(2);
+        auto *section=findVisual(window->contentItem(),"imagePlacementSection"); QVERIFY(section); QVERIFY(!section->isVisible());
+        NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
+        QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(document->setImage(2,image)); QTRY_VERIFY(section->isVisible());
+        for(const QString placement:{QString("right"),QString("top"),QString("bottom"),QString("left")}) {
+            auto *button=findVisual(window->contentItem(),"image-placement-"+placement); QVERIFY(button);
+            button->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+            QTRY_COMPARE(document->nodes()[2].image.placement,placement);
+        }
+        QVERIFY(document->removeImage(2)); QTRY_VERIFY(!section->isVisible());
+    }
+    void spaceTogglesSelectedImagePreview() {
+        NodeImage image; QImage pixels(240,120,QImage::Format_RGB32); pixels.fill(Qt::blue);
+        QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(document->setImage(2,image));
+        canvas->fit(); QTest::qWait(250);
+        const auto node=document->nodes()[2];
+        const auto point=canvas->mapToScene(canvas->mapFromWorld(node.image.rect(node.rect).center())).toPoint();
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point);
+        const auto view=canvas->persistentView(); const auto revision=document->recoveryRevision();
+#ifdef Q_OS_LINUX
+        auto *popup=window->findChild<QObject*>("borderlessImagePreview"); QVERIFY(popup);
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(!popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(popup->property("opened").toBool());
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!popup->property("opened").toBool());
+        QCOMPARE(canvas->persistentView(),view); QCOMPARE(document->recoveryRevision(),revision);
+        return;
+#endif
+        auto preview=window->findChild<QQuickWindow*>("nodeImagePreview"); QVERIFY(preview);
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
+#ifdef Q_OS_MACOS
+        QVERIFY(preview->flags() & Qt::FramelessWindowHint);
+        QCOMPARE(preview->flags() & Qt::WindowType_Mask,Qt::Tool);
+        QVERIFY(preview->width()>0 && preview->height()>0);
+
+#endif
+        QTest::keyClick(preview,Qt::Key_Space); QTRY_VERIFY(!preview->isVisible());
+        window->requestActivate(); canvas->forceActiveFocus();
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
+        QTest::keyClick(preview,Qt::Key_Escape); QTRY_VERIFY(!preview->isVisible());
+#ifdef Q_OS_MACOS
+        window->requestActivate(); canvas->forceActiveFocus();
+        QTest::keyClick(window,Qt::Key_Space); QTRY_VERIFY(preview->isVisible());
+        QTRY_VERIFY(preview->isActive());
+        QTest::qWait(100);
+        if(qEnvironmentVariableIsSet("MINDARCHY_PANEL_EVIDENCE")) QVERIFY(preview->grabWindow().save(qEnvironmentVariable("MINDARCHY_PANEL_EVIDENCE")));
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(QPointF(20,20)).toPoint()); QTRY_VERIFY(!preview->isVisible());
+#endif
+        QCOMPARE(canvas->persistentView(),view); QCOMPARE(document->recoveryRevision(),revision);
+    }
+    void imageFileDropResizeAndPreview() {
+        document->loadFixture(3); document->setThemeId("beach-day");
+        document->setText(1,"Portable images"); document->setText(2,"Drag an image onto a node"); document->setText(3,"Resize from its edges");
+        canvas->fit(); QTest::qWait(250);
+        QTemporaryDir dir; QImage picture(640,360,QImage::Format_RGB32);
+        QPainter painter(&picture); QLinearGradient sky(0,0,640,360); sky.setColorAt(0,QColor("#77d7ea")); sky.setColorAt(1,QColor("#243e80")); painter.fillRect(picture.rect(),sky);
+        painter.setBrush(QColor("#ffe0a0")); painter.setPen(Qt::NoPen); painter.drawEllipse(QPoint(470,100),45,45);
+        painter.setBrush(QColor("#398b74")); painter.drawPolygon(QPolygon{{0,360},{240,110},{440,360}});
+        painter.setBrush(QColor("#245b60")); painter.drawPolygon(QPolygon{{230,360},{440,170},{640,360}}); painter.end();
+        const auto file=dir.filePath("landscape.png"); QVERIFY(picture.save(file));
+        QMimeData mime; mime.setUrls({QUrl::fromLocalFile(file)});
+        const auto point=screenCenter(2);
+        QDragEnterEvent enter(point,Qt::CopyAction,&mime,Qt::LeftButton,Qt::NoModifier);
+        QCoreApplication::sendEvent(window,&enter); QVERIFY(enter.isAccepted());
+        QDragMoveEvent move(point,Qt::CopyAction,&mime,Qt::LeftButton,Qt::NoModifier);
+        QCoreApplication::sendEvent(window,&move); QVERIFY(move.isAccepted());
+        QDropEvent drop(point,Qt::CopyAction,&mime,Qt::LeftButton,Qt::NoModifier);
+        QCoreApplication::sendEvent(window,&drop); QVERIFY(drop.isAccepted()); QVERIFY(document->hasImage(2));
+        QTest::qWait(250); canvas->fit(); QTest::qWait(250);
+        const auto r=canvas->imageSelectionRect(); QVERIFY(!r.isEmpty());
+        const auto handle=canvas->mapToScene(QPointF(r.right(),r.center().y())).toPoint();
+        drag(handle,handle+QPoint(60,0));
+        QVERIFY(document->nodes()[2].image.width>120);
+        const auto ratio=document->nodes()[2].image.size(); QVERIFY(std::abs(ratio.width()/ratio.height()-640./360)<.001);
+        canvas->fit(); QTest::qWait(250);
+        const auto evidence=qEnvironmentVariable("MINDARCHY_IMAGE_EVIDENCE_DIR");
+        if(!evidence.isEmpty()) {
+            QDir().mkpath(evidence); QVERIFY(window->grabWindow().save(evidence+"/node-image-resize.png"));
+            QVERIFY(document->save(evidence+"/portable-images.omm"));
+        }
+        const auto imageRect=canvas->imageSelectionRect();
+        QTest::mouseDClick(window,Qt::LeftButton,Qt::NoModifier,canvas->mapToScene(imageRect.center()).toPoint());
+#ifdef Q_OS_LINUX
+        auto *popup=window->findChild<QObject*>("borderlessImagePreview"); QVERIFY(popup); QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup,"close"));
+#else
+        auto preview=window->findChild<QQuickWindow*>("nodeImagePreview"); QVERIFY(preview); QTRY_VERIFY(preview->isVisible()); preview->close();
+#endif
+        window->requestActivate(); canvas->forceActiveFocus();
+        document->undo(); QCOMPARE(document->nodes()[2].image.width,120.);
+    }
+    void recentMenuRefreshesAndClearsSharedHistory() {
+        QTemporaryDir dir; Engine writer(nullptr,Engine::InitialContent::Blank);
+        writer.setRecentDirectory(dir.filePath("history"));
+        QVERIFY(writer.save(dir.filePath("recent.omm")));
+        document->setRecentDirectory(dir.filePath("history"));
+        auto reset=qScopeGuard([&] { document->setRecentDirectory({}); });
+        auto *recent=window->findChild<QObject *>("desktopRecentMenu"); QVERIFY(recent);
+        QVERIFY(QMetaObject::invokeMethod(recent,"aboutToShow"));
+        QCOMPARE(recent->property("documents").toList().size(),1);
+        auto *clear=window->findChild<QObject *>("clearRecentAction"); QVERIFY(clear);
+        QVERIFY(QMetaObject::invokeMethod(clear,"triggered"));
+        QVERIFY(writer.recentDocuments().isEmpty()); QCOMPARE(recent->property("documents").toList().size(),0);
+    }
+    void desktopMenusExposeSharedCommands() {
+        auto *file=window->findChild<QObject *>("desktopFileMenu");
+        auto *windows=window->findChild<QObject *>("desktopWindowMenu");
+        auto *help=window->findChild<QObject *>("desktopHelpMenu");
+        QVERIFY(file); QVERIFY(windows); QVERIFY(help);
+        QCOMPARE(file->property("count").toInt(),8); QCOMPARE(help->property("count").toInt(),1);
+        QVERIFY(windows->property("count").toInt()>=10);
+        auto *button=window->findChild<QQuickItem *>("applicationMenuButton"); QVERIFY(button);
+#ifdef Q_OS_LINUX
+        QVERIFY(button->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *menu=window->findChild<QObject *>("applicationMenu"); QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool()); QCOMPARE(menu->property("count").toInt(),3);
+        if(const auto path=qEnvironmentVariable("MINDARCHY_MENU_SCREENSHOT");!path.isEmpty()) { QTest::qWait(250); QVERIFY(window->grabWindow().save(path)); }
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!menu->property("opened").toBool());
+#else
+        QVERIFY(!button->isVisible());
+#endif
+        QSignalSpy newDocument(document,&Engine::newDocumentRequested);
+        auto *action=window->findChild<QObject *>("desktopNewAction"); QVERIFY(action);
+        QVERIFY(QMetaObject::invokeMethod(action,"triggered")); QCOMPARE(newDocument.size(),1);
+        auto *shortcuts=window->findChild<QObject *>("windowsKeyboardShortcuts"); QVERIFY(shortcuts);
+        action=window->findChild<QObject *>("desktopKeyboardShortcutsAction"); QVERIFY(action);
+        QVERIFY(QMetaObject::invokeMethod(action,"triggered")); QTRY_VERIFY(shortcuts->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(shortcuts,"close"));
+        QTRY_VERIFY(!shortcuts->property("visible").toBool()); window->requestActivate(); canvas->forceActiveFocus();
+        QTRY_VERIFY(canvas->hasActiveFocus());
+    }
+    void typingReplacesSelectedTitle() {
+        document->setText(2,"hello"); document->select(2); canvas->forceActiveFocus();
+        type("yey");
+        QTRY_VERIFY(canvas->editing());
+        QCOMPARE(editor->property("text").toString().contains("yey"),true);
+        QTest::keyClick(window,Qt::Key_Return); QTRY_VERIFY(!canvas->editing());
+        QCOMPARE(plain(2),QString("yey"));
+        document->undo(); QCOMPARE(plain(2),QString("hello"));
+        for(const auto &text : {QString("Foo"),QString("Task"),QString("0.5"),QString("+1"),QString("<tag>")}) {
+            canvas->forceActiveFocus(); type(text);
+            QTRY_VERIFY(canvas->editing()); QTest::keyClick(window,Qt::Key_Return);
+            QCOMPARE(plain(2),text); QVERIFY(!document->selectedTask());
+        }
+        canvas->forceActiveFocus(); QTest::keyClick(window,Qt::Key_T,Qt::AltModifier);
+        QVERIFY(document->selectedTask()); QVERIFY(!canvas->editing());
+        document->select(-1); QTest::keyClick(window,Qt::Key_A); QVERIFY(!canvas->editing());
+        document->select(2); QTest::keyPress(window,Qt::Key_Space); QVERIFY(!canvas->editing()); QTest::keyRelease(window,Qt::Key_Space);
+    }
+    void resourcesInspectorAddsEditsAndRemoves() {
+        document->select(2);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+        auto *button=window->findChild<QObject *>("addWebResource"); QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *dialog=window->findChild<QObject *>("resourceDialog"); QVERIFY(dialog); QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *name=window->findChild<QObject *>("resourceName"); auto *target=window->findChild<QObject *>("resourceTarget");
+        QVERIFY(name); QVERIFY(target); name->setProperty("text","Project reference"); target->setProperty("text","https://example.com/project");
+        auto *save=window->findChild<QObject *>("saveResource"); QVERIFY(save); QVERIFY(QMetaObject::invokeMethod(save,"clicked"));
+        QTRY_VERIFY(!dialog->property("opened").toBool()); QCOMPARE(document->selectedResources().size(),1);
+        QCOMPARE(document->selectedResources()[0].toMap()["name"].toString(),QString("Project reference"));
+        QTest::qWait(50);
+        auto *editResource=findVisual(window->contentItem(),"editResource0"); QVERIFY(editResource);
+        QVERIFY(QMetaObject::invokeMethod(editResource,"clicked")); QTRY_VERIFY(dialog->property("opened").toBool());
+        name->setProperty("text","Updated reference"); QVERIFY(QMetaObject::invokeMethod(save,"clicked"));
+        QCOMPARE(document->selectedResources()[0].toMap()["name"].toString(),QString("Updated reference"));
+        auto *addFile=window->findChild<QObject *>("addFileResource"); QVERIFY(addFile);
+        QVERIFY(QMetaObject::invokeMethod(addFile,"clicked")); QTRY_VERIFY(dialog->property("opened").toBool());
+        name->setProperty("text","Design brief"); target->setProperty("text","/tmp/mindarchy-design-brief.pdf");
+        QVERIFY(QMetaObject::invokeMethod(save,"clicked")); QCOMPARE(document->selectedResources().size(),2);
+        QTest::qWait(150);
+        if(const auto path=qEnvironmentVariable("MINDARCHY_RESOURCES_SCREENSHOT");!path.isEmpty()) {
+            auto *item=qobject_cast<QQuickItem *>(button); QVERIFY(item);
+            // Scroll the node inspector to its resource section for visual QA.
+            for(auto *parent=item->parentItem();parent;parent=parent->parentItem()) {
+                if(parent->metaObject()->indexOfProperty("contentY")>=0) {
+                    parent->setProperty("contentY",std::max(0.0,item->mapToItem(parent,QPointF()).y()+parent->property("contentY").toDouble()-parent->height()+80)); break;
+                }
+            }
+            QTest::qWait(300); QVERIFY(window->grabWindow().save(path));
+        }
+        auto *remove=findVisual(window->contentItem(),"removeResource0"); QVERIFY(remove);
+        QVERIFY(QMetaObject::invokeMethod(remove,"clicked")); QCOMPARE(document->selectedResources().size(),1);
+        document->undo(); QCOMPARE(document->selectedResources().size(),2);
+    }
+    void branchClipboardAndFocusUseCanvasShortcuts() {
+        auto *clipboard=QGuiApplication::clipboard();
+        auto *backup=new QMimeData;
+        if(const auto *mime=clipboard->mimeData()) for(const auto &format:mime->formats()) backup->setData(format,mime->data(format));
+        const auto restore=qScopeGuard([&]{clipboard->setMimeData(backup);});
+        document->select(2); const auto initial=document->nodeCount();
+        const auto revision=document->recoveryRevision();
+        QTest::keyClick(window,Qt::Key_C,Qt::ControlModifier);
+        QVERIFY(clipboard->mimeData()->hasFormat("application/x-mindarchy-branches+json"));
+        QCOMPARE(document->recoveryRevision(),revision);
+        Engine other(nullptr,Engine::InitialContent::Blank);
+        QVERIFY2(other.pasteBranches(),qPrintable(other.error())); QVERIFY(other.nodeCount()>1);
+        document->select(1); QTest::keyClick(window,Qt::Key_V,Qt::ControlModifier);
+        QVERIFY(document->nodeCount()>initial);
+        document->undo(); QCOMPARE(document->nodeCount(),initial);
+        document->select(2); canvas->forceActiveFocus();
+        const auto pan=QPointF(canvas->panX(),canvas->panY());const auto zoom=canvas->zoom();
+        QTest::keyClick(window,Qt::Key_F,Qt::ControlModifier|Qt::ShiftModifier);
+        QVERIFY(canvas->focusActive());
+        auto *bar=window->findChild<QQuickItem *>("focusBreadcrumbBar"); QVERIFY(bar);QVERIFY(bar->isVisible());
+        if(const auto path=qEnvironmentVariable("MINDARCHY_FOCUS_SCREENSHOT");!path.isEmpty()) {
+            QTest::qWait(250);QVERIFY(window->grabWindow().save(path));
+        }
+        canvas->zoomIn();QTest::keyClick(window,Qt::Key_Escape);
+        QVERIFY(!canvas->focusActive());QVERIFY(!bar->isVisible());
+        QTRY_COMPARE(QPointF(canvas->panX(),canvas->panY()),pan);QCOMPARE(canvas->zoom(),zoom);
+        QVERIFY(!window->findChild<QObject *>("focusBranchButton"));
+        QVERIFY(!window->findChild<QObject *>("branchClipboardButton"));
+        QTest::keyClick(window,Qt::Key_F,Qt::ControlModifier|Qt::ShiftModifier); QVERIFY(canvas->focusActive());
+        QTest::keyClick(window,Qt::Key_F,Qt::ControlModifier|Qt::ShiftModifier); QVERIFY(!canvas->focusActive());
+        document->selectMany({2,3}); const int connections=document->connectionCount();
+        QTest::keyClick(window,Qt::Key_L,Qt::ControlModifier);
+        QCOMPARE(document->connectionCount(),connections+1);
+        document->undo(); QCOMPARE(document->connectionCount(),connections);
+        document->select(2);
+        // Text editing must retain ordinary copy/paste instead of copying nodes.
+        canvas->beginEdit(2);QTRY_VERIFY(editor->hasActiveFocus());
+        clipboard->setText("inline text");
+        QVERIFY(QMetaObject::invokeMethod(editor,"selectAll"));
+        QTest::keyClick(window,Qt::Key_V,Qt::ControlModifier);
+        QCOMPARE(document->nodeCount(),initial);QVERIFY(editor->property("text").toString().contains("inline text"));
+        QTest::keyClick(window,Qt::Key_Return);QTRY_VERIFY(!canvas->editing());
+    }
+
     void headerSearchCyclesCentersAndFlashes() {
         document->setText(2,"Unique searchable alpha"); document->setText(3,"Unique searchable beta");
         auto *button=window->findChild<QObject *>("searchButton"); QVERIFY(button);
@@ -238,6 +492,25 @@ class UiTest : public QObject {
         QVERIFY(window->isVisible());
         QVERIFY(document->error().contains("recovery"));
     }
+    void headerButtonsDoNotShowFocusFeedback() {
+        QTest::mouseMove(window,QPoint(window->width()/2,window->height()-100));
+        for(const QString &name:{QString("openDocumentButton"),QString("saveDocumentButton"),QString("zoomPercentage"),QString("searchButton"),QString("nodeTemplatesButton")}) {
+            auto *button=window->findChild<QQuickItem *>(name); QVERIFY(button);
+            QCOMPARE(button->property("focusPolicy").toInt(),int(Qt::NoFocus));
+            button->forceActiveFocus(); QTRY_VERIFY(button->hasActiveFocus());
+            QVERIFY(!button->property("hovered").toBool());
+            auto *background=qvariant_cast<QObject *>(button->property("background")); QVERIFY(background);
+            QCOMPARE(QQmlProperty(background,"border.width",qml->rootContext()).read().toReal(),0.);
+            const QQmlProperty tooltip(button,"ToolTip.visible",qmlContext(button));
+            QVERIFY(tooltip.isValid()); QVERIFY(!tooltip.read().toBool());
+        }
+        // Active toggles retain their state indication, independently of focus.
+        auto *search=window->findChild<QQuickItem *>("searchButton");
+        window->setProperty("searchOpen",true);
+        auto *background=qvariant_cast<QObject *>(search->property("background"));
+        QCOMPARE(QQmlProperty(background,"border.width",qml->rootContext()).read().toReal(),1.);
+        window->setProperty("searchOpen",false); canvas->forceActiveFocus();
+    }
     void documentHeaderTracksSaveAndEditing() {
         QTemporaryDir dir;
         auto *name = window->findChild<QQuickItem *>("documentNameLabel");
@@ -246,14 +519,27 @@ class UiTest : public QObject {
         QVERIFY(document->save(dir.filePath("My project.omm")));
         QTRY_COMPARE(name->property("text").toString(), QString("My project"));
         QTRY_VERIFY(!edited->isVisible());
-        QTRY_VERIFY(qAbs(name->mapToScene(QPointF(0, name->height()/2)).y() - 30) < 1);
+        auto *toolbar = window->findChild<QQuickItem *>("mainToolbar");
+        QVERIFY(toolbar);
+        QTRY_VERIFY(qAbs(name->mapToScene(QPointF(0, name->height()/2)).y()
+            - toolbar->mapToScene(QPointF(0, toolbar->height()/2)).y()) < 1);
         canvas->beginEdit(1);
         QTRY_VERIFY(canvas->editing());
         QVERIFY(!window->property("documentEdited").toBool());
         type("Changed title");
         QTRY_VERIFY(window->property("documentEdited").toBool());
+        QTRY_COMPARE(edited->opacity(),1.);
+        const qreal dirtyY=name->y();
+        const qreal cleanY=(name->parentItem()->height()-name->height())/2;
+        QVERIFY(dirtyY<cleanY);
         QVERIFY(QMetaObject::invokeMethod(window, "saveDocument", Q_ARG(QVariant, false)));
+        QVERIFY(edited->isVisible()); // Saving starts the fade instead of removing the label.
+        QTest::qWait(60);
+        QVERIFY(edited->opacity()>0 && edited->opacity()<1);
+        QVERIFY(name->y()>dirtyY && name->y()<cleanY);
+        QVERIFY(qAbs(name->y()-(cleanY-edited->opacity()*(edited->height()+2)/2))<.1);
         QTRY_VERIFY(!edited->isVisible());
+        QTRY_VERIFY(qAbs(name->y()-cleanY)<.1);
         QVERIFY(!document->edited());
         if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::MacOS) {
             auto *mouse = window->findChild<QQuickItem *>("documentTitleMouse");
@@ -374,6 +660,9 @@ class UiTest : public QObject {
         QVERIFY2(!qml->rootObjects().isEmpty(), "The full application QML must load");
         window = qobject_cast<QQuickWindow *>(qml->rootObjects().first());
         QVERIFY(window);
+#ifdef Q_OS_WIN
+        new WindowMenuBar(window);
+#endif
         canvas = window->findChild<MindCanvas *>("mindCanvas");
         editor = window->findChild<QQuickItem *>("titleEditor");
         QVERIFY(canvas);
@@ -390,11 +679,51 @@ class UiTest : public QObject {
         document->setThemeId("lab");
         document->select(1);
         canvas->fit();
+        if(QGuiApplication::platformName()=="cocoa") { window->requestActivate(); QVERIFY(QTest::qWaitForWindowActive(window)); }
         canvas->forceActiveFocus();
         QTest::qWait(350);
         QVERIFY(canvas->hasActiveFocus());
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
+    }
+    void windowsHeaderReservesWindowControls() {
+#ifndef Q_OS_WIN
+        QSKIP("Windows integrated frame");
+#else
+        QVERIFY(!window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        QVERIFY(window->flags().testFlag(Qt::CustomizeWindowHint));
+        QVERIFY(!window->flags().testFlag(Qt::WindowTitleHint));
+        QVERIFY(!window->flags().testFlag(Qt::FramelessWindowHint));
+        auto *controls = window->findChild<QQuickItem *>("windowControls");
+        QVERIFY(controls); QVERIFY(controls->isVisible());
+        QCOMPARE(controls->width(), 138.0);
+        auto *viewport = window->findChild<QQuickItem *>("toolbarViewport");
+        auto *drag = window->findChild<QQuickItem *>("headerDragArea");
+        QVERIFY(viewport); QVERIFY(drag); QVERIFY(drag->isEnabled());
+        QVERIFY(window->width() - viewport->x() - viewport->width() >= 138);
+        QVERIFY(!viewport->property("interactive").toBool());
+#endif
+    }
+    void windowsMenuOnlyAppearsOnAlt() {
+#ifndef Q_OS_WIN
+        QSKIP("Windows menu behavior");
+#else
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QCOMPARE(window->property("windowsMenuHeight").toDouble(), 0.0);
+        QTest::keyClick(window, Qt::Key_Alt);
+        QVERIFY(window->property("windowsMenuVisible").toBool());
+        QVERIFY(window->property("windowsMenuHeight").toDouble() > 0);
+        QTest::keyClick(window, Qt::Key_Alt);
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QVERIFY(canvas->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Alt);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+        QVERIFY(canvas->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Alt);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(350, 200));
+        QVERIFY(!window->property("windowsMenuVisible").toBool());
+#endif
     }
     void systemThemePrefersStateDirectoryAndHandlesMigrationLive() {
         QTemporaryDir dir;
@@ -586,7 +915,7 @@ class UiTest : public QObject {
         auto button=[this](const QString &name) { auto *item=window->findChild<QQuickItem *>(name); if(item) {item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);} return item!=nullptr; };
         const auto days=Calendar::days(document->nodes().value(id).calendar);
         const int index=days.indexOf(QDate(2026,9,8)); QVERIFY(index>=0);
-        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index).center())).toPoint(); };
+        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index,Calendar::weekGutter(document->nodes().value(id).calendar)).center())).toPoint(); };
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point());
         QTRY_VERIFY(dialog->property("opened").toBool()); QVERIFY(!dialog->property("existing").toBool());
         field->setProperty("text","Design review"); QVERIFY(button("dateEntryCancel"));
@@ -620,11 +949,18 @@ class UiTest : public QObject {
                 canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+control.center())).toPoint());
             QTest::qWait(200);
         };
-        clickControl(Calendar::next());
-        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,15));
-        QVERIFY(!dialog->property("opened").toBool());
-        clickControl(Calendar::previous());
-        QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+        // The old arrow locations are inert in both calendar views.
+        for(const QString &mode : {QString("week"),QString("month")}) {
+            QVERIFY(document->configureDateNode(id,mode,"2026-09-08"));
+            canvas->fit(); QTest::qWait(250);
+            clickControl(QRectF(256,10,28,28));
+            QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+            clickControl(QRectF(10,10,28,28));
+            QCOMPARE(document->nodes().value(id).calendar.anchor,QDate(2026,9,8));
+            QVERIFY(!dialog->property("opened").toBool());
+        }
+        QVERIFY(!window->findChild<QObject *>("dateNodePrevious"));
+        QVERIFY(!window->findChild<QObject *>("dateNodeNext"));
         window->setProperty("inspectorVisible",true);
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
         auto *view=window->findChild<QQuickItem *>("dateNodeMonth"); QVERIFY(view);
@@ -648,6 +984,43 @@ class UiTest : public QObject {
         QVERIFY(document->setDateEntry(id,"2026-09-16","-2.5"));
         canvas->fit(); QTest::qWait(250);
         if(!dir.isEmpty()) QVERIFY(window->grabWindow().save(dir+"/month-sums.png"));
+    }
+    void dateInspectorStylesAndScaledDayTargets() {
+        document->select(2); QVERIFY(document->setNodeKind(2,"date"));
+        QVERIFY(document->configureDateNode(2,"month","2026-09-08"));
+        window->setProperty("inspectorVisible",true);
+        auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs);
+        tabs->setProperty("currentIndex",1);
+        auto *panel=window->findChild<QQuickItem *>("nodeStylePanel"); QVERIFY(panel);
+        for(const auto &name : {"style-borderWidth","style-border","style-fontFamily","style-fontSize","style-textColor"}) {
+            auto *control=window->findChild<QQuickItem *>(name); QVERIFY(control);
+            QTRY_VERIFY(control->isVisible());
+        }
+        QVERIFY(!window->findChild<QQuickItem *>("style-fixedWidth")->isVisible());
+        const auto before=document->contentSize(2);
+        auto apply=[panel](QString key,QVariant value) {
+            QVariant accepted;
+            return QMetaObject::invokeMethod(panel,"apply",Q_RETURN_ARG(QVariant,accepted),
+                Q_ARG(QVariant,key),Q_ARG(QVariant,value)) && accepted.toBool();
+        };
+        QVERIFY(apply("fontSize",30)); QVERIFY(apply("italic",true));
+        QVERIFY(apply("textColor",QString("#683286"))); QVERIFY(apply("borderWidth",3));
+        QCOMPARE(document->contentSize(2),before*2);
+        QVERIFY(Calendar::textFont(document->nodes().value(2).text).italic());
+        QCOMPARE(document->appearance(2).text,QColor("#683286"));
+        QCOMPARE(document->appearance(2).borderWidth,3.);
+        canvas->fit(); QTest::qWait(300);
+        const auto data=document->nodes().value(2).calendar;
+        const int index=Calendar::days(data).indexOf(QDate(2026,9,8));
+        const auto cell=Calendar::cell(index,Calendar::weekGutter(data));
+        const auto point=canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(2).topLeft()+cell.center()*2)).toPoint();
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point);
+        auto *dialog=window->findChild<QObject *>("dateEntryDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *cancel=window->findChild<QQuickItem *>("dateEntryCancel"); QVERIFY(cancel);
+        cancel->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(!dialog->property("opened").toBool());
+        document->resetNodeStyle(); QCOMPARE(document->contentSize(2),before);
     }
     void nodePanelAppliesStylesAndProtectsDraft() {
         window->setProperty("inspectorVisible",true);
@@ -738,7 +1111,9 @@ class UiTest : public QObject {
         QVERIFY(tabs);
         tabs->setProperty("currentIndex", 2);
         for (const QString &id : {QString("beach-day"), QString("holographic"),
-                                  QString("retro"), QString("arcade")}) {
+                                  QString("retro"), QString("arcade"),
+                                  QString("paper"), QString("forest"), QString("midnight"),
+                                  QString("porcelain"),QString("omarchy"),QString("sky"),QString("starlight"),QString("sage"),QString("blush"),QString("graphite")}) {
             auto *card = findVisual(window->contentItem(), "theme-" + id);
             QVERIFY(card);
             // Activating a keyboard-focused Button uses its actual clicked signal path.
@@ -823,14 +1198,16 @@ class UiTest : public QObject {
         QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY(!canvas->editing());
         const QRectF finalRect = document->nodes().value(id).rect;
-        QVERIFY(QLineF(canvas->mapFromWorld(finalRect.topLeft()),anchor).length() < .5);
+        QTest::qWait(230); // Commit allows the automatic layout to settle.
+        QCOMPARE(canvas->zoom(),zoomBefore);
         QVERIFY(std::abs(finalRect.width()*canvas->zoom()-preview.width()) < .5);
         QVERIFY(std::abs(finalRect.height()*canvas->zoom()-preview.height()) < .5);
         QCOMPARE(plain(id), QString("A longer title typed directly into its node"));
     }
     void inlineEditingAcrossThemes() {
         for (const QString &theme : {QString("beach-day"), QString("holographic"),
-                                     QString("retro"), QString("arcade")}) {
+                                     QString("retro"), QString("arcade"),
+                                  QString("paper"), QString("forest"), QString("midnight")}) {
             document->setThemeId(theme);
             document->select(1);
             canvas->zoomAt({canvas->width()/2, canvas->height()/2}, 1 / canvas->zoom());
@@ -972,14 +1349,14 @@ class UiTest : public QObject {
         }
         document->select(branch);
         const int visible = document->visibleCount();
-        QTest::keyClick(window, Qt::Key_F);
+        QTest::keyClick(window, Qt::Key_F, Qt::AltModifier);
         QTest::qWait(300);
         QVERIFY(document->selectedFolded());
         QVERIFY(document->visibleCount() < visible);
         QCOMPARE(document->nodeCount(), count);
         canvas->fit();
         stage("Folded branch — descendants retained");
-        QTest::keyClick(window, Qt::Key_F);
+        QTest::keyClick(window, Qt::Key_F, Qt::AltModifier);
         QTest::qWait(300);
         QVERIFY(!document->selectedFolded());
         QCOMPARE(document->visibleCount(), visible);
@@ -1072,6 +1449,29 @@ class UiTest : public QObject {
             document->undo();
         }
         document->setLayout("Horizontal");
+    }
+    void multipleBranchesDragToNewParentInBothModes() {
+        for(bool manual:{false,true}) for(const QString layout:{QString("Horizontal"),QString("Vertical")}) {
+            document->setLayout(layout); document->setManual(manual); QTest::qWait(250); canvas->fit();
+            const auto siblings=document->nodes()[1].children;
+            QVERIFY(siblings.size()>=3);
+            const int first=siblings[0],second=siblings[1],target=siblings[2];
+            const int nested=document->nodes()[first].children.first();
+            document->selectMany({first,second,nested});
+            const auto before=document->nodes()[1].children;
+            drag(screenCenter(first),screenCenter(target));
+            QCOMPARE(document->nodes()[first].parent,target);
+            QCOMPARE(document->nodes()[second].parent,target);
+            QCOMPARE(document->nodes()[nested].parent,first);
+            QCOMPARE(document->selectedIds(),QSet<int>({first,second,nested}));
+            document->undo(); QCOMPARE(document->nodes()[1].children,before);
+            QTest::qWait(250); canvas->fit();
+            // Single-branch manual drops use the same parent target handling.
+            document->select(first);
+            drag(screenCenter(first),screenCenter(target));
+            QCOMPARE(document->nodes()[first].parent,target);
+            document->undo(); QCOMPARE(document->nodes()[1].children,before);
+        }
     }
     void automaticDragReparentsBranch() {
         const int root = 1;

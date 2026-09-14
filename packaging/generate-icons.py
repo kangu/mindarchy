@@ -35,5 +35,5 @@ for size, data in zip(sizes, images):
     entries.append(struct.pack('<BBBBHHII', size % 256, size % 256, 0, 0, 1, 32, len(data), offset))
     offset += len(data)
 (out / 'mindarchy.ico').write_bytes(struct.pack('<HHH', 0, 1, len(images)) + b''.join(entries) + b''.join(images))
-shutil.copyfile(out / 'mindarchy-512.png', out / 'blue.mindmap.lab.png')
+shutil.copyfile(out / 'mindarchy-512.png', out / 'org.mindarchy.app.png')
 print('Created PNG sizes, macOS ICNS and Windows ICO in', out)

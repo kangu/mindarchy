@@ -45,8 +45,7 @@ public:
     }
 private:
     void capture() {
-        const auto center = m_canvas->mapToWorld({m_canvas->width()/2, m_canvas->height()/2});
-        m_snapshot = {m_canvas->zoom(), center.x(), center.y()};
+        m_snapshot = m_canvas->persistentView();
     }
     void restore() {
         // initializeView fits first, so capture is suspended until restoration.

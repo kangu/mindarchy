@@ -9,6 +9,7 @@
 #include <QVariantList>
 #import <AppKit/AppKit.h>
 
+void installMacFileMenu(QWindow *,std::function<void(QString,QString)>,std::function<QVariantList()>);
 void installMacToolbar(QWindow *window);
 void installMacHelpMenu(QWindow *);
 void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
@@ -101,6 +102,25 @@ int main(int argc, char **argv) {
     if (activated != 999999) return 13;
     if (![windowMenu itemWithTitle:@"Second map"] || ![windowMenu itemWithTitle:@"Minimize"]) return 14;
     fprintf(stdout, "Window menu: native registration, cross-process listing and cycle shortcut verified.\n");
+    QString fileCommand,chosenPath;
+    QVariantList recentFiles{QVariantMap{{"name","Example"},{"path","/tmp/example.omm"},{"available",true}},
+        QVariantMap{{"name","Missing"},{"path","/tmp/missing.omm"},{"available",false}}};
+    installMacFileMenu(&window,[&](QString command,QString path) { fileCommand=command; chosenPath=path; if(command=="clear") recentFiles.clear(); },[&] {return recentFiles;});
+    NSMenu *fileMenu=[NSApp.mainMenu itemWithTitle:@"File"].submenu;
+    if(!fileMenu || fileMenu.numberOfItems!=7) return 24;
+    for(NSString *title in @[@"New",@"Open…",@"Save",@"Close Window"]) {
+        NSMenuItem *item=[fileMenu itemWithTitle:title]; if(!item || !item.keyEquivalent.length) return 25;
+        fileCommand.clear(); [NSApp sendAction:item.action to:item.target from:item]; if(fileCommand.isEmpty()) return 26;
+    }
+    NSMenu *recentMenu=[fileMenu itemWithTitle:@"Open Recent"].submenu;
+    [recentMenu.delegate menuNeedsUpdate:recentMenu];
+    if(recentMenu.numberOfItems!=4 || !recentMenu.itemArray[0].enabled || recentMenu.itemArray[1].enabled) return 27;
+    NSMenuItem *recentItem=recentMenu.itemArray[0]; [NSApp sendAction:recentItem.action to:recentItem.target from:recentItem];
+    if(fileCommand!="recent" || chosenPath!="/tmp/example.omm") return 28;
+    NSMenuItem *clear=[recentMenu itemWithTitle:@"Clear Menu"]; [NSApp sendAction:clear.action to:clear.target from:clear];
+    [recentMenu.delegate menuNeedsUpdate:recentMenu];
+    if(![recentMenu itemWithTitle:@"No Recent Files"] || [recentMenu itemWithTitle:@"Clear Menu"].enabled) return 29;
+    fprintf(stdout,"File menu: standard commands, recent-file dispatch, unavailable items, and Clear Menu verified.\n");
     installMacHelpMenu(&window);
     NSMenu *help=NSApp.helpMenu;
     NSMenuItem *shortcuts=[help itemWithTitle:@"Keyboard Shortcuts…"];
