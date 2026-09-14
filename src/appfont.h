@@ -1,12 +1,18 @@
 #pragma once
 #include <QString>
+#include <QFontDatabase>
 
-// Windows does not resolve the CSS generic family name consistently in QFont.
-// Use its built-in UI font for both measurement and painting.
+// Use the host's UI sans serif; keep measurement, canvas, export and editor identical.
 inline QString mindarchyTextFamily() {
 #ifdef Q_OS_WIN
     return QStringLiteral("Segoe UI");
+#elif defined(Q_OS_MACOS)
+    // Explicit family also resolves in offscreen Quick Look and export processes.
+    return QStringLiteral("Helvetica Neue");
 #else
-    return QStringLiteral("sans-serif");
+    const auto families=QFontDatabase::families();
+    for(const auto &name : {QStringLiteral("Inter"),QStringLiteral("Noto Sans"),QStringLiteral("DejaVu Sans")})
+        if(families.contains(name)) return name;
+    return QFontDatabase::systemFont(QFontDatabase::GeneralFont).family();
 #endif
 }

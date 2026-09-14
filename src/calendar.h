@@ -18,14 +18,14 @@ struct CalendarData {
     QMap<QString,QString> entries;
 };
 namespace Calendar {
-inline QFont textFont(const QString &text) {
-    QFont base(mindarchyTextFamily()); base.setPixelSize(15);
+inline QFont textFont(const QString &text, const QString &family = {}) {
+    QFont base(family.isEmpty() ? mindarchyTextFamily() : family); base.setPixelSize(15);
     QTextDocument doc; doc.setDefaultFont(base); doc.setHtml(text);
     QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter,QTextCursor::KeepAnchor);
     return cursor.charFormat().font().resolve(base);
 }
-inline qreal textScale(const QString &text) {
-    const auto font=textFont(text);
+inline qreal textScale(const QString &text, const QString &family = {}) {
+    const auto font=textFont(text,family);
     return (font.pixelSize()>0 ? font.pixelSize() : font.pointSizeF()*96./72.)/15.;
 }
 inline Qt::Alignment textAlignment(const QString &text) {

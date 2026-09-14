@@ -34,3 +34,5 @@ win32 {
     HEADERS += src/windowsdialogs.h
     LIBS += -lcomctl32 -lole32 -lshell32
 }
+
+RESOURCES += fonts.qrc

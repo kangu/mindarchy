@@ -7,7 +7,7 @@ Button {
     required property var theme
     objectName: "theme-" + theme.id
     readonly property bool hasRecipe: !!theme.recipe.layout
-    implicitHeight: hasRecipe ? 183 : 152
+    implicitHeight: hasRecipe || theme.refined ? 183 : 152
     checkable: false
     focusPolicy: Qt.StrongFocus
     Accessible.name: theme.name + (checked ? ", current theme" : ", apply theme")
@@ -34,9 +34,14 @@ Button {
                         else c.roundedRect(x,y,ww,hh,style.shape===2?hh/2:4,style.shape===2?hh/2:4)
                         c.fill(); if(style.borderWidth>0) c.stroke()
                     }
-                    c.fillStyle=style.text; c.font="8px sans-serif"
+                    c.fillStyle=style.text; c.font="8px '" + t.fontFamily + "'"
                     if(label) c.fillText(label,x+6,y+hh/2+3)
-                    else c.fillRect(x+6,y+hh/2,Math.max(6,ww-12),1)
+                    else if(t.refined && hh>=16) {
+                        c.strokeStyle=style.taskAccent; c.lineWidth=style.taskCheckWidth*.55;
+                        c.lineCap="round"; c.lineJoin="round"; c.beginPath();
+                        c.moveTo(x+5,y+hh/2); c.lineTo(x+8,y+hh/2+3); c.lineTo(x+13,y+hh/2-4); c.stroke();
+                        c.fillRect(x+18,y+hh/2,Math.max(4,ww-24),1);
+                    } else c.fillRect(x+6,y+hh/2,Math.max(6,ww-12),1)
                 }
                 function edge(x1,y1,x2,y2,color) {
                     c.strokeStyle=color; c.lineWidth=1.2; c.beginPath(); c.moveTo(x1,y1)
@@ -76,7 +81,7 @@ Button {
             onPaint: {
                 var c = getContext("2d"), w = width, h = height
                 c.reset(); c.fillStyle = card.theme.canvas; c.fillRect(0,0,w,h)
-                if (card.hasRecipe) { drawRecipe(c,w,h); return }
+                if (card.hasRecipe || card.theme.refined) { drawRecipe(c,w,h); return }
                 var id = card.theme.id, colors = card.theme.palette
                 var dark = id === "arcade" || id === "lab"
                 function node(x,y,ww,hh,fill,stroke,shape) {
@@ -106,19 +111,19 @@ Button {
                     c.fillRect(x+8,y+8,20,1)
                 }
                 c.fillStyle=dark || id === "retro" ? "#fff0d4" : "#35333d"
-                c.font="bold 9px sans-serif"; c.fillText("Ideas",20,57)
+                c.font="bold 9px '" + card.theme.fontFamily + "'"; c.fillText("Ideas",20,57)
             }
         }
         Row {
-            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.bottomMargin: card.hasRecipe ? 35 : 7; anchors.leftMargin: 7; anchors.rightMargin: 7
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.bottomMargin: card.hasRecipe || card.theme.refined ? 35 : 7; anchors.leftMargin: 7; anchors.rightMargin: 7
             spacing: 7
             Label { text: card.checked ? "✓" : ""; color: (ShellTheme.colors["#70d8c4"] || "#70d8c4"); width: 12 }
             Label { text: card.theme.name; color: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee"); font.pixelSize: 12; font.bold: card.checked }
         }
         Label {
-            visible: card.hasRecipe
+            visible: card.hasRecipe || card.theme.refined
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 7
-            text: card.hasRecipe ? card.theme.recipe.name + " · " + card.theme.recipe.layout : ""
+            text: card.hasRecipe ? card.theme.recipe.name + " · " + card.theme.recipe.layout : card.theme.fontFamily + (card.theme.isDefault ? " · Default" : "")
             color: (ShellTheme.colors["#94a9b7"] || "#a7bdcb"); font.pixelSize: 10; elide: Text.ElideRight
         }
     }

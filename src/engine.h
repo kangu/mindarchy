@@ -30,6 +30,7 @@ struct MapNode {
 };
 class Engine : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QString textFamily READ textFamily NOTIFY changed)
     Q_PROPERTY(bool selectedHasImage READ selectedHasImage NOTIFY changed)
     Q_PROPERTY(QString selectedImagePlacement READ selectedImagePlacement NOTIFY changed)
     Q_PROPERTY(QString documentName READ documentName NOTIFY changed)
@@ -134,6 +135,7 @@ class Engine : public QObject {
     QString error() const { return m_error; }
     QVector<QPair<int, int>> connections() const { return m_connections; }
     int connectionCount() const { return m_connections.size(); }
+    QString textFamily() const;
     QString themeId() const { return m_themeId; }
     QVariantList themes() const { return Themes::catalog(); }
     QColor canvasColor() const { return Themes::get(m_themeId).canvas; }
@@ -243,8 +245,9 @@ class Engine : public QObject {
         bool task;
         QSizeF size;
         double width = 0;
+        QString family;
     };
-    static bool measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth = 0);
+    bool measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth = 0, QString family = {}) const;
     QHash<int, TextMeasure> m_textCache;
     QHash<int, int> m_branchIndices;
     QHash<int, QRectF> m_layoutRects;

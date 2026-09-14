@@ -30,7 +30,7 @@ This opens its own sample window, labels the current test in the title and pause
 
 ## Themes
 
-Open **Inspector → Themes** and click a preview to apply **Beach Day**, **Holographic**, **Retro** or **Arcade**. Tab to a card and press Space for keyboard activation. Lab restores the legacy palette. Theme changes preserve your map, can be undone/redone and are saved in JSON. Pending title and notes drafts are protected.
+Open **Inspector → Theme** to apply a palette. The new collection—**Porcelain**, **Sky**, **Starlight**, **Sage**, **Blush**, and **Graphite**—appears first, followed by every existing theme. New documents start with **Omarchy** on detected Omarchy installations, with **Porcelain** second in the picker. Other systems default to **Porcelain**, with **Omarchy** second; existing documents retain their chosen theme. Each new theme controls task completion color, checkbox corners and weight, and progress-ring styling. Theme changes preserve authored text formatting, support undo/redo and persist with the document. See [the collection notes](docs/refined-theme-collection.md) and [sample maps](examples/refined-themes).
 
 The presets reproduce the observed canvas palettes and node styles by depth using original previews and portable typography. They are visual approximations, not exact MindNode theme assets or font metrics. Explicit rich-text colors remain explicit and may need adjustment after switching between light and dark themes.
 
@@ -162,13 +162,13 @@ Session metadata lives in the platform application-data directory under `session
 
 Cmd+W closes the active window after any save confirmation and removes it from session restoration. On macOS, Cmd+Q atomically checkpoints every window to recovery storage, without a Save dialog. All windows stay open until every checkpoint succeeds; a failed write cancels quitting and displays an error. Relaunching restores those windows, original filenames, unsaved status, unfinished node text/notes/date entries, viewport and per-window placement. Unavailable displays use the existing placement fallback.
 
-Recovery copies live at `~/Library/Application Support/MindmapBlue/Mindmap Lab/session/<window-id>.recovery`, with owner-only file permissions. They are private JSON envelopes containing document JSON, the last saved baseline, original path and UI drafts; they do not change the user's `.omm` file. The historical directory name is intentional. These are durable Application Support files rather than purgeable temporary files. Each active macOS window checks for changes every second and writes only changed snapshots. Atomic replacement retains the previous complete snapshot on write failure. Crashes recover the latest completed snapshot; changes within the last second (or while the UI thread/storage is blocked) may not yet be captured. Uncommitted IME composition is committed when quitting, but a crash can interrupt composition. Explicitly closing/discarding a window removes its recovery copy. Invalid recovery files are retained on disk and reported rather than deleted. Recovery storage is local to this computer, not a substitute for backups.
+Recovery copies live at `~/Library/Application Support/Mindarchy/session/<window-id>.recovery`, with owner-only file permissions. They are private JSON envelopes containing document JSON, the last saved baseline, original path and UI drafts; they do not change the user's `.omm` file. These are durable Application Support files rather than purgeable temporary files. Each active macOS window checks for changes every second and writes only changed snapshots. Atomic replacement retains the previous complete snapshot on write failure. Crashes recover the latest completed snapshot; changes within the last second (or while the UI thread/storage is blocked) may not yet be captured. Uncommitted IME composition is committed when quitting, but a crash can interrupt composition. Explicitly closing/discarding a window removes its recovery copy. Invalid recovery files are retained on disk and reported rather than deleted. Recovery storage is local to this computer, not a substitute for backups.
 
 On Omarchy, the existing coordinated Save/Discard/Cancel quit flow remains in use.
 
 ## Mindarchy rename compatibility
 
-The application, executable, artwork resources and release packages now use Mindarchy. The repository directory is unchanged. The internal `org.mindarchy.app` application/launcher identity, `org.mindarchy.omm` document type, and `mindmap-lab` v1 JSON format remain stable so existing file associations and documents continue to work. Window preferences and the session registry retain their historical storage namespace through `src/appidentity.h`; existing window geometry and reopened documents are preserved. Archived release artifacts retain their original names; the release workflow produces new `Mindarchy` packages.
+The application, bundle (`org.mindarchy.app`), Linux launchers, document type (`org.mindarchy.omm`), artwork and release packages use Mindarchy. Documents use the `mindarchy` v1 format. This pre-release build starts with the Mindarchy storage namespace and does not migrate older prototypes or support their document-format identifiers. Historical progress records retain their original names.
 
 ### Live Omarchy shell theme
 
@@ -271,3 +271,11 @@ Each remote machine must already have the **same current source checkout** and i
 macOS uses AppKit's tab bar, including the native plus/close buttons and tab dragging. Omarchy and Windows use a matching scrollable strip with document titles, edited markers, close buttons, and a plus button. The shared application manager keeps all documents in one process; on these platforms only the active document window in each tab group is shown. The Omarchy strip and menu follow the live shell palette. Each document retains its own canvas, undo history, file path, viewport, and recovery snapshot. Group membership is stored outside `.omm` files in the session directory's `tabs.ini`.
 
 After updating from the earlier separate-process Omarchy/Windows build, fully quit existing instances before launching the new executable. Windows uses the shared implementation, but this tab feature has not yet been runtime-tested on Windows.
+
+Each of the 19 map themes has a distinct bundled open-source base font, including Inter, Manrope, Lora and Newsreader. Explicit node font overrides are preserved. Font sources and SIL licenses are included under `assets/fonts`; see the [theme collection](docs/refined-theme-collection.md) for the full pairing table.
+
+Automatic layout keeps node and connection motion synchronized when adding child/sibling nodes or committing a title. Inline editing follows the moving node without cancelling the reflow animation.
+
+Omarchy is the second theme in the picker: a dark Tokyo Night-inspired palette with bundled JetBrains Mono, terminal-green task indicators and restrained node corners.
+
+Platform defaults are detected at runtime on Linux using OMARCHY_PATH, the standard system/user Omarchy installation directories, or current Omarchy theme state under XDG_STATE_HOME/XDG_CONFIG_HOME. Saved document themes are never overwritten.

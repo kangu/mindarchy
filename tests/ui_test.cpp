@@ -15,6 +15,7 @@
 #include <QTemporaryDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTextDocument>
@@ -491,6 +492,25 @@ class UiTest : public QObject {
         QVERIFY(window->isVisible());
         QVERIFY(document->error().contains("recovery"));
     }
+    void headerButtonsDoNotShowFocusFeedback() {
+        QTest::mouseMove(window,QPoint(window->width()/2,window->height()-100));
+        for(const QString &name:{QString("openDocumentButton"),QString("saveDocumentButton"),QString("zoomPercentage"),QString("searchButton"),QString("nodeTemplatesButton")}) {
+            auto *button=window->findChild<QQuickItem *>(name); QVERIFY(button);
+            QCOMPARE(button->property("focusPolicy").toInt(),int(Qt::NoFocus));
+            button->forceActiveFocus(); QTRY_VERIFY(button->hasActiveFocus());
+            QVERIFY(!button->property("hovered").toBool());
+            auto *background=qvariant_cast<QObject *>(button->property("background")); QVERIFY(background);
+            QCOMPARE(QQmlProperty(background,"border.width",qml->rootContext()).read().toReal(),0.);
+            const QQmlProperty tooltip(button,"ToolTip.visible",qmlContext(button));
+            QVERIFY(tooltip.isValid()); QVERIFY(!tooltip.read().toBool());
+        }
+        // Active toggles retain their state indication, independently of focus.
+        auto *search=window->findChild<QQuickItem *>("searchButton");
+        window->setProperty("searchOpen",true);
+        auto *background=qvariant_cast<QObject *>(search->property("background"));
+        QCOMPARE(QQmlProperty(background,"border.width",qml->rootContext()).read().toReal(),1.);
+        window->setProperty("searchOpen",false); canvas->forceActiveFocus();
+    }
     void documentHeaderTracksSaveAndEditing() {
         QTemporaryDir dir;
         auto *name = window->findChild<QQuickItem *>("documentNameLabel");
@@ -508,8 +528,18 @@ class UiTest : public QObject {
         QVERIFY(!window->property("documentEdited").toBool());
         type("Changed title");
         QTRY_VERIFY(window->property("documentEdited").toBool());
+        QTRY_COMPARE(edited->opacity(),1.);
+        const qreal dirtyY=name->y();
+        const qreal cleanY=(name->parentItem()->height()-name->height())/2;
+        QVERIFY(dirtyY<cleanY);
         QVERIFY(QMetaObject::invokeMethod(window, "saveDocument", Q_ARG(QVariant, false)));
+        QVERIFY(edited->isVisible()); // Saving starts the fade instead of removing the label.
+        QTest::qWait(60);
+        QVERIFY(edited->opacity()>0 && edited->opacity()<1);
+        QVERIFY(name->y()>dirtyY && name->y()<cleanY);
+        QVERIFY(qAbs(name->y()-(cleanY-edited->opacity()*(edited->height()+2)/2))<.1);
         QTRY_VERIFY(!edited->isVisible());
+        QTRY_VERIFY(qAbs(name->y()-cleanY)<.1);
         QVERIFY(!document->edited());
         if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::MacOS) {
             auto *mouse = window->findChild<QQuickItem *>("documentTitleMouse");
@@ -1082,7 +1112,8 @@ class UiTest : public QObject {
         tabs->setProperty("currentIndex", 2);
         for (const QString &id : {QString("beach-day"), QString("holographic"),
                                   QString("retro"), QString("arcade"),
-                                  QString("paper"), QString("forest"), QString("midnight")}) {
+                                  QString("paper"), QString("forest"), QString("midnight"),
+                                  QString("porcelain"),QString("omarchy"),QString("sky"),QString("starlight"),QString("sage"),QString("blush"),QString("graphite")}) {
             auto *card = findVisual(window->contentItem(), "theme-" + id);
             QVERIFY(card);
             // Activating a keyboard-focused Button uses its actual clicked signal path.
@@ -1167,7 +1198,8 @@ class UiTest : public QObject {
         QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY(!canvas->editing());
         const QRectF finalRect = document->nodes().value(id).rect;
-        QVERIFY(QLineF(canvas->mapFromWorld(finalRect.topLeft()),anchor).length() < .5);
+        QTest::qWait(230); // Commit allows the automatic layout to settle.
+        QCOMPARE(canvas->zoom(),zoomBefore);
         QVERIFY(std::abs(finalRect.width()*canvas->zoom()-preview.width()) < .5);
         QVERIFY(std::abs(finalRect.height()*canvas->zoom()-preview.height()) < .5);
         QCOMPARE(plain(id), QString("A longer title typed directly into its node"));

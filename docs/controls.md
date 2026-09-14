@@ -52,6 +52,8 @@ Document, branch, formatting and canvas toolbar actions use locally bundled Luci
 
 ## Manual branch direction
 
+In Manual placement, folding hides descendants without moving the parent, root, or other branches. Expanding restores the descendants to their existing positions, including nested folded branches. This applies to Horizontal and Vertical layouts and survives undo/redo and saving/reopening. Automatic placement continues to reflow around folded branches.
+
 In Horizontal layout with Manual placement enabled, drag a branch across the root's vertical centerline to change its growth direction. A branch centered left of the root grows left; moving it back to the right restores rightward growth. Descendant positions and connector attachment edges update during the drag, while text remains readable. The drop keeps the preview geometry without a second layout animation. Relative manual adjustments mirror with their parent, and dragging a child within a left-facing branch still follows the pointer normally. The arrangement survives save/open and supports undo/redo. Vertical and Compact layouts keep their existing behavior.
 
 ## Date nodes

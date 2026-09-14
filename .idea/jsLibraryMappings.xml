@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="JavaScriptLibraryMappings">
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/angular-plugin/angular-service/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/javascript-plugin/helpers/package-version-range-matcher/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/javascript-plugin/helpers/vitest-intellij/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/typescript/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-language-tools/typescript-plugin/3.0.11/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-language-tools/typescript-plugin/3.3.5/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-service/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/Figma.app/Contents/Resources/app.asar.unpacked/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/HEY.app/Contents/Resources/app.asar.unpacked/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/Polar.app/Contents/Resources/app.asar.unpacked/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/Slack.app/Contents/Resources/app.asar.unpacked/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/ZEUS.app/WrappedBundle/assets/node_modules" />
-    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.0/arm64/20260910T115434660914Z/.dmg-2g3ifulx/Applications/ZEUS.app/Wrapper/zeus.app/assets/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/angular-plugin/angular-service/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/javascript-plugin/helpers/package-version-range-matcher/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/javascript-plugin/helpers/vitest-intellij/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/typescript/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-language-tools/typescript-plugin/3.0.11/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-language-tools/typescript-plugin/3.3.5/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/CLion.app/Contents/plugins/vuejs-plugin/vue-service/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/Figma.app/Contents/Resources/app.asar.unpacked/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/HEY.app/Contents/Resources/app.asar.unpacked/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/Polar.app/Contents/Resources/app.asar.unpacked/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/Slack.app/Contents/Resources/app.asar.unpacked/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/ZEUS.app/WrappedBundle/assets/node_modules" />
+    <excludedPredefinedLibrary name="qt-prototype/dist/macos/0.1.2/arm64/20260910T213129116309Z/.dmg-xcr2wc6i/Applications/ZEUS.app/Wrapper/zeus.app/assets/node_modules" />
   </component>
 </project>

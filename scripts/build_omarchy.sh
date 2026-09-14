@@ -19,7 +19,7 @@ mkdir -p "$output"
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 # Stage only build inputs; never include old builds, user maps, or artifacts.
-tar -C "$root" -cf "$work/source.tar" src qml assets packaging prototype.pro resources.qrc
+tar -C "$root" -cf "$work/source.tar" src qml assets packaging prototype.pro resources.qrc fonts.qrc
 mkdir "$work/source"
 tar -C "$work/source" -xf "$work/source.tar"
 cat > "$work/PKGBUILD" <<PKG

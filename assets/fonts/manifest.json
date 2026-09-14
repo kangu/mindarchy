@@ -1,0 +1,359 @@
+{
+  "repositoryCommit": "8e44913e4ff26fc997e6856c1ec40ff4791c98c5",
+  "families": [
+    {
+      "familyDirectory": "inter",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/inter",
+      "files": [
+        {
+          "file": "inter/Inter-Italic[opsz,wght].ttf",
+          "sha256": "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6"
+        },
+        {
+          "file": "inter/Inter[opsz,wght].ttf",
+          "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031"
+        },
+        {
+          "file": "inter/OFL.txt",
+          "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "manrope",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/manrope",
+      "files": [
+        {
+          "file": "manrope/Manrope[wght].ttf",
+          "sha256": "d0639be45d0af36e798172419d7bd173c4bd4f29e2b76cbb69db1d11bf8b0a40"
+        },
+        {
+          "file": "manrope/OFL.txt",
+          "sha256": "e01b637272e0cbdfb240184dd98ea5cc671556d9894dae2668d92ab2c906787c"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "lora",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/lora",
+      "files": [
+        {
+          "file": "lora/Lora-Italic[wght].ttf",
+          "sha256": "22d8d8854b53807aa664ca34f2031a9ed57a1d0dea296b8b96cdd3aad937a2b3"
+        },
+        {
+          "file": "lora/Lora[wght].ttf",
+          "sha256": "822a6621ccbe8d97d20ac88c1c41f5615c9c2c202eaa75f272cd452aac6475a7"
+        },
+        {
+          "file": "lora/OFL.txt",
+          "sha256": "1d9a970809ac804b582a6ce7f0ebc4e7fefcbfd7ff6299cad35ee656a21be716"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "sourcesans3",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/sourcesans3",
+      "files": [
+        {
+          "file": "sourcesans3/SourceSans3-Italic[wght].ttf",
+          "sha256": "39e3ab05ccd7cb94907c31005bb5bec1d5432f0b096a2b782976e217a540eb6c"
+        },
+        {
+          "file": "sourcesans3/SourceSans3[wght].ttf",
+          "sha256": "042fe2cc0b933e328410d7acbd0aa6a1873dca5aef81875f4bc214b08825c7b9"
+        },
+        {
+          "file": "sourcesans3/OFL.txt",
+          "sha256": "09746787287a289323b0ec3cff4d1a4a801331b82b7207c1e186f5d26619a392"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "dmsans",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/dmsans",
+      "files": [
+        {
+          "file": "dmsans/DMSans-Italic[opsz,wght].ttf",
+          "sha256": "22259c0cc8237221b80f44c76ba8d36e6bce3cda72779f5b2773643d499720ae"
+        },
+        {
+          "file": "dmsans/DMSans[opsz,wght].ttf",
+          "sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d"
+        },
+        {
+          "file": "dmsans/OFL.txt",
+          "sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "ibmplexsans",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/ibmplexsans",
+      "files": [
+        {
+          "file": "ibmplexsans/IBMPlexSans-Italic[wdth,wght].ttf",
+          "sha256": "0b94c5e981993764db32bf9c610ecc60cbd34ad77ec2f10ba03c64ab75124d8e"
+        },
+        {
+          "file": "ibmplexsans/IBMPlexSans[wdth,wght].ttf",
+          "sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+        },
+        {
+          "file": "ibmplexsans/OFL.txt",
+          "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "nunitosans",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/nunitosans",
+      "files": [
+        {
+          "file": "nunitosans/NunitoSans-Italic[YTLC,opsz,wdth,wght].ttf",
+          "sha256": "d9d5db18f3c11221a4fbb553cbc709391c1179964c7eaa4466ef43c78aa4492f"
+        },
+        {
+          "file": "nunitosans/NunitoSans[YTLC,opsz,wdth,wght].ttf",
+          "sha256": "f934d7142fb4784bf828da485b7dcbd90c0c80d514e9d49a5da0ed3a1ae2491d"
+        },
+        {
+          "file": "nunitosans/OFL.txt",
+          "sha256": "efbb0c9e864cef973982d9a17567e6be5c3d1759695574586f3f18c7ecca064b"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "spacegrotesk",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/spacegrotesk",
+      "files": [
+        {
+          "file": "spacegrotesk/SpaceGrotesk[wght].ttf",
+          "sha256": "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72"
+        },
+        {
+          "file": "spacegrotesk/OFL.txt",
+          "sha256": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "archivo",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/archivo",
+      "files": [
+        {
+          "file": "archivo/Archivo-Italic[wdth,wght].ttf",
+          "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+        },
+        {
+          "file": "archivo/Archivo[wdth,wght].ttf",
+          "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+        },
+        {
+          "file": "archivo/OFL.txt",
+          "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "spacemono",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/spacemono",
+      "files": [
+        {
+          "file": "spacemono/SpaceMono-Bold.ttf",
+          "sha256": "405e73d41afb7e5906efce206a326af5c956f38e255f35421c260e861e599c59"
+        },
+        {
+          "file": "spacemono/SpaceMono-BoldItalic.ttf",
+          "sha256": "cdcc95eddee312879a9728494e595f591cb159f3f276d79bc58673dec7e57138"
+        },
+        {
+          "file": "spacemono/SpaceMono-Italic.ttf",
+          "sha256": "eca264c8690a91fe837d19a6badf2d88961610c4c8aafcb196526192a9f258c5"
+        },
+        {
+          "file": "spacemono/SpaceMono-Regular.ttf",
+          "sha256": "95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18"
+        },
+        {
+          "file": "spacemono/OFL.txt",
+          "sha256": "8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "ibmplexmono",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/ibmplexmono",
+      "files": [
+        {
+          "file": "ibmplexmono/IBMPlexMono-Bold.ttf",
+          "sha256": "ac27abd6450a64dd94467580a02fe6235156d5b92f2926ebbc8e7489df64e0be"
+        },
+        {
+          "file": "ibmplexmono/IBMPlexMono-BoldItalic.ttf",
+          "sha256": "af4e05a761e98c1adf064c48a6352c9bec1a6ad70982cd2a544149323391f98e"
+        },
+        {
+          "file": "ibmplexmono/IBMPlexMono-Italic.ttf",
+          "sha256": "3362fc791b0652193328b862c1c5f23a789bc7288b1617fa63302f88689a2a34"
+        },
+        {
+          "file": "ibmplexmono/IBMPlexMono-Regular.ttf",
+          "sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+        },
+        {
+          "file": "ibmplexmono/OFL.txt",
+          "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "literata",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/literata",
+      "files": [
+        {
+          "file": "literata/Literata-Italic[opsz,wght].ttf",
+          "sha256": "d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465"
+        },
+        {
+          "file": "literata/Literata[opsz,wght].ttf",
+          "sha256": "b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440"
+        },
+        {
+          "file": "literata/OFL.txt",
+          "sha256": "8742963604cd89dc81437811a850018fc03b2bfad686d7422c8235967c87614e"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "publicsans",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/publicsans",
+      "files": [
+        {
+          "file": "publicsans/PublicSans-Italic[wght].ttf",
+          "sha256": "6ce292b05aa8c66bc644bedff834b4d0ddee9af75c55f98dcb28faa32a81056f"
+        },
+        {
+          "file": "publicsans/PublicSans[wght].ttf",
+          "sha256": "d75a7dc1a27eb9e336d5b33f55489d2ecb5621bf694d5c43b2415bce2ca830a8"
+        },
+        {
+          "file": "publicsans/OFL.txt",
+          "sha256": "157a9e77f7580246e97c769490e2e977ae94399f9d30f4556015c41fe8c28bac"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "sourceserif4",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/sourceserif4",
+      "files": [
+        {
+          "file": "sourceserif4/SourceSerif4-Italic[opsz,wght].ttf",
+          "sha256": "15fbc7e4679489a501998c3669272637a6646388ef7e4bd77eebb5bf967a1f42"
+        },
+        {
+          "file": "sourceserif4/SourceSerif4[opsz,wght].ttf",
+          "sha256": "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b"
+        },
+        {
+          "file": "sourceserif4/OFL.txt",
+          "sha256": "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "plusjakartasans",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/plusjakartasans",
+      "files": [
+        {
+          "file": "plusjakartasans/PlusJakartaSans-Italic[wght].ttf",
+          "sha256": "9529eb888668b6a3c6dd75b6341a2fc5263fb6c9e788822e6117c29dd9e8b115"
+        },
+        {
+          "file": "plusjakartasans/PlusJakartaSans[wght].ttf",
+          "sha256": "89b3fb38aa0d275d7a731d0d817a4f1622b316b4d7fbdedcf02ee9099ff68bc8"
+        },
+        {
+          "file": "plusjakartasans/OFL.txt",
+          "sha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "newsreader",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/newsreader",
+      "files": [
+        {
+          "file": "newsreader/Newsreader-Italic[opsz,wght].ttf",
+          "sha256": "796668611f80b64d5adf182fde3b6f29ed83b4e7cbec7b96937e84ac01364792"
+        },
+        {
+          "file": "newsreader/Newsreader[opsz,wght].ttf",
+          "sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1"
+        },
+        {
+          "file": "newsreader/OFL.txt",
+          "sha256": "fdfad38143ec470553cae82a1e45320bdd1b9ec70415d37bd0171051d8a4ded8"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "lato",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/lato",
+      "files": [
+        {
+          "file": "lato/Lato-Bold.ttf",
+          "sha256": "8a0aace75d33794eece4b28187bfc1df0bbd2888b5d8a56e01788c8d65d16be1"
+        },
+        {
+          "file": "lato/Lato-BoldItalic.ttf",
+          "sha256": "62c1b7f0d2e74b45960154c3520efc337b553db0961bfdc950d5618334596cc8"
+        },
+        {
+          "file": "lato/Lato-Italic.ttf",
+          "sha256": "e399c44efe1387100531d26c7e4800c5d12251b890d6654a3098c7c679cb1786"
+        },
+        {
+          "file": "lato/Lato-Regular.ttf",
+          "sha256": "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251"
+        },
+        {
+          "file": "lato/OFL.txt",
+          "sha256": "74ba064d03f1f1c4a952da936c3eb71866c34404916734de3cae73b34357e59e"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "outfit",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/outfit",
+      "files": [
+        {
+          "file": "outfit/Outfit[wght].ttf",
+          "sha256": "fc7287273e66929776e2ba54f144fe699080bec29f61bf649d70d871468aeade"
+        },
+        {
+          "file": "outfit/OFL.txt",
+          "sha256": "c676351bf8576b9aba743cd5eaa8c0e7ee0d51f805d720447b4df4ddb6a2e416"
+        }
+      ]
+    },
+    {
+      "familyDirectory": "jetbrainsmono",
+      "source": "https://github.com/google/fonts/tree/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/jetbrainsmono",
+      "files": [
+        {
+          "file": "jetbrainsmono/JetBrainsMono[wght].ttf",
+          "sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda"
+        },
+        {
+          "file": "jetbrainsmono/JetBrainsMono-Italic[wght].ttf",
+          "sha256": "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558"
+        },
+        {
+          "file": "jetbrainsmono/OFL.txt",
+          "sha256": "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"
+        }
+      ]
+    }
+  ]
+}

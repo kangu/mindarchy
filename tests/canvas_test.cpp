@@ -462,6 +462,29 @@ class CanvasTest : public QObject {
             QVERIFY(window.grabWindow().save(screenshot));
         }
     }
+    void automaticCreationKeepsReflowWhileEditing() {
+        Engine e(nullptr,Engine::InitialContent::Blank);
+        e.addChild(); e.addSibling();
+        MindCanvas c; c.setSize({1200,800}); c.setEngine(&e); c.fit();
+        const auto old=e.nodes();
+        e.addSibling();
+        QVERIFY(c.editing()); QVERIFY(c.m_animating);
+        int existing=-1;
+        for(auto it=old.cbegin();it!=old.cend();++it)
+            if(it->rect!=e.nodes()[it.key()].rect) { existing=it.key(); break; }
+        QVERIFY(existing>=0);
+        const auto before=old[existing].rect;
+        const auto target=e.nodes()[existing].rect;
+        QVERIFY(QLineF(c.displayRect(existing).center(),before.center()).length()<2);
+        QTest::qWait(60);
+        const auto middle=c.displayRect(existing);
+        QVERIFY(middle!=target); QVERIFY(middle!=before);
+        const auto pan=c.m_pan;
+        QVERIFY(c.commitEditing("A longer new sibling title"));
+        QCOMPARE(c.m_pan,pan); QVERIFY(c.m_animating);
+        QTest::qWait(230);
+        for(int id:e.visibleIds()) QCOMPARE(c.displayRect(id),e.nodes()[id].rect);
+    }
     void taskTransitionKeepsTextLayoutStable() {
         Engine engine(nullptr, Engine::InitialContent::Blank);
         engine.setText(1, "seems to be working");

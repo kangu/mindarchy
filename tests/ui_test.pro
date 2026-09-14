@@ -6,3 +6,5 @@ INCLUDEPATH += ../src
 SOURCES += ui_test.cpp ../src/engine.cpp ../src/theme.cpp ../src/drawing.cpp ../src/canvas.cpp ../src/canvasimages.cpp ../src/shelltheme.cpp
 HEADERS += ../src/engine.h ../src/theme.h ../src/canvas.h ../src/shelltheme.h
 RESOURCES += ../resources.qrc
+
+RESOURCES += ../fonts.qrc

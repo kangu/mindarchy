@@ -582,7 +582,7 @@ class EngineTest : public QObject {
     }
     void blankDocumentStartsWithOneEditableRoot() {
         Engine e(nullptr,Engine::InitialContent::Blank);
-        QCOMPARE(e.themeId(),QString("beach-day"));
+        QCOMPARE(e.themeId(),Themes::defaultId());
         QVERIFY(!e.hasUnsavedChanges());
         QCOMPARE(e.nodeCount(),1); QCOMPARE(e.selectedId(),1);
         QCOMPARE(e.selectedText(),QString("Central idea"));
@@ -885,6 +885,82 @@ class EngineTest : public QObject {
             Engine loaded; QVERIFY(loaded.open(path)); QCOMPARE(loaded.themeId(),id);
         }
     }
+    void omarchyDefaultsAndCatalogOrder() {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QVERIFY(!Themes::omarchyInstallation({root.path()}));
+        QDir().mkpath(root.filePath("bin"));
+        QFile marker(root.filePath("bin/omarchy-theme-set")); QVERIFY(marker.open(QIODevice::WriteOnly)); marker.close();
+        QVERIFY(Themes::omarchyInstallation({root.path()}));
+        QVERIFY(marker.remove());
+        QDir().mkpath(root.filePath("current/theme"));
+        QFile colors(root.filePath("current/theme/colors.toml")); QVERIFY(colors.open(QIODevice::WriteOnly)); colors.close();
+        QVERIFY(Themes::omarchyInstallation({root.path()}));
+        const auto dark=Themes::catalog("omarchy");
+        QCOMPARE(dark[0].toMap()["id"].toString(),QString("omarchy"));
+        QCOMPARE(dark[1].toMap()["id"].toString(),QString("porcelain"));
+        QVERIFY(dark[0].toMap()["isDefault"].toBool());
+        QVERIFY(!dark[1].toMap()["isDefault"].toBool());
+        const auto light=Themes::catalog("porcelain");
+        QCOMPARE(light[0].toMap()["id"].toString(),QString("porcelain"));
+        QCOMPARE(light[1].toMap()["id"].toString(),QString("omarchy"));
+        Engine fresh(nullptr,Engine::InitialContent::Blank);
+        QCOMPARE(fresh.themeId(),Themes::defaultId()); QVERIFY(!fresh.edited());
+    }
+    void themeFontsAreDistinctAndFormattingInherits() {
+        Engine e;
+        QCOMPARE(Themes::catalog("porcelain")[1].toMap()["id"].toString(),QString("omarchy"));
+        QCOMPARE(Themes::fontFamily("omarchy"),QString("JetBrains Mono"));
+        QSet<QString> families;
+        for (const auto &entry:e.themes()) {
+            const auto theme=entry.toMap();
+            e.setThemeId(theme["id"].toString());
+            QVERIFY(e.textFamily()!="Helvetica Neue");
+            QCOMPARE(e.textFamily(),theme["fontFamily"].toString());
+            families.insert(e.textFamily());
+        }
+        QCOMPARE(families.size(),e.themes().size());
+        e.setThemeId("porcelain"); e.select(1);
+        QTextDocument doc; QFont font(e.textFamily()); font.setPixelSize(15);
+        doc.setDefaultFont(font); doc.setPlainText("A thoughtful new idea");
+        QVERIFY(e.setText(1,doc.toHtml()));
+        QVERIFY(e.applyNodeStyle({{"bold",true}}));
+        e.setThemeId("starlight");
+        QCOMPARE(e.selectedStyle()["fontFamily"].toString(),e.textFamily());
+        QVERIFY(e.selectedStyle()["bold"].toBool());
+        QVERIFY(e.applyNodeStyle({{"fontFamily",QString("Courier")}}));
+        e.setThemeId("sky");
+        QCOMPARE(e.selectedStyle()["fontFamily"].toString(),QString("Courier"));
+        QTemporaryDir dir; QVERIFY(e.save(dir.filePath("fonts.omm")));
+        Engine loaded; QVERIFY(loaded.open(dir.filePath("fonts.omm"))); loaded.select(1);
+        QCOMPARE(loaded.textFamily(),e.textFamily());
+        QCOMPARE(loaded.selectedStyle()["fontFamily"].toString(),QString("Courier"));
+    }
+    void refinedThemesHaveReadableInkAndDistinctTaskStyles() {
+        const QStringList ids{"porcelain","sky","starlight","sage","blush","graphite","omarchy"};
+        QSet<QString> accents;
+        QTemporaryDir directory;
+        for(const auto &id:ids) {
+            QVERIFY(Themes::contains(id)); const auto theme=Themes::get(id);
+            QVERIFY(theme.ink.isValid());
+            for(int depth=0;depth<4;++depth) for(int branch=0;branch<6;++branch) {
+                const auto a=Themes::appearance(id,depth,branch);
+                const auto surface=a.fill.alpha() ? a.fill : theme.canvas;
+                QVERIFY2(Themes::contrastRatio(a.text,surface)>=4.5,qPrintable(id+" text contrast"));
+                QVERIFY2(Themes::contrastRatio(a.branch,theme.canvas)>=3,qPrintable(id+" branch contrast"));
+                QVERIFY2(Themes::contrastRatio(a.task.accent,surface)>=3,qPrintable(id+" task contrast"));
+                QVERIFY(Themes::contrastRatio(Themes::contrastInk(a.branch),a.branch)>=4.5);
+            }
+            accents.insert(Themes::appearance(id,2,0).task.accent.name());
+            Engine e; const auto text=e.nodes().value(1).text;
+            e.setThemeId(id); QCOMPARE(e.nodes().value(1).text,text);
+            const auto path=directory.filePath(id+".omm"); QVERIFY(e.save(path));
+            Engine loaded; QVERIFY(loaded.open(path)); QCOMPARE(loaded.themeId(),id);
+            QCOMPARE(loaded.appearance(2).task.accent,e.appearance(2).task.accent);
+        }
+        QCOMPARE(accents.size(),7);
+        Engine fresh(nullptr,Engine::InitialContent::Blank);
+        QCOMPARE(fresh.themeId(),Themes::defaultId()); QVERIFY(!fresh.edited());
+    }
     void themeCatalogAndAppearance() {
         Engine e;
         QCOMPARE(e.themeId(), QString("lab"));
@@ -892,7 +968,8 @@ class EngineTest : public QObject {
         QVERIFY(themes.size() >= 5);
         const QStringList expectedIds{"beach-day", "holographic", "retro", "arcade", "lab", "canopy", "atlas", "studio", "nocturne"};
         for (int i = 0; i < expectedIds.size(); ++i) {
-            const QVariantMap entry = themes[i].toMap();
+            QVariantMap entry;
+            for(const auto &value:themes) if(value.toMap()["id"].toString()==expectedIds[i]) entry=value.toMap();
             QCOMPARE(entry.value("id").toString(), expectedIds[i]);
             QVERIFY(entry.value("name").isValid());
             QVERIFY(entry.value("canvas").value<QColor>().isValid());

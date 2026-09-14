@@ -246,18 +246,19 @@ ApplicationWindow {
     component IconButton: Button {
         id: iconButton
         required property string iconName
+        property bool showFocusFeedback: true
         implicitWidth: 36; implicitHeight: 36
         padding: 8
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
         Accessible.name: text
-        ToolTip.visible: hovered || activeFocus
+        ToolTip.visible: hovered || (showFocusFeedback && activeFocus)
         ToolTip.delay: hovered ? 500 : 0
         ToolTip.text: text
         background: Rectangle {
             radius: 7
             color: iconButton.down ? (ShellTheme.colors["#35505a"] || "#35505a") : iconButton.checked ? (ShellTheme.colors["#29463f"] || "#29463f") : iconButton.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent"
-            border.width: iconButton.activeFocus || iconButton.checked ? 1 : 0
+            border.width: (iconButton.showFocusFeedback && iconButton.activeFocus) || iconButton.checked ? 1 : 0
             border.color: window.accent
         }
         icon.source: iconButton.iconName.length ? "qrc:/qml/icons/" + iconButton.iconName + ".svg" : ""
@@ -271,6 +272,8 @@ ApplicationWindow {
         icon.color: window.ink
     }
     component ToolbarButton: IconButton {
+        focusPolicy: Qt.NoFocus
+        showFocusFeedback: false
         implicitWidth: window.width < 800 ? 32 : 36
         implicitHeight: implicitWidth
     }
@@ -460,6 +463,7 @@ ApplicationWindow {
                     Button {
                         required property int index
                         objectName: ["minimizeWindow", "maximizeWindow", "closeWindow"][index]
+                        focusPolicy: Qt.NoFocus
                         width: 46; height: 60
                         hoverEnabled: true
                         text: index === 0 ? "Minimize" : index === 1
@@ -491,7 +495,7 @@ ApplicationWindow {
                         ToolbarButton {
                             id: applicationMenuButton; objectName: "applicationMenuButton"
                             anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
-                            ToolTip.visible: (hovered || activeFocus) && !applicationMenu.visible
+                            ToolTip.visible: hovered && !applicationMenu.visible
                             visible: Qt.platform.os === "linux"; iconName: "menu"; text: "Application menu"
                             checked: applicationMenu.visible
                             onClicked: applicationMenu.visible ? applicationMenu.close() : applicationMenu.open()
@@ -523,7 +527,9 @@ ApplicationWindow {
                             visible: window.width >= 1100
                             readonly property bool canReveal: { controller.documentName; return window.integratedMacToolbar && controller.documentPath().length > 0 }
                             implicitWidth: Math.min(180, documentNameLabel.implicitWidth) + 20
-                            implicitHeight: documentTitleColumn.implicitHeight
+                            implicitHeight: documentNameLabel.implicitHeight + documentEditedLabel.implicitHeight + 2
+                            property real editedProgress: window.documentEdited ? 1 : 0
+                            Behavior on editedProgress { NumberAnimation { duration: 240; easing.type: Easing.InOutCubic } }
                             Layout.leftMargin: 6; Layout.rightMargin: 12
                             Image {
                                 source: "qrc:/qml/icons/folder-open.svg"
@@ -532,12 +538,20 @@ ApplicationWindow {
                                 opacity: titleMouse.containsMouse && documentTitleArea.canReveal ? 1 : 0
                                 Behavior on opacity { NumberAnimation { duration: 140 } }
                             }
-                            ColumnLayout {
-                                id: documentTitleColumn; spacing: 2
+                            Item {
+                                id: documentTitleColumn
+                                width: parent.width; height: parent.height
                                 x: titleMouse.containsMouse && documentTitleArea.canReveal ? 20 : 0
                                 Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                            Label { id: documentNameLabel; objectName: "documentNameLabel"; text: controller.documentName; textFormat: Text.PlainText; Layout.maximumWidth: 180; elide: Text.ElideRight; font.pixelSize: 16; font.bold: true; color: window.ink }
-                            Label { objectName: "documentEditedLabel"; visible: window.documentEdited; text: "Edited"; color: window.muted; font.pixelSize: 10 }
+                            Label { id: documentNameLabel; objectName: "documentNameLabel"; text: controller.documentName; textFormat: Text.PlainText; width: Math.min(180, implicitWidth); elide: Text.ElideRight; font.pixelSize: 16; font.bold: true; color: window.ink
+                                y: (parent.height-height)/2 - documentTitleArea.editedProgress*(documentEditedLabel.height+2)/2
+                            }
+                            Label {
+                                id: documentEditedLabel; objectName: "documentEditedLabel"
+                                y: documentNameLabel.y + documentNameLabel.height + 2
+                                opacity: documentTitleArea.editedProgress; visible: opacity > 0
+                                text: "Edited"; color: window.muted; font.pixelSize: 10
+                            }
                             }
                             MouseArea {
                                 id: titleMouse; objectName: "documentTitleMouse"
@@ -551,7 +565,7 @@ ApplicationWindow {
                             }
                         }
                         ToolbarButton { objectName: "newDocumentButton"; iconName: "file-plus-2"; text: "New mindmap"; onClicked: controller.newDocumentRequested() }
-                        ToolbarButton { iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
+                        ToolbarButton { objectName: "openDocumentButton"; iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
                         ToolbarButton { objectName: "saveDocumentButton"; iconName: "save"; text: "Save document"; onClicked: window.saveDocument(false) }
                         ToolbarButton { iconName: "image-down"; text: "Export canvas as PNG"; onClicked: imageDialog.open() }
                     }
@@ -587,7 +601,9 @@ ApplicationWindow {
                                 Keys.onEscapePressed: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() }
                             }
                             Label { objectName: "searchResultCount"; text: searchField.text.trim().length ? (window.searchResults.length ? (window.searchIndex+1) + " / " + window.searchResults.length : "No matches") : ""; color: window.muted }
-                            ToolButton { text: "×"; Accessible.name: "Close search"; onClicked: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() } }
+                            ToolButton { text: "×"; Accessible.name: "Close search"; focusPolicy: Qt.NoFocus
+                                background: Rectangle { radius: 6; color: parent.down ? (ShellTheme.colors["#35505a"] || "#35505a") : parent.hovered ? (ShellTheme.colors["#2a3d48"] || "#2a3d48") : "transparent" }
+ onClicked: { window.searchOpen=false; searchDelay.stop(); canvas.clearSearchHighlight(); searchFlash.stop(); searchHighlight.opacity=0; canvas.forceActiveFocus() } }
                         }
                         RowLayout {
                             id: zoomControls; objectName: "zoomControls"; spacing: 0
@@ -595,7 +611,7 @@ ApplicationWindow {
                                 id: zoomButton; objectName: "zoomPercentage"
                                 iconName: ""; text: "Zoom options"; Layout.preferredWidth: 76
                                 checked: zoomMenu.visible
-                                ToolTip.visible: (hovered || activeFocus) && !zoomMenu.visible
+                                ToolTip.visible: hovered && !zoomMenu.visible
                                 onClicked: zoomMenu.visible ? zoomMenu.close() : zoomMenu.open()
                                 contentItem: RowLayout {
                                     spacing: 6
@@ -751,7 +767,7 @@ ApplicationWindow {
                             height: Math.max(22, inlineEditor.height - y)
                             clip: true; textMargin: 0
                             textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
-                            font.family: Qt.platform.os === "windows" ? "Segoe UI" : "sans-serif"; font.pixelSize: 15
+                            font.family: controller.textFamily; font.pixelSize: 15
                             color: inlineEditor.nodeAppearance.text || "#f1fff9"; selectionColor: "#438b78"
                             onTextChanged: { if (canvas.editing) canvas.updateEditingText(text) }
                             Text {
@@ -783,9 +799,9 @@ ApplicationWindow {
                     Caption { text: "INSPECTOR" }
                     TabBar {
                         id: inspectorTabs; objectName: "inspectorTabs"; Layout.fillWidth: true
-                        TabButton { text: "Map"; icon.source: "qrc:/qml/icons/inspector-map.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
-                        TabButton { text: "Node"; icon.source: "qrc:/qml/icons/inspector-node.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
-                        TabButton { text: "Themes"; objectName: "themesTab"; icon.source: "qrc:/qml/icons/inspector-themes.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 6; leftPadding: 8; rightPadding: 8 }
+                        TabButton { text: "Map"; icon.source: "qrc:/qml/icons/inspector-map.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
+                        TabButton { text: "Node"; icon.source: "qrc:/qml/icons/inspector-node.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
+                        TabButton { text: "Theme"; objectName: "themesTab"; icon.source: "qrc:/qml/icons/inspector-themes.svg"; icon.width: 16; icon.height: 16; icon.color: window.ink; spacing: 4; leftPadding: 3; rightPadding: 3 }
                     }
                     ScrollView {
                         objectName: "inspectorScroll"

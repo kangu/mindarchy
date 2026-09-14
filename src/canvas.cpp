@@ -220,7 +220,6 @@ QRectF MindCanvas::displayRect(int id) const {
         resized.moveCenter(m_target.value(id).center());
         return resized;
     }
-    if (id == m_editingId && !m_editPreview.isEmpty()) return m_editPreview;
     if(m_dragging && m_manualPreview.contains(id)) return m_manualPreview.value(id);
     QRectF r = m_target.value(id, m_engine ? m_engine->nodes().value(id).rect : QRectF());
     if (m_animating && m_previous.contains(id)) {
@@ -230,6 +229,7 @@ QRectF MindCanvas::displayRect(int id) const {
         r = QRectF(a.topLeft() + (r.topLeft() - a.topLeft()) * t,
                    a.size() + (r.size() - a.size()) * t);
     }
+    if (id == m_editingId && !m_editPreview.isEmpty()) r.setSize(m_editPreview.size());
     if (m_dragging && m_dragIds.contains(id))
         r.translate(m_dragDelta);
     return r;
@@ -361,7 +361,7 @@ void MindCanvas::refresh() {
         }
         if(m_animating && !n.image.empty()) labelRect.setSize(m_target.value(id).size());
         const QRectF content=contentRect(id,QRectF(QPointF(),labelRect.size()));
-        const QString labelKey=(n.kind=="date" ? Calendar::key(n.calendar)+n.text+appearance.branch.name(QColor::HexArgb) : n.text)
+        const QString labelKey=m_engine->textFamily()+(n.kind=="date" ? Calendar::key(n.calendar)+n.text+appearance.branch.name(QColor::HexArgb) : n.text)
             + (id==m_searchResult ? "\nsearch:"+m_searchQuery+appearance.fill.name(QColor::HexArgb)+m_canvasColor.name(QColor::HexArgb) : QString()) + (!focusIncludes(id) ? "\nfocus-dim" : "") + "\nimage:" + QString::number(n.image.pixels.cacheKey()) + ":" + QString::number(imageWidth(id)) + n.image.placement + (m_zoom<.28 ? ":overview" : ":detail") + (editingId()==id ? "editing" : "");
         auto it = m_cache.find(id);
         if (it == m_cache.end() || it->text != labelKey || it->size != labelRect.size() ||
@@ -383,7 +383,7 @@ void MindCanvas::refresh() {
                 QPainter painter(&image); painter.translate(content.topLeft()); paintCalendar(painter,n.calendar,appearance,n.text);
             } else if(editingId()!=id && m_zoom>=.28) {
             QTextDocument doc;
-            QFont font(mindarchyTextFamily(), 11);
+            QFont font(m_engine->textFamily(), 11);
             font.setPixelSize(15);
             doc.setDefaultFont(font);
             doc.setDocumentMargin(0);
@@ -510,7 +510,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
                 }
                 painter.save();
                 painter.setOpacity(n.taskOpacity * (n.dimmed ? .18 : 1.));
-                paintTask(painter, check, n.appearance.text, n.checked, n.completion);
+                paintTask(painter, check, n.appearance.text, n.checked, n.completion, n.appearance.task);
                 painter.restore();
             }
         }
@@ -593,29 +593,40 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             if(n.completion>=0) {
                 const QColor base=n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor;
                 const QColor ink=n.appearance.text;
-                QColor track=QColor::fromRgbF(base.redF()*.75+ink.redF()*.25,
-                    base.greenF()*.75+ink.greenF()*.25,base.blueF()*.75+ink.blueF()*.25);
+                QColor track=QColor::fromRgbF(base.redF()*(1-style.task.trackOpacity)+ink.redF()*style.task.trackOpacity,
+                    base.greenF()*(1-style.task.trackOpacity)+ink.greenF()*style.task.trackOpacity,base.blueF()*(1-style.task.trackOpacity)+ink.blueF()*style.task.trackOpacity);
                 track.setAlphaF(n.taskOpacity);
-                strokePath(vertices,taskProgressArc(check,1),2.5,track,Qt::SolidLine);
+                strokePath(vertices,taskProgressArc(check,1),style.task.progressWidth,track,Qt::SolidLine);
                 if(n.completion>0) {
-                    QColor fill=taskCheckColor; fill.setAlphaF(n.taskOpacity);
-                    strokePath(vertices,taskProgressArc(check,n.completion),2.5,fill,Qt::SolidLine);
+                    QColor fill=style.task.accent; fill.setAlphaF(n.taskOpacity);
+                    strokePath(vertices,taskProgressArc(check,n.completion),style.task.progressWidth,fill,Qt::SolidLine);
+                    if(n.completion<1) {
+                        const auto arc=taskProgressArc(check,n.completion);
+                        const qreal cap=style.task.progressWidth/2;
+                        for(const auto &point:{arc.first(),arc.last()})
+                            box(vertices,QRectF(point-QPointF(cap,cap),QSizeF(cap*2,cap*2)),fill,cap);
+                    }
+                    if(n.completion>=1) {
+                        const auto tick=taskCheckPath(check,true);
+                        for(int i=1;i<tick.size();++i) line(vertices,tick[i-1],tick[i],1.8,fill);
+                        for(const auto &point:tick) box(vertices,QRectF(point-QPointF(.9,.9),QSizeF(1.8,1.8)),fill,.9);
+                    }
                 }
             } else {
             QColor frame = n.appearance.text;
             frame.setAlphaF(frame.alphaF() * n.taskOpacity);
-            if (n.checked) frame.setAlphaF(frame.alphaF() * completedTaskFrameOpacity);
-            box(vertices, check, frame, 2);
+            if (n.checked) frame.setAlphaF(frame.alphaF() * style.task.completedFrameOpacity);
+            box(vertices, check, frame, style.task.cornerRadius);
             box(vertices, check.adjusted(1.5,1.5,-1.5,-1.5),
-                n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,1);
+                n.appearance.fill.alpha() ? n.appearance.fill : m_canvasColor,std::max(.5,style.task.cornerRadius-1.5));
             if (n.checked) {
                 const auto tick = taskCheckPath(check);
-                QColor tickColor = taskCheckColor; tickColor.setAlphaF(n.taskOpacity);
+                QColor tickColor = style.task.accent; tickColor.setAlphaF(n.taskOpacity);
                 for (int i = 1; i < tick.size(); ++i)
-                    line(vertices, tick[i-1], tick[i], taskCheckWidth, tickColor);
-                const qreal radius = taskCheckWidth / 2;
+                    line(vertices, tick[i-1], tick[i], style.task.checkWidth, tickColor);
+                const qreal radius = style.task.checkWidth / 2;
                 for (const auto &point : tick)
-                    box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(taskCheckWidth,taskCheckWidth)), tickColor, radius);
+                    box(vertices, QRectF(point-QPointF(radius,radius), QSizeF(style.task.checkWidth,style.task.checkWidth)), tickColor, radius);
             }
             }
         }
@@ -789,11 +800,7 @@ void MindCanvas::beginEdit(int id) {
         editDateEntry(id,m_engine->nodes().value(id).calendar.anchor.toString(Qt::ISODate));
         return;
     }
-    // Settle the one creation layout before accepting keystrokes. Editing itself
-    // neither animates the graph nor changes the user's chosen zoom level.
-    m_animating = false;
-    m_animationTimer.stop();
-    m_previous = m_target;
+    // Keep creation reflow running while the editor follows the node.
     m_editingId = id;
     m_editContentSize = m_engine->contentSize(id);
     m_editPreview = m_target.value(id);
@@ -820,11 +827,14 @@ bool MindCanvas::commitEditing(QString text) {
     const int id = m_editingId;
     const QPointF anchor = mapFromWorld(m_editPreview.topLeft());
     if (!m_engine->setText(id, text)) return false;
-    // Lay out once on commit, keeping the edited node's text origin in place.
-    m_animating = false;
-    m_animationTimer.stop();
-    m_previous = m_target;
-    m_pan = anchor - m_engine->nodes().value(id).rect.topLeft() * m_zoom;
+    // Automatic reflow settles through the same node/connection animation.
+    // Manual placement keeps the authored text origin anchored.
+    if (m_engine->manual()) {
+        m_animating = false;
+        m_animationTimer.stop();
+        m_previous = m_target;
+        m_pan = anchor - m_engine->nodes().value(id).rect.topLeft() * m_zoom;
+    }
     endEdit();
     return true;
 }
@@ -1164,7 +1174,7 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     } else if(!m_panning && !m_extend && m_pressedId>=0 && hit(e->position())==m_pressedId &&
               m_engine->nodes().value(m_pressedId).kind=="date" && m_imageSelected!=m_pressedId) {
         const int id=m_pressedId; const auto n=m_engine->nodes().value(id);
-        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text);
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily());
         const auto days=Calendar::days(n.calendar);
         for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
             editDateEntry(id,days[i].toString(Qt::ISODate)); break;
@@ -1235,7 +1245,7 @@ void MindCanvas::hoverMoveEvent(QHoverEvent *e) {
     }
     if(m_engine && id>=0 && m_engine->nodes().value(id).kind=="date") {
         const auto n=m_engine->nodes().value(id); const auto days=Calendar::days(n.calendar);
-        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text);
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily());
 
         for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
             text=n.calendar.entries.value(days[i].toString(Qt::ISODate)); actionable=true; break;

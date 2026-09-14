@@ -1,3 +1,4 @@
+#include "manualplacement.h"
 #include "appfont.h"
 #include "noderesources.h"
 #include "recentdocuments.h"
@@ -29,6 +30,21 @@
 
 namespace {
 constexpr int MaxNodes = 10000, MaxText = 16384, MaxDepth = 512;
+// Qt serializes the editor's default family on body. Keep that default
+// inherited from the theme; explicit font choices remain on text spans.
+QString inheritedThemeFont(QString html, const QString &family) {
+    if (!html.contains(QStringLiteral("qrichtext"))) return html;
+    const QRegularExpression body(QStringLiteral("<body\\b[^>]*>"), QRegularExpression::CaseInsensitiveOption);
+    const auto match=body.match(html);
+    if (!match.hasMatch()) return html;
+    QString tag=match.captured();
+    const QRegularExpression declaration(QStringLiteral("font-family:\\s*['\"]?")
+        +QRegularExpression::escape(family)+QStringLiteral("['\"]?\\s*;"));
+    tag.remove(declaration);
+    html.replace(match.capturedStart(),match.capturedLength(),tag);
+    return html;
+}
+
 QString localPath(const QString &path) {
     return path.startsWith("file:") ? QUrl(path).toLocalFile() : path;
 }
@@ -58,7 +74,7 @@ bool validNodeStyle(const QVariantMap &s) {
 } // namespace
 Engine::Engine(QObject *parent, InitialContent content) : QObject(parent) {
     if(content==InitialContent::Blank) {
-        m_themeId = "beach-day";
+        m_themeId = Themes::defaultId();
         MapNode root; root.id=1; root.text="Central idea";
         m_nodes.insert(1,root); m_nextId=2;
         rebuild(); m_savedBytes = documentBytes(); return;
@@ -161,9 +177,9 @@ QVariantList Engine::outline() const {
     }
     return result;
 }
-bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth) {
+bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth, QString family) const {
     QTextDocument doc;
-    QFont font(mindarchyTextFamily(), 11);
+    QFont font(family.isEmpty() ? textFamily() : family, 11);
     font.setPixelSize(15);
     doc.setDefaultFont(font);
     doc.setDocumentMargin(0);
@@ -189,7 +205,7 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
     if (!std::isfinite(measured.width()) || !std::isfinite(measured.height()) ||
         measured.height() < 0 || measured.width() < 0 || height > 4096)
         return false;
-    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth};
+    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth, font.family()};
     return true;
 }
 void Engine::rebuild() {
@@ -244,6 +260,9 @@ void Engine::rebuild() {
         m_selection.insert(m_selected);
     const double gap =
         m_layout == "Compact" ? 32 : (m_spacing == "Narrow" ? 18 : (m_spacing == "Wide" ? 52 : 32));
+    // Manual offsets need a stable base even while descendants are hidden.
+    // Reserve the full tree's geometry; folding changes visibility only.
+    const auto &layoutOrder = m_manual ? taskOrder : m_visible;
     bool vertical = m_layout == "Vertical";
     QHash<int, double> span;
     QVector<double> depthSize(MaxDepth + 1, 0), depthPos(MaxDepth + 1, 0);
@@ -253,11 +272,12 @@ void Engine::rebuild() {
         else
             ++it;
     }
-    for (int id : m_visible) {
+    for (int id : layoutOrder) {
         auto &n = m_nodes[id];
+        n.depth = n.parent < 0 ? 0 : m_nodes[n.parent].depth + 1;
         QSizeF size;
         auto cached = m_textCache.constFind(id);
-        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble())
+        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble() && cached->family == textFamily())
             size = cached->size;
         else {
             TextMeasure measurement;
@@ -269,7 +289,7 @@ void Engine::rebuild() {
             size = measurement.size;
             m_textCache.insert(id, measurement);
         }
-        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text);
+        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
         size=n.image.expanded(size);
         n.rect = QRectF(QPointF(), size);
         depthSize[n.depth] = std::max(depthSize[n.depth], vertical ? size.height() : size.width());
@@ -284,10 +304,10 @@ void Engine::rebuild() {
             y += n.rect.height() + gap * .5;
         }
     } else {
-        for (auto it = m_visible.crbegin(); it != m_visible.crend(); ++it) {
+        for (auto it = layoutOrder.crbegin(); it != layoutOrder.crend(); ++it) {
             const auto &n = m_nodes[*it];
             double children = 0;
-            if (!n.folded)
+            if (m_manual || !n.folded)
                 for (int child : n.children)
                     children += span[child] + gap;
             if (children)
@@ -296,7 +316,7 @@ void Engine::rebuild() {
         }
         QHash<int, double> start;
         start[1] = 0;
-        for (int id : m_visible) {
+        for (int id : layoutOrder) {
             auto &n = m_nodes[id];
             double cross =
                 start[id] + (span[id] - (vertical ? n.rect.width() : n.rect.height())) * .5;
@@ -311,7 +331,7 @@ void Engine::rebuild() {
             n.rect.moveTopLeft(vertical ? QPointF(cross, along)
                                         : QPointF(along, cross));
             double cursor = start[id];
-            if (!n.folded)
+            if (m_manual || !n.folded)
                 for (int child : n.children) {
                     start[child] = cursor;
                     cursor += span[child] + gap;
@@ -361,6 +381,7 @@ NodeAppearance Engine::appearance(int id) const {
     // an underline/rectangle theme. Rounded must still have curved corners.
     if (a.shape==NodeShape::Rounded && a.radius<=0)
         a.radius=NodeAppearance{}.radius;
+    a.task=Themes::taskAppearance(m_themeId,a.fill.alpha() ? a.fill : canvasColor());
     return a;
 }
 void Engine::setLayout(QString value) {
@@ -402,7 +423,7 @@ void Engine::setThemeId(QString value) {
     }
     checkpoint();
     m_themeId = std::move(value);
-    emit changed();
+    rebuild();
 }
 void Engine::select(int id, bool extend) {
     if (id == -1) {
@@ -437,6 +458,8 @@ void Engine::add(int parent, int after, QString kind, QString dateView, std::opt
         fail("Maximum tree depth reached.");
         return;
     }
+    const auto previousNodes=m_manual ? m_nodes : QHash<int,MapNode>();
+    const auto previousVisible=m_visible;
     checkpoint();
     MapNode n;
     n.id = m_nextId++;
@@ -456,11 +479,27 @@ void Engine::add(int parent, int after, QString kind, QString dateView, std::opt
     m_selected = n.id;
     m_selection = {n.id};
     rebuild();
-    if (position && m_manual) {
-        QPointF delta = *position - m_nodes[n.id].rect.center();
-        if (m_layout=="Horizontal" && parent>1 &&
-            m_nodes[parent].rect.center().x()<m_nodes[1].rect.center().x()) delta.setX(-delta.x());
-        m_nodes[n.id].manualOffset += delta;
+    if (m_manual) {
+        QHash<int,QPointF> desired;
+        const auto correction=previousNodes[parent].rect.center()-m_nodes[parent].rect.center();
+        for(int id:m_visible)
+            desired[id]=previousVisible.contains(id)?previousNodes[id].rect.center():m_nodes[id].rect.center()+correction;
+        auto surroundings=m_nodes;
+        auto surroundingIds=m_visible; surroundingIds.removeAll(n.id);
+        surroundings[parent].children.removeAll(n.id);
+        for(int id:surroundingIds) surroundings[id].rect.moveCenter(desired[id]);
+        desired[n.id]=position ? *position : ManualPlacement::nextChildCenter(surroundings,surroundingIds,
+            parent,m_nodes[n.id].rect.size(),m_layout=="Vertical",after);
+        // Rebase local offsets after topology changes without moving existing nodes.
+        for(int id:m_visible) {
+            auto &node=m_nodes[id]; const auto base=m_layoutRects[id].center();
+            if(node.parent<0) node.manualOffset=desired[id]-base;
+            else if(m_layout=="Horizontal") {
+                auto relative=desired[id]-desired[node.parent];
+                if(node.parent!=1 && desired[node.parent].x()<desired[1].x()) relative.setX(-relative.x());
+                node.manualOffset=relative-(base-m_layoutRects[node.parent].center());
+            } else node.manualOffset=(desired[id]-base)-(desired[node.parent]-m_layoutRects[node.parent].center());
+        }
         rebuild();
     }
     if(kind=="text") emit editRequested(n.id);
@@ -539,6 +578,7 @@ QSizeF Engine::previewContentSize(int id, const QString &text) const {
     return measurement.size;
 }
 bool Engine::setText(int id, QString text) {
+    text=inheritedThemeFont(text,textFamily());
     if (!m_nodes.contains(id) || m_nodes.value(id).kind!="text")
         return false;
     if (m_nodes[id].text == text)
@@ -928,7 +968,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
         return fail("Invalid JSON document.");
     QJsonObject obj = doc.object();
-    if ((obj["format"] != "mindarchy" && obj["format"] != "mindmap-lab") || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
+    if (obj["format"] != "mindarchy" || obj["version"].toInt(-1) != 1 || !obj["nodes"].isArray())
         return fail("Unsupported document format or version.");
     QString layout = obj["layout"].toString(), spacing = obj["spacing"].toString(),
             branch = obj["branchStyle"].toString();
@@ -1018,7 +1058,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
             n.children.append(c.toInt());
         }
         TextMeasure measurement;
-        if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble()))
+        if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble(),Themes::fontFamily(themeId)))
             return fail("Node text is too tall (maximum measured height is 4,096 pixels).");
         candidateMeasurements.insert(n.id, measurement);
         candidate.insert(n.id, n);
@@ -1119,11 +1159,12 @@ void Engine::selectMany(QVariantList ids, bool extend) {
     emit changed();
 }
 
+QString Engine::textFamily() const { return Themes::fontFamily(m_themeId); }
 QStringList Engine::fontFamilies() const { return QFontDatabase::families(); }
 QVariantMap Engine::selectedStyle() const {
     auto values = [this](int id) {
         const auto n=m_nodes.value(id); const auto a=appearance(id);
-        QTextDocument doc; QFont font(mindarchyTextFamily()); font.setPixelSize(15);
+        QTextDocument doc; QFont font(textFamily()); font.setPixelSize(15);
         doc.setDefaultFont(font); doc.setHtml(n.text);
         QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         const auto f=cursor.charFormat().font().resolve(font);
@@ -1164,7 +1205,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
     for(int id:m_selection) {
         auto &n=next[id];
         for(auto it=visual.begin();it!=visual.end();++it) n.style.insert(it.key(),it.value());
-        QTextDocument doc; QFont base(mindarchyTextFamily()); base.setPixelSize(15); doc.setDefaultFont(base);
+        QTextDocument doc; QFont base(textFamily()); base.setPixelSize(15); doc.setDefaultFont(base);
         doc.setDocumentMargin(0); doc.setHtml(n.text);
         if(patch.contains("fontSize")) {
             // Imported point sizes take precedence over pixel sizes during HTML
@@ -1197,7 +1238,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
             block.setAlignment(alignments[patch["alignment"].toInt()]); cursor.mergeBlockFormat(block);
         }
         bool hasTypography=patch.contains("textColor"); for(const auto &key:typography) hasTypography |= patch.contains(key);
-        if(hasTypography) n.text=doc.toHtml();
+        if(hasTypography) n.text=inheritedThemeFont(doc.toHtml(),textFamily());
         TextMeasure measurement;
         if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement,n.style.value("width").toDouble()))
             return fail("This style makes the title too large.");
@@ -1684,7 +1725,7 @@ bool Engine::requestOpenDocument(QString path) {
 
 QSizeF Engine::contentSize(int id) const {
     const auto n=m_nodes.value(id);
-    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text);
+    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
     TextMeasure measure;
     return measureText(n.text,n.task,measure,n.style.value("width").toDouble()) ? measure.size : QSizeF(100,42);
 }

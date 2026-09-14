@@ -10,3 +10,5 @@ win32 {
     SOURCES += ../src/windowsdialogs.cpp
     LIBS += -lcomctl32 -lole32 -lshell32
 }
+
+RESOURCES += ../fonts.qrc
