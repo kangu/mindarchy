@@ -10,7 +10,7 @@
 // A fixed cadence (not a restarting debounce) also checkpoints continuous typing.
 class DocumentRecovery : public QObject {
 public:
-    DocumentRecovery(Engine *engine, QQuickWindow *window, MindCanvas *canvas,
+    DocumentRecovery(Engine *engine, QObject *window, MindCanvas *canvas,
                      const QString &path, const QVariantMap &restored = {})
         : m_engine(engine), m_window(window), m_canvas(canvas), m_path(path) {
         connect(&m_timer,&QTimer::timeout,this,[this] { if(m_ready) checkpoint(); });
@@ -48,7 +48,7 @@ public:
     void remove() { m_removed=true; m_timer.stop(); QFile::remove(m_path); }
 private:
     Engine *m_engine;
-    QQuickWindow *m_window;
+    QObject *m_window;
     MindCanvas *m_canvas;
     QString m_path;
     QTimer m_timer;

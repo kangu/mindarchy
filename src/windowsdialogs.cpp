@@ -17,13 +17,18 @@ QString documentTitle(Engine *document) {
     const auto title = text.toPlainText().simplified().left(100);
     return title.isEmpty() ? QStringLiteral("New mindmap") : title;
 }
-void invoke(QQuickWindow *window, const char *method) {
-    QTimer::singleShot(0, window, [window, method] { QMetaObject::invokeMethod(window, method); });
+void invoke(QObject *window, const char *method) {
+    QTimer::singleShot(0, window, [window, method] { window->setProperty("nativeDialogPending",false); QMetaObject::invokeMethod(window, method); });
 }
 }
 
-void installWindowsDialogs(Engine *document, QQuickWindow *window) {
-    QObject::connect(document, &Engine::nativeCloseRequested, window, [document, window] {
+void installWindowsDialogs(Engine *document, QQuickWindow *window, QObject *workspace) {
+    if(!workspace) workspace=window;
+    QObject::connect(document, &Engine::nativeCloseRequested, workspace, [document, workspace] {
+        auto *window=qobject_cast<QQuickWindow *>(workspace->property("hostWindow").value<QObject *>());
+        if(!window) window=qobject_cast<QQuickWindow *>(workspace);
+        if(!window) return;
+        workspace->setProperty("nativeDialogPending",true);
         const auto title = QStringLiteral("Save changes to “%1”?").arg(documentTitle(document)).toStdWString();
         const TASKDIALOG_BUTTON buttons[] = {{100, L"Save"}, {101, L"Don't Save"}, {IDCANCEL, L"Cancel"}};
         TASKDIALOGCONFIG config = {};
@@ -39,9 +44,13 @@ void installWindowsDialogs(Engine *document, QQuickWindow *window) {
         int choice = IDCANCEL;
         const auto result = TaskDialogIndirect(&config, &choice, nullptr, nullptr);
         if (FAILED(result)) choice = IDCANCEL;
-        invoke(window, choice == 100 ? "saveBeforeClosing" : choice == 101 ? "approveClose" : "cancelClose");
+        invoke(workspace, choice == 100 ? "saveBeforeClosing" : choice == 101 ? "approveClose" : "cancelClose");
     });
-    QObject::connect(document, &Engine::nativeSaveRequested, window, [document, window] {
+    QObject::connect(document, &Engine::nativeSaveRequested, workspace, [document, workspace] {
+        auto *window=qobject_cast<QQuickWindow *>(workspace->property("hostWindow").value<QObject *>());
+        if(!window) window=qobject_cast<QQuickWindow *>(workspace);
+        if(!window) return;
+        workspace->setProperty("nativeDialogPending",true);
         QString path;
         const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         IFileSaveDialog *dialog = nullptr;
@@ -70,8 +79,9 @@ void installWindowsDialogs(Engine *document, QQuickWindow *window) {
             dialog->Release();
         }
         if (SUCCEEDED(initialized)) CoUninitialize();
-        QTimer::singleShot(0, window, [window, path] {
-            QMetaObject::invokeMethod(window, "finishSaveDialog", Q_ARG(QVariant, QVariant(path)));
+        QTimer::singleShot(0, workspace, [workspace, path] {
+            workspace->setProperty("nativeDialogPending",false);
+            QMetaObject::invokeMethod(workspace, "finishSaveDialog", Q_ARG(QVariant, QVariant(path)));
         });
     });
 }

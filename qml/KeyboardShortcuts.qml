@@ -12,15 +12,14 @@ Window {
     visible: false
     onVisibleChanged: { if(!visible && transientParent) Qt.callLater(function() { shortcuts.transientParent.requestActivate() }) }
     color: (ShellTheme.colors["#172129"] || "#172129")
-    readonly property var rows: [
-        ["Document", "New window", "Ctrl+N"],
+    property var controller: typeof engine !== "undefined" ? engine : null
+    readonly property var rows: (controller ? controller.tabShortcutHelp.map(function(entry) {
+        return ["Document tabs", entry.label, entry.shortcut]
+    }) : []).concat([
         ["Document", "Open document", "Ctrl+O"],
         ["Document", "Save", "Ctrl+S"],
-        ["Document", "Close current tab or window", "Ctrl+W"],
         ["Document", "Undo / redo", "Ctrl+Z / Ctrl+Y"],
         ["Canvas", "Copy / paste branches as children", "Ctrl+C / Ctrl+V"],
-        ["Window", "New tab", "Ctrl+T"],
-        ["Window", "Next / previous tab", "Ctrl+Tab / Ctrl+Shift+Tab"],
         ["Images", "Copy / cut selected image; paste onto selected node", "Ctrl+C / Ctrl+X / Ctrl+V"],
         ["Canvas", "Connect two selected nodes", "Ctrl+L"],
         ["Canvas", "Toggle branch Focus mode", "Ctrl+Shift+F"],
@@ -49,8 +48,12 @@ Window {
         ["Text fields", "Cut / copy / paste", "Ctrl+X / Ctrl+C / Ctrl+V"],
         ["Date entry", "Save / cancel", "Ctrl+Enter / Esc"],
         ["Window", Qt.platform.os === "linux" ? "Open application menu" : "Show or hide menu bar", Qt.platform.os === "linux" ? "Header menu button" : "Alt"],
-        ["Window", "Dismiss menu", "Esc"]
-    ]
+        ["Window", "Dismiss menu", "Esc"],
+        ["Tab strip focus", "Focus first / last / adjacent tab", "Home / End / Left / Right"],
+        ["Tab strip focus", "Activate tab / return to document", "Enter or Space / Esc"]
+    ].map(function(row) {
+        return Qt.platform.os === "osx" ? [row[0], row[1], row[2].replace(/Ctrl\+/g, "⌘ ")] : row
+    }))
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 24; spacing: 16
         Label { text: qsTr("Keyboard shortcuts"); color: (ShellTheme.colors["#e0e9ee"] || "#e0e9ee"); font.pixelSize: 24; font.bold: true }

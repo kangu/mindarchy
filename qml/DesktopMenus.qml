@@ -13,12 +13,17 @@ Item {
     signal commandChosen()
     signal menusClosed()
     function closeMenus() { recentMenu.close(); fileMenu.close(); windowMenu.close(); helpMenu.close() }
+    function tabLabel(action, fallback) {
+        const entries = controller.tabShortcutHelp
+        for (let entry of entries) if (entry.action === action) return entry.label + "\t" + entry.shortcut
+        return fallback
+    }
     function cycle(direction) { controller.cycleApplicationWindow(direction) }
     Menu {
         id: fileMenu; objectName: "desktopFileMenu"; title: qsTr("&File")
         onClosed: menus.menusClosed()
-        MenuItem { objectName: "desktopNewAction"; text: qsTr("&New"); onTriggered: { menus.commandChosen(); controller.newDocumentRequested() } }
-        MenuItem { text: qsTr("New Tab"); onTriggered: { menus.commandChosen(); controller.tabActionRequested("new",0) } }
+        MenuItem { objectName: "desktopNewAction"; text: menus.tabLabel("window", qsTr("New Window")); onTriggered: { menus.commandChosen(); controller.newDocumentRequested() } }
+        MenuItem { text: menus.tabLabel("new", qsTr("New Tab")); onTriggered: { menus.commandChosen(); controller.tabActionRequested("new",0) } }
         MenuItem { text: qsTr("&Open…"); onTriggered: { menus.commandChosen(); host.openDocumentMenu() } }
         Menu {
             id: recentMenu; objectName: "desktopRecentMenu"; title: qsTr("Open &Recent")
@@ -41,7 +46,7 @@ Item {
         }
         MenuItem { text: qsTr("&Save"); onTriggered: { menus.commandChosen(); host.saveDocument(false) } }
         MenuSeparator {}
-        MenuItem { text: host.documentTabs.length>1 ? qsTr("&Close Tab") : qsTr("&Close Window"); onTriggered: { menus.commandChosen(); host.requestClose(true,false) } }
+        MenuItem { text: menus.tabLabel("close", qsTr("Close Document")); onTriggered: { menus.commandChosen(); host.requestClose(true,false) } }
         MenuItem { text: qsTr("E&xit Mindarchy"); onTriggered: { menus.commandChosen(); controller.quitRequested() } }
     }
     Menu {
@@ -60,8 +65,8 @@ Item {
         MenuItem { text: qsTr("Next Window"); enabled: windowMenu.openWindows.length>1; onTriggered: { menus.commandChosen(); menus.cycle(1) } }
         MenuItem { text: qsTr("Previous Window"); enabled: windowMenu.openWindows.length>1; onTriggered: { menus.commandChosen(); menus.cycle(-1) } }
         MenuSeparator {}
-        MenuItem { text: qsTr("Show Previous Tab"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("previous",0) }
-        MenuItem { text: qsTr("Show Next Tab"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("next",0) }
+        MenuItem { text: menus.tabLabel("previous", qsTr("Show Previous Tab")); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("previous",0) }
+        MenuItem { text: menus.tabLabel("next", qsTr("Show Next Tab")); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("next",0) }
         MenuItem { text: qsTr("Move Tab to New Window"); enabled: host.documentTabs.length>1; onTriggered: controller.tabActionRequested("detach",0) }
         MenuItem { text: qsTr("Merge All Windows"); enabled: host.canMergeWindows; onTriggered: controller.tabActionRequested("merge",0) }
         MenuSeparator {}

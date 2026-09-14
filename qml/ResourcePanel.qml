@@ -64,8 +64,8 @@ ColumnLayout {
         property int resourceIndex: -1
         property string kind: "url"
         title: (resourceIndex < 0 ? "Add " : "Edit ") + (kind === "file" ? "file reference" : "web link")
-        modal: true; width: Math.min(480,parent.width-40)
-        x: (parent.width-width)/2; y: (parent.height-height)/2
+        modal: true; width: parent ? Math.max(0, Math.min(480,parent.width-40)) : 480
+        x: parent ? (parent.width-width)/2 : 0; y: parent ? (parent.height-height)/2 : 0
         contentItem: ColumnLayout {
             spacing: 12
             TextField { id: resourceName; objectName: "resourceName"; Layout.fillWidth: true; placeholderText: "Name (optional)"; Accessible.name: "Resource name"; selectByMouse: true }

@@ -1,3 +1,4 @@
+#include "tabshortcuts.h"
 #include <QGuiApplication>
 #include <objc/runtime.h>
 #include <QWindow>
@@ -95,6 +96,23 @@ void showMacCloseConfirmation(QWindow *window, const QString &name,
     [alert release];
 }
 
+namespace {
+NSString *tabKey(const QString &action) {
+    const auto *command=TabShortcuts::find(action);
+    return command ? QString(QChar(command->key==Qt::Key_Tab ? '\t' : command->key)).toLower().toNSString() : @"";
+}
+NSEventModifierFlags tabModifiers(const QString &action) {
+    const auto *command=TabShortcuts::find(action);
+    if(!command) return 0;
+    const auto modifiers=TabShortcuts::modifiers(*command,true);
+    NSEventModifierFlags flags=0;
+    if(modifiers.testFlag(Qt::ControlModifier)) flags|=NSEventModifierFlagCommand;
+    if(modifiers.testFlag(Qt::MetaModifier)) flags|=NSEventModifierFlagControl;
+    if(modifiers.testFlag(Qt::ShiftModifier)) flags|=NSEventModifierFlagShift;
+    return flags;
+}
+}
+
 // Retain AppKit's real buttons and their native menus/fullscreen behavior.
 void installMacToolbar(QWindow *window) {
     auto *owner = new QObject(window);
@@ -103,11 +121,6 @@ void installMacToolbar(QWindow *window) {
         NSWindow *native = view.window;
         native.titleVisibility = NSWindowTitleHidden;
         native.titlebarAppearsTransparent = YES;
-        if(native.tabGroup.tabBarVisible) {
-            window->setProperty("nativeTabInset",std::max(48.,double(NSHeight(view.bounds)-NSMaxY(native.contentLayoutRect))));
-            return;
-        }
-        window->setProperty("nativeTabInset",0);
         if (native.styleMask & NSWindowStyleMaskFullScreen) return;
         NSButton *close = [native standardWindowButton:NSWindowCloseButton];
         NSView *titlebar = close.superview;
@@ -124,6 +137,9 @@ void installMacToolbar(QWindow *window) {
             button.frame = buttonFrame;
         }
     };
+    // Updating the active document title makes AppKit lay out its title bar
+    // again even though the shared window never resizes or changes focus.
+    QObject::connect(window, &QWindow::windowTitleChanged, owner, align);
     // Observe AppKit directly: Qt size signals arrive before native titlebar
     // layout, and queued corrections let the default position reach the screen.
     // A synchronous did-resize observer runs after layout, before drawing.
@@ -131,7 +147,7 @@ void installMacToolbar(QWindow *window) {
     NSWindow *native = reinterpret_cast<NSView *>(window->winId()).window;
     NSWindow.allowsAutomaticWindowTabbing=NO;
     native.tabbingIdentifier=@"MindarchyDocuments";
-    native.tabbingMode=NSWindowTabbingModeAutomatic;
+    native.tabbingMode=NSWindowTabbingModeDisallowed;
     for (NSNotificationName name in @[NSWindowDidResizeNotification,
                                      NSWindowDidExitFullScreenNotification,
                                      NSWindowDidBecomeKeyNotification]) {
@@ -161,16 +177,20 @@ void installMacToolbar(QWindow *window) {
 - (void)mergeWindows:(id)sender;
 @end
 @implementation OMMWindowMenuTarget
-- (void)mergeWindows:(id)sender {
-    NSWindow *active=NSApp.keyWindow;
-    if(!active) return;
+- (void)tabCommand:(QString)action {
+    if(NSApp.currentEvent.type==NSEventTypeKeyDown && NSApp.currentEvent.isARepeat && action!="next" && action!="previous") return;
     for(auto *window:QGuiApplication::allWindows()) {
         if(window->property("macDocumentWindowId").isNull()) continue;
-        NSWindow *other=reinterpret_cast<NSView *>(window->winId()).window;
-        if(other!=active && ![active.tabbedWindows containsObject:other]) [active addTabbedWindow:other ordered:NSWindowAbove];
+        if(reinterpret_cast<NSView *>(window->winId()).window!=NSApp.keyWindow) continue;
+        QObject *engine=window->property("controller").value<QObject *>();
+        if(engine) QMetaObject::invokeMethod(engine,"tabActionRequested",Q_ARG(QString,action),Q_ARG(qint64,0));
+        return;
     }
-    [active makeKeyAndOrderFront:nil];
 }
+- (void)mergeWindows:(id)sender { [self tabCommand:QStringLiteral("merge")]; }
+- (void)nextTab:(id)sender { [self tabCommand:QStringLiteral("next")]; }
+- (void)previousTab:(id)sender { [self tabCommand:QStringLiteral("previous")]; }
+- (void)detachTab:(id)sender { [self tabCommand:QStringLiteral("detach")]; }
 - (void)activatePid:(qint64)pid {
     activateWindow(pid);
     bool local=false;
@@ -196,7 +216,10 @@ void installMacToolbar(QWindow *window) {
 }
 - (void)centerWindow:(id)sender { [NSApp.keyWindow center]; }
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
-    if(item.action==@selector(mergeWindows:)) return listWindows().size()>std::max(NSInteger(1),NSInteger(NSApp.keyWindow.tabbedWindows.count));
+    if(item.action==@selector(mergeWindows:)) {
+        for(auto *window:QGuiApplication::allWindows()) if(window->isActive()) return window->property("canMergeWindows").toBool();
+        return NO;
+    }
     if(item.action==@selector(nextWindow:) || item.action==@selector(previousWindow:)) return listWindows().size()>1;
     return YES;
 }
@@ -243,13 +266,12 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
     NSMenuItem *previous=add(@"Previous Window", @selector(previousWindow:), @"`", target);
     previous.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *prevTab=add(@"Show Previous Tab", @selector(selectPreviousTab:), @"\t", nil);
-    prevTab.keyEquivalentModifierMask=NSEventModifierFlagControl|NSEventModifierFlagShift;
-    NSMenuItem *nextTab=add(@"Show Next Tab", @selector(selectNextTab:), @"\t", nil);
-    nextTab.keyEquivalentModifierMask=NSEventModifierFlagControl;
-    add(@"Move Tab to New Window", @selector(moveTabToNewWindow:), @"", nil);
+    NSMenuItem *prevTab=add(@"Show Previous Tab", @selector(previousTab:), tabKey("previous"), target);
+    prevTab.keyEquivalentModifierMask=tabModifiers("previous");
+    NSMenuItem *nextTab=add(@"Show Next Tab", @selector(nextTab:), tabKey("next"), target);
+    nextTab.keyEquivalentModifierMask=tabModifiers("next");
+    add(@"Move Tab to New Window", @selector(detachTab:), @"", target);
     add(@"Merge All Windows", @selector(mergeWindows:), @"", target);
-    add(@"Show Tab Bar", @selector(toggleTabBar:), @"", nil);
     [menu addItem:NSMenuItem.separatorItem];
     add(@"Bring All to Front", @selector(bringAll:), @"", target);
     if (!root) {
@@ -339,12 +361,8 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
 - (void)showShortcuts:(id)sender {
     if (!shortcutsWindow) {
         rows=[@[
-            @[@"Document", @"New mindmap window", @"⌘ N"],
-            @[@"Document", @"New tab", @"⌘ T"],
-            @[@"Window", @"Next / previous tab", @"⌃ Tab / ⌃ ⇧ Tab"],
             @[@"Document", @"Open document", @"⌘ O"],
             @[@"Document", @"Save", @"⌘ S"],
-            @[@"Document", @"Close active window", @"⌘ W"],
             @[@"Document", @"Quit application", @"⌘ Q"],
             @[@"Document", @"Undo", @"⌘ Z"],
             @[@"Document", @"Redo", @"⇧ ⌘ Z"],
@@ -391,6 +409,12 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
             @[@"Window", @"Next window", @"⌘ `"],
             @[@"Window", @"Previous window", @"⇧ ⌘ `"]
         ] retain];
+        NSMutableArray *allRows=[NSMutableArray array];
+        for(const auto &entry:TabShortcuts::help()) {
+            const auto row=entry.toMap();
+            [allRows addObject:@[@"Document tabs",row.value("label").toString().toNSString(),row.value("shortcut").toString().toNSString()]];
+        }
+        [allRows addObjectsFromArray:rows]; [rows release]; rows=[allRows copy];
         filteredRows=[rows mutableCopy];
         shortcutsWindow=[[OMMShortcutsWindow alloc] initWithContentRect:NSMakeRect(0,0,740,600)
             styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable
@@ -472,6 +496,7 @@ void installMacHelpMenu(QWindow *owner) {
 @implementation OMMFileMenuTarget
 - (void)invoke:(NSMenuItem *)item {
     NSDictionary *value=item.representedObject;
+    if(NSApp.currentEvent.type==NSEventTypeKeyDown && NSApp.currentEvent.isARepeat && ([@[@"new",@"newtab",@"close"] containsObject:value[@"action"]])) return;
     command(QString::fromNSString(value[@"action"]),QString::fromNSString(value[@"path"] ?: @""));
 }
 - (void)menuNeedsUpdate:(NSMenu *)menu {
@@ -500,13 +525,15 @@ void installMacFileMenu(QWindow *owner,std::function<void(QString,QString)> comm
     NSMenuItem *root=[[[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""] autorelease]; root.submenu=menu;
     auto add=[&](NSString *title,NSString *key,NSString *action) {
         NSMenuItem *item=[[[NSMenuItem alloc] initWithTitle:title action:@selector(invoke:) keyEquivalent:key] autorelease];
+        const QString command=[action isEqualToString:@"newtab"] ? QStringLiteral("new") : [action isEqualToString:@"new"] ? QStringLiteral("window") : QString::fromNSString(action);
+        if(TabShortcuts::find(command)) { item.keyEquivalent=tabKey(command); item.keyEquivalentModifierMask=tabModifiers(command); }
         item.target=target; item.representedObject=@{@"action":action}; [menu addItem:item];
     };
     add(@"New",@"n",@"new"); add(@"New Tab",@"t",@"newtab"); add(@"Open…",@"o",@"open");
     NSMenuItem *recentRoot=[[[NSMenuItem alloc] initWithTitle:@"Open Recent" action:nil keyEquivalent:@""] autorelease];
     NSMenu *recentMenu=[[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
     recentMenu.autoenablesItems=NO; recentMenu.delegate=target; recentRoot.submenu=recentMenu; [menu addItem:recentRoot];
-    add(@"Save",@"s",@"save"); [menu addItem:NSMenuItem.separatorItem]; add(@"Close Window",@"w",@"close");
+    add(@"Save",@"s",@"save"); [menu addItem:NSMenuItem.separatorItem]; add(@"Close Tab",@"w",@"close");
     [NSApp.mainMenu insertItem:root atIndex:MIN(1,NSApp.mainMenu.numberOfItems)];
     QObject::connect(owner,&QObject::destroyed,[root,target] { [NSApp.mainMenu removeItem:root]; [target release]; });
 }
@@ -528,65 +555,4 @@ void installMacReopenHandler(QWindow *owner,std::function<void()> reopen) {
         if(previous) class_replaceMethod(cls,selector,previous,"B@:@B");
         reopenDocuments={};
     });
-}
-
-void joinMacTabs(QWindow *first,QWindow *second) {
-    NSWindow *a=reinterpret_cast<NSView *>(first->winId()).window;
-    NSWindow *b=reinterpret_cast<NSView *>(second->winId()).window;
-    [a addTabbedWindow:b ordered:NSWindowAbove]; [b makeKeyAndOrderFront:nil];
-}
-QList<QWindow *> macTabs(QWindow *window) {
-    NSWindow *native=reinterpret_cast<NSView *>(window->winId()).window;
-    NSArray<NSWindow *> *tabs=native.tabbedWindows;
-    QList<QWindow *> result;
-    for(NSWindow *member in (tabs.count?tabs:@[native])) {
-        for(auto *candidate:QGuiApplication::allWindows()) {
-            if(candidate->property("macDocumentWindowId").isNull()) continue;
-            if(reinterpret_cast<NSView *>(candidate->winId()).window==member) { result.append(candidate); break; }
-        }
-    }
-    return result;
-}
-void macTabAction(QWindow *window,const QString &action) {
-    NSWindow *native=reinterpret_cast<NSView *>(window->winId()).window;
-    if(action=="next") [native selectNextTab:nil];
-    else if(action=="previous") [native selectPreviousTab:nil];
-    else if(action=="detach") [native moveTabToNewWindow:nil];
-    else if(action=="merge") {
-        for(auto *other:QGuiApplication::allWindows()) {
-            if(other==window || other->property("macDocumentWindowId").isNull()) continue;
-            NSWindow *peer=reinterpret_cast<NSView *>(other->winId()).window;
-            if(![native.tabbedWindows containsObject:peer]) [native addTabbedWindow:peer ordered:NSWindowAbove];
-        }
-        [native makeKeyAndOrderFront:nil];
-    }
-    else if(action=="toggle") [native toggleTabBar:nil];
-}
-
-// AppKit's tab-bar plus button sends this responder-chain action.
-@interface NSWindow (MindarchyDocumentTabs)
-- (void)newWindowForTab:(id)sender;
-@end
-@implementation NSWindow (MindarchyDocumentTabs)
-- (void)newWindowForTab:(id)sender {
-    for(auto *window:QGuiApplication::allWindows()) {
-        if(window->property("macDocumentWindowId").isNull()) continue;
-        if(reinterpret_cast<NSView *>(window->winId()).window!=self) continue;
-        QObject *engine=window->property("controller").value<QObject *>();
-        if(engine) QMetaObject::invokeMethod(engine,"tabActionRequested",Q_ARG(QString,QString("new")),Q_ARG(qint64,0));
-        break;
-    }
-}
-@end
-
-bool macTabSelected(QWindow *window) {
-    NSWindow *native=reinterpret_cast<NSView *>(window->winId()).window;
-    return !native.tabGroup || native.tabGroup.selectedWindow==native;
-}
-
-void updateMacTabInset(QWindow *window) {
-    NSView *view=reinterpret_cast<NSView *>(window->winId());
-    NSWindow *native=view.window;
-    const double inset=native.tabGroup.tabBarVisible ? std::max(48.,double(NSHeight(view.bounds)-NSMaxY(native.contentLayoutRect))) : 0;
-    window->setProperty("nativeTabInset",inset);
 }

@@ -8,8 +8,8 @@ Dialog {
     objectName: "appColorPicker"
     parent: Overlay.overlay
     modal: true
-    width: Math.min(360, parent.width - 32)
-    x: (parent.width-width)/2; y: (parent.height-height)/2
+    width: parent ? Math.max(0, Math.min(360, parent.width - 32)) : 360
+    x: parent ? (parent.width-width)/2 : 0; y: parent ? (parent.height-height)/2 : 0
     padding: 20
     property real hue: 0
     property real saturation: 0

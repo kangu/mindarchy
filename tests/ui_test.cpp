@@ -542,19 +542,24 @@ class UiTest : public QObject {
         QTRY_VERIFY(qAbs(name->y()-cleanY)<.1);
         QVERIFY(!document->edited());
         if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::MacOS) {
+            document->setText(1, "Changed again");
+            QTRY_COMPARE(edited->opacity(), 1.);
             auto *mouse = window->findChild<QQuickItem *>("documentTitleMouse");
             QVERIFY(mouse);
             const QPoint position = mouse->mapToScene(QPointF(mouse->width()/2, mouse->height()/2)).toPoint();
             QTest::mouseMove(window, QPoint(window->width()/2, 150));
             QTest::qWait(180);
             const qreal initialX = name->mapToScene(QPointF()).x();
+            const QPointF editedPosition = edited->mapToScene(QPointF());
             QTest::mouseMove(window, position);
             QTRY_VERIFY(name->mapToScene(QPointF()).x() > initialX + 19);
+            QCOMPARE(edited->mapToScene(QPointF()), editedPosition);
             QSignalSpy menu(document, &Engine::nativeFolderMenuRequested);
             QTest::mouseClick(window, Qt::RightButton, Qt::NoModifier, position);
             QCOMPARE(menu.count(), 1);
             QTest::mouseMove(window, QPoint(window->width()/2, 150));
             QTRY_VERIFY(qAbs(name->mapToScene(QPointF()).x()-initialX) < 1);
+            QCOMPARE(edited->mapToScene(QPointF()), editedPosition);
         }
     }
     void quitConfirmationWaitsForSessionAndCloseShortcutForgets() {
@@ -785,6 +790,132 @@ class UiTest : public QObject {
         QCOMPARE(toolbar->property("color").value<QColor>(),QColor("#faf4ed"));
         QVERIFY(writeTheme(root+"/theme","#1a1b26","#a9b1d6"));
         QTRY_COMPARE_WITH_TIMEOUT(toolbar->property("color").value<QColor>(),QColor("#1a1b26"),2500);
+    }
+    void sharedTabStripGeometry_data() {
+        QTest::addColumn<bool>("outlineRequested");
+        QTest::addColumn<bool>("inspectorRequested");
+        QTest::addColumn<int>("windowWidth");
+        QTest::addColumn<bool>("outlineShown");
+        QTest::addColumn<bool>("inspectorShown");
+        QTest::newRow("none") << false << false << 1380 << false << false;
+        QTest::newRow("outline") << true << false << 1380 << true << false;
+        QTest::newRow("inspector") << false << true << 1380 << false << true;
+        QTest::newRow("both") << true << true << 1380 << true << true;
+        QTest::newRow("minimum-both") << true << true << 600 << true << false;
+        QTest::newRow("minimum-inspector") << false << true << 600 << false << true;
+    }
+    void sharedTabStripGeometry() {
+        QFETCH(bool, outlineRequested); QFETCH(bool, inspectorRequested);
+        QFETCH(int, windowWidth); QFETCH(bool, outlineShown); QFETCH(bool, inspectorShown);
+        const auto originalSize = window->size();
+        const auto oldTabs = window->property("documentTabs");
+        const auto oldOutline = window->property("outlineVisible");
+        const auto oldInspector = window->property("inspectorVisible");
+        auto restore = qScopeGuard([&] {
+            window->setProperty("documentTabs", oldTabs);
+            window->setProperty("outlineVisible", oldOutline);
+            window->setProperty("inspectorVisible", oldInspector);
+            window->resize(originalSize);
+        });
+        window->setProperty("outlineVisible", outlineRequested);
+        window->setProperty("inspectorVisible", inspectorRequested);
+        window->resize(windowWidth, 900);
+        auto *strip = findVisual(window->contentItem(), "documentTabStrip");
+        auto *toolbar = findVisual(window->contentItem(), "mainToolbar");
+        auto *left = findVisual(window->contentItem(), "outlineSidebar");
+        auto *right = findVisual(window->contentItem(), "inspectorSidebar");
+        QVERIFY(strip); QVERIFY(toolbar); QVERIFY(left); QVERIFY(right);
+        const QVariantList oneTab{QVariantMap{{"id", 1}, {"title", "First"}, {"edited", false}}};
+        auto twoTabs = oneTab;
+        twoTabs.append(QVariantMap{{"id", 2}, {"title", "Second"}, {"edited", false}});
+        window->setProperty("documentTabs", oneTab);
+        QTRY_VERIFY(!strip->isVisible()); QCOMPARE(strip->height(), 0.0);
+        QTRY_COMPARE(canvas->mapToScene(QPointF()).y(), toolbar->mapToScene(QPointF(0, toolbar->height())).y());
+        window->setProperty("documentTabs", twoTabs);
+        QTRY_COMPARE(left->isVisible(), outlineShown);
+        QTRY_COMPARE(right->isVisible(), inspectorShown);
+        QTest::qWait(100);
+        const auto rect = [](QQuickItem *item) { return item->mapRectToScene(item->boundingRect()); };
+        QCOMPARE(toolbar->height(), 60.0);
+        QVERIFY(strip->isVisible()); QCOMPARE(strip->height(), 36.0);
+        QCOMPARE(rect(strip).top(), rect(toolbar).bottom());
+        QCOMPARE(rect(strip).left(), rect(canvas).left());
+        QCOMPARE(rect(strip).right(), rect(canvas).right());
+        QCOMPARE(rect(strip).bottom(), rect(canvas).top());
+        QVERIFY(canvas->width() >= 320);
+        if (outlineShown) {
+            QCOMPARE(left->width(), 224.0);
+            QCOMPARE(rect(left).top(), rect(toolbar).bottom());
+            QVERIFY(rect(left).right() <= rect(strip).left());
+            QVERIFY(!rect(left).intersects(rect(strip)));
+        }
+        if (inspectorShown) {
+            QCOMPARE(right->width(), 274.0);
+            QCOMPARE(rect(right).top(), rect(toolbar).bottom());
+            QVERIFY(rect(right).left() >= rect(strip).right());
+            QVERIFY(!rect(right).intersects(rect(strip)));
+        }
+        QCOMPARE(window->property("outlineVisible").toBool(), outlineRequested);
+        QCOMPARE(window->property("inspectorVisible").toBool(), inspectorRequested);
+        window->setProperty("documentTabs", oneTab);
+        QTRY_VERIFY(!strip->isVisible()); QCOMPARE(strip->height(), 0.0);
+        QTRY_COMPARE(rect(canvas).top(), rect(toolbar).bottom());
+        window->resize(1380, 900);
+        QTRY_COMPARE(left->isVisible(), outlineRequested);
+        QTRY_COMPARE(right->isVisible(), inspectorRequested);
+    }
+    void sharedTabOverflowFocusAndTargetedClose() {
+        const auto oldTabs = window->property("documentTabs");
+        const auto oldId = window->property("documentTabId");
+        auto restore = qScopeGuard([&] {
+            window->setProperty("documentTabs", oldTabs);
+            window->setProperty("documentTabId", oldId);
+            canvas->forceActiveFocus();
+        });
+        QVariantList documents;
+        for (int i = 1; i <= 20; ++i)
+            documents.append(QVariantMap{{"id", i}, {"title", QString("Document %1 with a long descriptive title").arg(i)}, {"edited", i == 5}});
+        window->setProperty("documentTabs", documents);
+        window->setProperty("documentTabId", 20);
+        auto *strip = findVisual(window->contentItem(), "documentTabStrip");
+        auto *scroller = findVisual(window->contentItem(), "documentTabScroller");
+        auto *list = findVisual(window->contentItem(), "documentTabListButton");
+        QVERIFY(strip); QVERIFY(scroller); QVERIFY(list);
+        QTRY_VERIFY(list->isVisible());
+        QTRY_VERIFY(scroller->property("contentX").toDouble() > 0);
+        auto *last = findVisual(window->contentItem(), "document-tab-20");
+        QVERIFY(last); last->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Home);
+        auto *first = findVisual(window->contentItem(), "document-tab-1");
+        QVERIFY(first); QTRY_VERIFY(first->hasActiveFocus());
+        QSignalSpy actions(document, &Engine::tabActionRequested);
+        QTest::keyClick(window, Qt::Key_Return);
+        QCOMPARE(actions.count(), 1);
+        QCOMPARE(actions.last().at(0).toString(), QString("activate"));
+        QCOMPARE(actions.last().at(1).toLongLong(), 1);
+        QTest::keyClick(window, Qt::Key_End); QTRY_VERIFY(last->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Escape); QTRY_VERIFY(canvas->hasActiveFocus());
+        auto *close = findVisual(window->contentItem(), "close-document-tab-5");
+        QVERIFY(close); QVERIFY(QMetaObject::invokeMethod(close, "clicked"));
+        QCOMPARE(actions.count(), 2);
+        QCOMPARE(actions.last().at(0).toString(), QString("close"));
+        QCOMPARE(actions.last().at(1).toLongLong(), 5);
+        first->forceActiveFocus();
+        QVERIFY(QMetaObject::invokeMethod(strip, "reveal", Q_ARG(QVariant, 0)));
+        QTest::qWait(50);
+        QSignalSpy reordered(window, SIGNAL(tabMoveRequested(double,int)));
+        const auto from = first->mapToScene(QPointF(30, first->height() / 2)).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from);
+        QTest::mouseMove(window, from + QPoint(180, 0), 50);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, from + QPoint(180, 0));
+        QCOMPARE(reordered.count(), 1);
+        QCOMPARE(reordered.first().at(0).toDouble(), 1.0);
+        QCOMPARE(reordered.first().at(1).toInt(), 1);
+        QCOMPARE(actions.count(), 2); // Dragging never also activates the source tab.
+        auto *create = findVisual(window->contentItem(), "newTabButton");
+        QVERIFY(create); QVERIFY(QMetaObject::invokeMethod(create, "clicked"));
+        QCOMPARE(actions.count(), 3);
+        QCOMPARE(actions.last().at(0).toString(), QString("new"));
     }
     void resizingWindowPreservesUserZoom() {
         const auto originalSize=window->size();

@@ -1,4 +1,6 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/DocumentWorkspace.qml</file>
+    <file>qml/DocumentTabStrip.qml</file>
     <file>qml/DesktopMenus.qml</file>
     <file>qml/icons/menu.svg</file>
     <file>qml/KeyboardShortcuts.qml</file>

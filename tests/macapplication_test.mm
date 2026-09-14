@@ -12,37 +12,96 @@
 class MacApplicationTest : public QObject {
     Q_OBJECT
 private slots:
-    void nativeTabsAndSeparateWindows() {
+    void windowButtonsStayAlignedAcrossTabs() {
+        QTemporaryDir directory;
+        const auto file=directory.filePath("Saved map.omm");
+        Engine document(nullptr,Engine::InitialContent::Blank);
+        QVERIFY(document.save(file));
+        MacApplication app(directory.filePath("session")); app.start({file},false);
+        auto *host=app.activeWindow(); QVERIFY(host); QTest::qWait(150);
+        const auto firstId=host->property("documentTabId").toLongLong();
+        auto aligned=[host] {
+            NSView *view=reinterpret_cast<NSView *>(host->winId());
+            NSWindow *native=view.window;
+            int index=0;
+            for(NSNumber *kind in @[@(NSWindowCloseButton),@(NSWindowMiniaturizeButton),@(NSWindowZoomButton)]) {
+                NSButton *button=[native standardWindowButton:(NSWindowButton)kind.integerValue];
+                NSRect rect=[view convertRect:button.bounds fromView:button];
+                const double top=view.isFlipped ? NSMidY(rect) : NSHeight(view.bounds)-NSMidY(rect);
+                if(qAbs(NSMinX(rect)-(18+20*index))>1 || qAbs(top-30)>1) {
+                    qWarning("Button %d moved to x=%.1f, center-from-top=%.1f",index,NSMinX(rect),top);
+                    return false;
+                }
+                ++index;
+            }
+            return true;
+        };
+        QVERIFY(aligned());
+        app.tabAction("new"); QCOMPARE(app.activeWindow(),host);
+        QVERIFY(aligned());
+        QTest::qWait(150); QVERIFY(aligned());
+        app.activate(firstId); QVERIFY(aligned());
+        QTest::qWait(100); QVERIFY(aligned());
+        QVERIFY(app.activeDocument()->save(directory.filePath("Renamed map.omm")));
+        QVERIFY(aligned()); QTest::qWait(100); QVERIFY(aligned());
+        app.tabAction("close"); QTRY_COMPARE(app.windows().size(),1); QVERIFY(aligned());
+        while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
+    }
+    void sharedTabsAndSeparateWindows() {
         QTemporaryDir directory;
         MacApplication app(directory.path()); app.start({},true);
         auto *first=app.activeWindow(); QVERIFY(first);
-        first->findChild<MindCanvas *>("mindCanvas")->commitEditing("First");
-        app.tabAction("new"); auto *second=app.activeWindow(); QVERIFY(second && second!=first);
-        QTest::qWait(200);
-        NSWindow *a=reinterpret_cast<NSView *>(first->winId()).window;
-        NSWindow *b=reinterpret_cast<NSView *>(second->winId()).window;
-        QCOMPARE(a.tabbedWindows.count,NSUInteger(2)); QVERIFY([a.tabbedWindows containsObject:b]);
-        app.tabAction("next"); QTest::qWait(100); QCOMPARE(a.tabGroup.selectedWindow,a);
-        app.tabAction("previous"); QTest::qWait(100); QCOMPARE(a.tabGroup.selectedWindow,b);
-        auto *third=app.open(); QVERIFY(third); QTest::qWait(100);
-        NSWindow *c=reinterpret_cast<NSView *>(third->winId()).window;
-        QVERIFY(![a.tabbedWindows containsObject:c]);
-        app.tabAction("merge"); QTest::qWait(150); QCOMPARE(c.tabbedWindows.count,NSUInteger(3));
-        app.tabAction("detach"); QTest::qWait(150); QVERIFY(c.tabbedWindows.count<=1);
-        app.activate(first->property("macDocumentWindowId").toLongLong());
-        app.tabAction("new"); QTest::qWait(150); QCOMPARE(a.tabbedWindows.count,NSUInteger(3));
-        auto *last=app.activeWindow(); QMetaObject::invokeMethod(last,"approveClose"); QTRY_COMPARE(app.windows().size(),3);
-        QCOMPARE(a.tabbedWindows.count,NSUInteger(2));
+        QTest::qWait(150);
+        const auto firstId=first->property("documentTabId").toLongLong();
+        auto *firstEngine=app.activeDocument();
+        auto *firstSurface=app.activeWorkspace();
+        auto *firstCanvas=firstSurface->findChild<MindCanvas *>("mindCanvas");
+        QVERIFY(firstCanvas->commitEditing("First"));
+        first->setProperty("outlineVisible",true);
+        first->setProperty("inspectorVisible",true);
+        app.tabAction("new"); auto *second=app.activeWindow(); QCOMPARE(second,first);
+        auto *secondEngine=app.activeDocument(); QVERIFY(secondEngine!=firstEngine);
+        auto *secondSurface=app.activeWorkspace(); QVERIFY(secondSurface!=firstSurface);
+        QTest::qWait(150);
+        secondSurface->findChild<MindCanvas *>("mindCanvas")->commitEditing("Second");
+        QCOMPARE(first->property("documentTabs").toList().size(),2);
+        if(qEnvironmentVariableIsSet("MINDARCHY_TABS_EVIDENCE")) {
+            QTest::qWait(150);
+            QVERIFY(first->grabWindow().save(qEnvironmentVariable("MINDARCHY_TABS_EVIDENCE")));
+        }
+        NSWindow *native=reinterpret_cast<NSView *>(first->winId()).window;
+        QCOMPARE(native.tabbingMode,NSWindowTabbingModeDisallowed);
+        QVERIFY(!native.tabGroup.tabBarVisible);
+        app.tabAction("next"); QCOMPARE(app.activeDocument(),firstEngine);
+        QCOMPARE(app.activeWorkspace(),firstSurface);
+        QCOMPARE(first->property("outlineVisible").toBool(),true);
+        app.tabAction("previous"); QCOMPARE(app.activeDocument(),secondEngine);
+        auto *third=app.open(); QVERIFY(third && third!=first);
+        auto *thirdEngine=app.activeDocument(); QTest::qWait(100);
+        app.tabAction("merge"); QCOMPARE(app.activeWindow(),third);
+        QCOMPARE(third->property("documentTabs").toList().size(),3);
+        app.tabAction("detach"); QVERIFY(app.activeWindow()!=third);
+        QCOMPARE(app.activeDocument(),thirdEngine);
+        QCOMPARE(app.activeWindow()->property("documentTabs").toList().size(),1);
+        app.activate(firstId); QCOMPARE(app.activeDocument(),firstEngine);
+        QCOMPARE(app.activeWorkspace(),firstSurface);
+        app.tabAction("new"); QTest::qWait(100);
+        QCOMPARE(app.activeWindow()->property("documentTabs").toList().size(),3);
+        QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTRY_COMPARE(app.windows().size(),3);
+        QCOMPARE(app.activeWindow()->property("documentTabs").toList().size(),2);
         QVERIFY([NSApp.windowsMenu itemWithTitle:@"Show Next Tab"]);
         QVERIFY([NSApp.windowsMenu itemWithTitle:@"Move Tab to New Window"]);
         while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
     }
-    void nativeTabsRecover() {
+    void sharedTabsRecover() {
         QTemporaryDir directory;
         {
             MacApplication app(directory.path()); app.start({},true);
-            app.activeWindow()->findChild<MindCanvas *>("mindCanvas")->commitEditing("One");
-            app.tabAction("new"); app.activeWindow()->findChild<MindCanvas *>("mindCanvas")->commitEditing("Two");
+            QTest::qWait(150);
+            app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas")->commitEditing("One");
+            app.activeWindow()->setProperty("outlineVisible",true);
+            app.tabAction("new"); QTest::qWait(150);
+            app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas")->commitEditing("Two");
             QVERIFY(app.requestQuit()); QTRY_COMPARE(app.windows().size(),0);
             QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
@@ -50,10 +109,33 @@ private slots:
             MacApplication app(directory.path()); app.start({},false);
             QCOMPARE(app.windows().size(),2); app.updateTabs();
             QCOMPARE(app.activeWindow()->property("documentTabs").toList().size(),2);
+            QCOMPARE(app.activeDocument()->selectedText(),QString("Two"));
+            QVERIFY(app.activeWindow()->property("outlineVisible").toBool());
             NSWindow *native=reinterpret_cast<NSView *>(app.activeWindow()->winId()).window;
-            QCOMPARE(native.tabbedWindows.count,NSUInteger(2));
+            QVERIFY(!native.tabGroup.tabBarVisible);
             while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
         }
+    }
+    void sharedShortcutDispatch() {
+        QTemporaryDir directory;
+        MacApplication app(directory.path()); app.start({},true); QTest::qWait(150);
+        auto *host=app.activeWindow(); auto *first=app.activeDocument();
+        QTest::keyClick(host,Qt::Key_T,Qt::ControlModifier);
+        QTRY_COMPARE(app.windows().size(),2); QCOMPARE(app.activeWindow(),host);
+        auto *second=app.activeDocument(); QVERIFY(second!=first); QTest::qWait(100);
+        QTest::keyClick(host,Qt::Key_Tab,Qt::MetaModifier);
+        QCOMPARE(app.activeDocument(),first);
+        QTest::keyClick(host,Qt::Key_Backtab,Qt::MetaModifier|Qt::ShiftModifier);
+        QCOMPARE(app.activeDocument(),second);
+        // An unmodified Tab remains a node-editing command, never tab navigation.
+        QTest::keyClick(host,Qt::Key_Tab); QCOMPARE(app.activeDocument(),second);
+        // New/close are not auto-repeatable.
+        QKeyEvent repeated(QEvent::KeyPress,Qt::Key_T,Qt::ControlModifier,"t",true);
+        QCoreApplication::sendEvent(host,&repeated); QCOMPARE(app.windows().size(),2);
+        // Native menu commands reach the same document model.
+        NSMenuItem *next=[NSApp.windowsMenu itemWithTitle:@"Show Next Tab"];
+        [NSApp sendAction:next.action to:next.target from:next]; QCOMPARE(app.activeDocument(),first);
+        while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
     }
     void documentsShareApplicationAndRecover() {
         QTemporaryDir directory;
@@ -67,12 +149,12 @@ private slots:
             auto *first=app.activeWindow(); QVERIFY(first);
             QTRY_VERIFY(first->isVisible()); QTest::qWait(150);
             auto *firstEngine=app.activeDocument(); QVERIFY(firstEngine);
-            first->findChild<MindCanvas *>("mindCanvas")->commitEditing("Central idea");
+            app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas")->commitEditing("Central idea");
             firstEngine->setText(1,"Saved map"); QVERIFY(firstEngine->save(saved));
             auto *second=app.open(); QVERIFY(second); QVERIFY(second!=first);
             QTest::qWait(150);
             auto *secondEngine=app.activeDocument();
-            second->findChild<MindCanvas *>("mindCanvas")->commitEditing("Central idea");
+            app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas")->commitEditing("Central idea");
             secondEngine->setText(1,"Recovered draft");
             QCOMPARE(firstEngine->selectedText(),QString("Saved map"));
             QCOMPARE(app.windows().size(),2);

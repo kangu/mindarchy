@@ -2,12 +2,11 @@ QT += core gui qml quick quickcontrols2 network
 CONFIG += c++20
 TARGET = mindarchy
 SOURCES += src/main.cpp src/macapplication.cpp src/windowplacement.cpp src/drawing.cpp src/preview.cpp src/engine.cpp src/theme.cpp src/canvas.cpp src/canvasimages.cpp src/shelltheme.cpp
-HEADERS += src/windowplacement.h src/documentsession.h src/documentrecovery.h src/viewportstate.h src/shelltheme.h src/engine.h src/theme.h src/canvas.h
+HEADERS += src/macapplication.h src/tabshortcuts.h src/windowplacement.h src/documentsession.h src/documentrecovery.h src/viewportstate.h src/shelltheme.h src/engine.h src/theme.h src/canvas.h
 RESOURCES += resources.qrc
 
 macx {
     QT += network
-    HEADERS += src/macapplication.h
     OBJECTIVE_SOURCES += src/macwindow.mm src/macplacement.mm
     LIBS += -framework AppKit -framework UniformTypeIdentifiers
     ICON = assets/icons/mindarchy.icns

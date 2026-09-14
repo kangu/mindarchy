@@ -1,6 +1,7 @@
 #include <optional>
 #include <functional>
 #pragma once
+#include "tabshortcuts.h"
 #include <QHash>
 #include <QObject>
 #include <QRectF>
@@ -33,6 +34,7 @@ class Engine : public QObject {
     Q_PROPERTY(QString textFamily READ textFamily NOTIFY changed)
     Q_PROPERTY(bool selectedHasImage READ selectedHasImage NOTIFY changed)
     Q_PROPERTY(QString selectedImagePlacement READ selectedImagePlacement NOTIFY changed)
+    Q_PROPERTY(QVariantList tabShortcutHelp READ tabShortcutHelp CONSTANT)
     Q_PROPERTY(QString documentName READ documentName NOTIFY changed)
     Q_PROPERTY(bool edited READ edited NOTIFY changed)
     Q_PROPERTY(QString layout READ layout WRITE setLayout NOTIFY changed)
@@ -68,6 +70,7 @@ class Engine : public QObject {
     Q_PROPERTY(QStringList fontFamilies READ fontFamilies CONSTANT)
     Q_PROPERTY(QColor canvasColor READ canvasColor NOTIFY changed)
   public:
+    QVariantList tabShortcutHelp() const { return TabShortcuts::help(); }
     enum class InitialContent { Example, Blank };
     explicit Engine(QObject *parent = nullptr, InitialContent content = InitialContent::Example);
     const QHash<int, MapNode> &nodes() const { return m_nodes; }
