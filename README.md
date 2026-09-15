@@ -1,12 +1,12 @@
-<p align="center">
-  <img src="assets/mindarchy-icon.png" alt="Mindarchy icon" width="112" />
-</p>
-
 # Mindarchy
 
 [![Built for Omarchy: App](https://raw.githubusercontent.com/tcballard/omarchy-badges/75975e5b5bf75e7ede3764bcd2950046f7abfe2c/badges/v1/omarchy-app.svg)](https://github.com/tcballard/omarchy-badges)
 
-**Mind mapping, at home on Omarchy.**
+**Mind mapping, at home on Omarchy. Runs on any other platform. **
+
+**Website:** [mindarchy.xyz](https://mindarchy.xyz)
+
+[![Mindarchy showing a bookshop mind map in the Forest theme, with the toolbar and inspector visible](assets/screenshots/mindarchy-forest.png)](https://mindarchy.xyz)
 
 Mindarchy is an open-source desktop application for turning ideas into connected thoughts, practical plans, and next actions. Capture a rough outline, arrange it visually, and keep the result in local files you control.
 
@@ -174,6 +174,12 @@ The suites cover document operations, layout, manual placement, canvas input, QM
 ## Build installers
 
 The repository includes packaging tools for each desktop platform. These build artifacts locally; they do not publish a release.
+
+To upload completed installers to GitHub, use [release-github.py](scripts/release-github.py). It creates a draft release with download links and checksums, verifies the uploaded files, and publishes when `--publish` is supplied. See the [GitHub release guide](docs/github-release.md) for setup, platform selection, and examples.
+
+```sh
+python3 scripts/release-github.py --version 0.1.4 --dry-run
+```
 
 | Platform | Tool | Output |
 | --- | --- | --- |
