@@ -80,8 +80,12 @@ WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
     if(m_saved.value("backend").toString()!=(m_hyprland ? "hyprland" : m_wayland ? "wayland" : "qt")) m_saved.clear();
     const auto available=screens(); m_target=resolveWindowPlacement(m_saved,available);
     window->setMinimumSize({std::min(600,m_target.rect.width()),std::min(640,m_target.rect.height())});
-    window->resize(m_target.rect.size());
-    if(!m_wayland) window->setPosition(m_target.rect.topLeft());
+    // An already-visible host belongs to a tab group; do not re-apply a
+    // child document's saved rectangle onto that shared window.
+    if(!window->isVisible()) {
+        window->resize(m_target.rect.size());
+        if(!m_wayland) window->setPosition(m_target.rect.topLeft());
+    }
     for (const char *property : {"outlineVisible", "inspectorVisible"}) {
         const QString key=QStringLiteral("panels/v1/")+QString::fromLatin1(property);
         if (m_settings->contains(key) && window->property(property).isValid())

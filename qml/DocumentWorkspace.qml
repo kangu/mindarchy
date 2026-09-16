@@ -9,6 +9,8 @@ FocusScope {
     objectName: "documentWorkspace"
     required property var hostWindow
     anchors.fill: parent
+    implicitWidth: parent ? parent.width : 0
+    implicitHeight: parent ? parent.height : 0
     property var controller: engine
     readonly property bool integratedMacToolbar: hostWindow.integratedMacToolbar
     readonly property bool integratedWindowsToolbar: hostWindow.integratedWindowsToolbar

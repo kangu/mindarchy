@@ -5,6 +5,7 @@
 #include <QQuickStyle>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QGuiApplication>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <QTextDocument>
@@ -116,6 +117,41 @@ private slots:
         QTRY_COMPARE(app.windows().size(),4);
         QCOMPARE(app.activeWindow(),host);
         QCOMPARE(host->property("documentTabId").toLongLong(),expected);
+        while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
+    }
+    void switchingTabsDoesNotResizeHost() {
+        QTemporaryDir directory;
+        MacApplication app(directory.path()); app.start({},true); QTest::qWait(100);
+        auto *host=app.activeWindow(); QVERIFY(host);
+        const auto firstId=host->property("documentTabId").toLongLong();
+        host->resize(1112,743); QTest::qWait(50);
+        const auto expected=host->geometry();
+        const auto state=host->windowState();
+        app.tabAction("new"); QTest::qWait(100);
+        QCOMPARE(app.activeWindow(),host);
+        QCOMPARE(host->geometry(),expected);
+        QCOMPARE(host->windowState(),state);
+        const auto secondId=host->property("documentTabId").toLongLong();
+        QVERIFY(secondId!=firstId);
+        app.activate(firstId); QTest::qWait(50);
+        QCOMPARE(app.activeWindow(),host);
+        QCOMPARE(host->property("documentTabId").toLongLong(),firstId);
+        QCOMPARE(host->geometry(),expected);
+        QCOMPARE(host->windowState(),state);
+        app.activate(secondId); QTest::qWait(50);
+        QCOMPARE(host->property("documentTabId").toLongLong(),secondId);
+        QCOMPARE(host->geometry(),expected);
+        QCOMPARE(host->windowState(),state);
+#ifdef Q_OS_MACOS
+        if(QGuiApplication::platformName()=="cocoa") {
+            host->showMaximized(); QTRY_VERIFY(host->windowState()==Qt::WindowMaximized || host->visibility()==QWindow::Maximized);
+            const auto maximized=host->geometry();
+            app.activate(firstId); QTest::qWait(50);
+            QVERIFY(host->windowState()==Qt::WindowMaximized || host->visibility()==QWindow::Maximized);
+            QCOMPARE(host->geometry(),maximized);
+            host->showNormal(); QTest::qWait(50);
+        }
+#endif
         while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
     }
     void inactiveDetachAndCancelledClose() {

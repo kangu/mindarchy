@@ -7,6 +7,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QScreen>
+#include <QSettings>
+#include <QWindow>
 #include <QTemporaryDir>
 #include <QtTest>
 #ifdef Q_OS_MACOS
@@ -16,6 +18,21 @@ bool nativeZoomedForTest(QWindow *window);
 class PlacementTest : public QObject {
     Q_OBJECT
 private slots:
+    void visibleWindowKeepsGeometryWhenPlacementAttaches() {
+        if(QGuiApplication::platformName().startsWith("wayland")) QSKIP("Qt state test");
+        QTemporaryDir dir; const auto file=dir.filePath("visible.ini");
+        QSettings settings(file,QSettings::IniFormat);
+        auto *screen=QGuiApplication::primaryScreen();
+        const QRect saved(screen->availableGeometry().topLeft()+QPoint(48,48),QSize(980,720));
+        settings.setValue("windowPlacement/v1",QVariantMap{{"backend","qt"},{"state","normal"},
+            {"screen",screen->name()+"|"+screen->serialNumber()},{"rect",saved}}); settings.sync();
+        QWindow window; window.resize(1112,743); window.setPosition(80,90); window.setVisible(true);
+        QTest::qWait(50);
+        const auto expected=window.geometry();
+        WindowPlacement placement(&window,file);
+        QCOMPARE(window.geometry(),expected);
+        window.close();
+    }
     void panelVisibilitySurvivesRestartAndResize() {
         QTemporaryDir dir; const auto file=dir.filePath("panels.ini");
         QQmlEngine engine; QQmlComponent component(&engine);

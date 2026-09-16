@@ -99,6 +99,7 @@ public:
         if(!workspace) { application->m_error=component.errorString(); return false; }
         workspace->setParent(this);
         workspace->setParentItem(window->contentItem());
+        if(auto *content=window->contentItem()) workspace->setSize(content->size());
         workspace->setProperty("documentTabId",id);
         workspace->setVisible(false);
         workspace->setEnabled(false);
@@ -357,7 +358,10 @@ void MacApplication::activate(qint64 id) {
         window->setProperty("activeWorkspace",QVariant::fromValue<QObject *>(document->workspace));
         window->setProperty("documentTabId",document->id);
         window->setProperty("macDocumentWindowId",document->id);
-        if(window->windowState()==Qt::WindowMinimized) window->showNormal(); else window->show();
+        // show() calls showNormal() and would resize a visible host. Tab
+        // activation only presents a minimized or hidden window.
+        if(window->windowState()==Qt::WindowMinimized) window->showNormal();
+        else if(!window->isVisible()) window->setVisible(true);
         window->raise(); window->requestActivate(); m_active=window;
         document->workspace->forceActiveFocus();
         updateTabs(); return;
@@ -520,6 +524,7 @@ void MacApplication::moveDocument(MacDocumentWindow *document,QQuickWindow *host
     }
     document->workspace->setProperty("hostWindow",QVariant::fromValue(host));
     document->workspace->setParentItem(host->contentItem());
+    if(auto *content=host->contentItem()) document->workspace->setSize(content->size());
     document->workspace->setVisible(false); document->workspace->setEnabled(false);
     MacDocumentWindow *replacement=nullptr;
     for(auto *d:m_documents) if(d->window==old) { replacement=d; break; }
