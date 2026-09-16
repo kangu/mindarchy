@@ -114,9 +114,13 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(digest, release.sha256(by_name[name]))
             self.assertIn('unsigned, not notarized', notes.read_text())
             self.assertFalse(make_public)
-        with patch.object(release.shutil, 'which', return_value='/fake/gh'), patch.object(release, 'publish', side_effect=check_upload) as upload:
+        with patch.object(release.shutil, 'which', return_value='/fake/gh'), \
+             patch.object(release, 'resolve_commit', return_value='a' * 40), \
+             patch.object(release, 'ensure_tag', return_value='a' * 40) as tag, \
+             patch.object(release, 'publish', side_effect=check_upload) as upload:
             self.assertEqual(release.main(['--version', '0.1.4', '--platforms', 'macos',
                                           '--macos-dir', str(self.dirs['macos'])]), 0)
+            tag.assert_called_once_with('kangu/mindarchy', 'v0.1.4', 'a' * 40)
             upload.assert_called_once()
 
     def test_publish_only_after_download_verification(self):
@@ -164,10 +168,35 @@ class ReleaseTests(unittest.TestCase):
 
     def test_dry_run_never_calls_github(self):
         self.mac()
-        with patch.object(release, 'gh', side_effect=AssertionError('network access')):
+        with patch.object(release, 'gh', side_effect=AssertionError('network access')), \
+             patch.object(release, 'resolve_commit', return_value='a' * 40):
             result = release.main(['--version', '0.1.4', '--platforms', 'macos',
                                    '--macos-dir', str(self.dirs['macos']), '--dry-run'])
         self.assertEqual(result, 0)
+
+    def test_ensure_tag_creates_when_missing(self):
+        calls = []
+        def gh(*args):
+            calls.append(args)
+            if any(isinstance(a, str) and a.endswith('/git/tags') for a in args) and '--method' in args:
+                return json.dumps({'sha': 'tagobjectsha'})
+            return ''
+        with patch.object(release, 'gh', side_effect=gh), \
+             patch.object(release, 'remote_tag_commit', return_value=None):
+            self.assertEqual(release.ensure_tag('kangu/mindarchy', 'v0.1.4', 'a' * 40), 'a' * 40)
+        joined = [' '.join(map(str, c)) for c in calls]
+        self.assertTrue(any('/git/tags' in line and '--method POST' in line for line in joined))
+        self.assertTrue(any('/git/refs' in line and '--method POST' in line for line in joined))
+
+    def test_ensure_tag_reuses_matching_commit(self):
+        with patch.object(release, 'remote_tag_commit', return_value='a' * 40), \
+             patch.object(release, 'gh', side_effect=AssertionError('must not create')):
+            self.assertEqual(release.ensure_tag('kangu/mindarchy', 'v0.1.4', 'a' * 40), 'a' * 40)
+
+    def test_ensure_tag_rejects_mismatched_commit(self):
+        with patch.object(release, 'remote_tag_commit', return_value='b' * 40):
+            with self.assertRaisesRegex(release.ReleaseError, 'already points'):
+                release.ensure_tag('kangu/mindarchy', 'v0.1.4', 'a' * 40)
 
     def test_existing_draft_requires_resume(self):
         calls, success = self.run_publish(existing={'tag_name': 'v0.1.4', 'draft': True})

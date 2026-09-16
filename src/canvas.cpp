@@ -1,5 +1,6 @@
 #include "appfont.h"
 #include "canvas.h"
+#include "canvasshortcuts.h"
 #include "searchmatch.h"
 #include "drawing.h"
 using namespace MapDrawing;
@@ -166,7 +167,9 @@ struct Scene : QSGNode {
         g->setDrawingMode(QSGGeometry::DrawTriangles);
         shapes->setGeometry(g);
         shapes->setFlag(OwnsGeometry);
-        shapes->setMaterial(new QSGVertexColorMaterial);
+        auto *material = new QSGVertexColorMaterial;
+        material->setFlag(QSGMaterial::Blending);
+        shapes->setMaterial(material);
         shapes->setFlag(OwnsMaterial);
     }
 };
@@ -348,7 +351,7 @@ void MindCanvas::refresh() {
         if (!r.intersects(viewport))
             continue;
         const qreal taskOpacity = taskProgress(id);
-        m_draw.append({id, r, color, appearance, selected.contains(id), n.folded, taskOpacity > 0, n.checked,
+        m_draw.append({id, r, color, appearance, selected.contains(id) || m_marqueeHits.contains(id), n.folded, taskOpacity > 0, n.checked,
             m_engine->manual() && m_engine->layout()=="Horizontal" && r.center().x()<displayRect(1).center().x(), !focusIncludes(id), taskOpacity, n.taskChildren>0 ? qreal(n.completedTaskChildren)/n.taskChildren : -1});
         if ((m_zoom < .28 || editingId() == id) && n.image.empty())
             continue;
@@ -520,6 +523,12 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         if (m_dragging && !m_dropLine.isNull()) {
             painter.setPen(QPen(QColor("#f3cc79"),2./m_zoom));
             painter.drawLine(m_dropLine);
+        }
+        if (m_marquee) {
+            QColor c("#92dcc7");
+            painter.setPen(QPen(c,1./m_zoom));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(m_marqueeRect);
         }
         const auto handle=creationHandleRect();
         if(!handle.isEmpty()) {
@@ -933,6 +942,7 @@ void MindCanvas::cancelCreation() {
 void MindCanvas::mouseUngrabEvent() {
     cancelImageResize();
     if(m_creatingParent>=0) cancelCreation();
+    m_marquee=false; m_marqueeHits.clear();
     QQuickItem::mouseUngrabEvent();
 }
 void MindCanvas::mousePressEvent(QMouseEvent *e) {
@@ -975,6 +985,7 @@ void MindCanvas::mousePressEvent(QMouseEvent *e) {
     if (m_pressedTask >= 0)
         m_pressedId = m_pressedTask;
     m_marquee = false;
+    m_marqueeHits.clear();
     m_dragging = false;
     m_dragIds.clear(); m_dragRoots.clear(); m_deferredSelection=false;
     m_manualPreview.clear();
@@ -1081,6 +1092,12 @@ void MindCanvas::updateDrop(QPointF screen) {
                                  : "Drop on a node to attach · near its edge to reorder";
     emit interactionChanged();
 }
+void MindCanvas::updateMarqueePreview() {
+    m_marqueeHits.clear();
+    if(!m_marquee || !m_engine) return;
+    for(int id:m_engine->visibleIds())
+        if(m_marqueeRect.intersects(displayRect(id))) m_marqueeHits.insert(id);
+}
 void MindCanvas::mouseMoveEvent(QMouseEvent *e) {
     if (!m_engine)
         return;
@@ -1122,6 +1139,7 @@ void MindCanvas::mouseMoveEvent(QMouseEvent *e) {
     } else if (QLineF(m_press, p).length() > 4) {
         m_marquee = true;
         m_marqueeRect = QRectF(mapToWorld(m_press), mapToWorld(p)).normalized();
+        updateMarqueePreview();
         refresh();
     }
     m_last = p;
@@ -1180,14 +1198,11 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
             editDateEntry(id,days[i].toString(Qt::ISODate)); break;
         }
     } else if (m_marquee) {
-        QVector<int> ids;
-        for (const auto &n : m_draw)
-            if (m_marqueeRect.intersects(n.rect))
-                ids << n.id;
         QVariantList batch;
-        for (int id : ids)
+        for (int id : m_marqueeHits)
             batch << id;
         m_engine->selectMany(batch, m_extend);
+        m_marqueeHits.clear();
     }
     if(m_deferredSelection && m_pressedId>=0) m_engine->select(m_pressedId);
     m_deferredSelection=false;
@@ -1319,9 +1334,16 @@ void MindCanvas::keyPressEvent(QKeyEvent *e) {
             return;
         }
     }
+    const bool alt = e->modifiers() & Qt::AltModifier;
+    if (!cmd && !alt && !m_space) {
+        switch (CanvasShortcuts::action(e->key(), e->modifiers())) {
+        case CanvasShortcuts::Action::ZoomIn: zoomIn(); e->accept(); return;
+        case CanvasShortcuts::Action::ZoomOut: zoomOut(); e->accept(); return;
+        default: break;
+        }
+    }
     // Printable canvas input replaces a single selected title. Start the normal
     // editor first so its original-text baseline and commit/undo behavior remain intact.
-    const bool alt = e->modifiers() & Qt::AltModifier;
     if (!cmd && !alt && !m_space && m_engine->selectedIds().size()==1 &&
         m_engine->selectedKind() != "date" && !e->text().isEmpty() &&
         e->text().front().isPrint() && !e->text().front().isSpace()) {
@@ -1400,15 +1422,6 @@ void MindCanvas::keyPressEvent(QKeyEvent *e) {
         case Qt::Key_Escape:
             if(focusActive()) { exitFocus(); break; }
             m_engine->select(-1);
-            break;
-        case Qt::Key_Plus:
-        case Qt::Key_Equal:
-            if(m_engine->selectedId()>0 || cmd || alt) { handled=false; break; }
-            zoomIn();
-            break;
-        case Qt::Key_Minus:
-            if(m_engine->selectedId()>0 || cmd || alt) { handled=false; break; }
-            zoomOut();
             break;
         case Qt::Key_0:
             if(m_engine->selectedId()>0 || cmd || alt) { handled=false; break; }

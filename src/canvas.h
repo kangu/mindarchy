@@ -174,6 +174,7 @@ class MindCanvas : public QQuickItem {
     qreal taskProgress(int id) const;
     QColor nodeColor(int id) const;
     void updateDrop(QPointF screen);
+    void updateMarqueePreview();
     QColor creationHandleColor() const;
     QRectF creationHandleRect() const;
     QPointF creationAnchor(int id, std::optional<QPointF> toward = {}) const;
@@ -222,6 +223,7 @@ class MindCanvas : public QQuickItem {
     QSet<int> m_dragIds;
     QSizeF m_editContentSize;
     QRectF m_marqueeRect, m_editPreview;
+    QSet<int> m_marqueeHits;
     QLineF m_dropLine;
     QString m_dateHoverText;
     QPointF m_dateHoverPosition;

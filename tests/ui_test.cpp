@@ -221,7 +221,7 @@ class UiTest : public QObject {
         QTest::keyClick(window,Qt::Key_Return); QTRY_VERIFY(!canvas->editing());
         QCOMPARE(plain(2),QString("yey"));
         document->undo(); QCOMPARE(plain(2),QString("hello"));
-        for(const auto &text : {QString("Foo"),QString("Task"),QString("0.5"),QString("+1"),QString("<tag>")}) {
+        for(const auto &text : {QString("Foo"),QString("Task"),QString("0.5"),QString("#1"),QString("<tag>")}) {
             canvas->forceActiveFocus(); type(text);
             QTRY_VERIFY(canvas->editing()); QTest::keyClick(window,Qt::Key_Return);
             QCOMPARE(plain(2),text); QVERIFY(!document->selectedTask());
@@ -230,6 +230,11 @@ class UiTest : public QObject {
         QVERIFY(document->selectedTask()); QVERIFY(!canvas->editing());
         document->select(-1); QTest::keyClick(window,Qt::Key_A); QVERIFY(!canvas->editing());
         document->select(2); QTest::keyPress(window,Qt::Key_Space); QVERIFY(!canvas->editing()); QTest::keyRelease(window,Qt::Key_Space);
+        document->setText(2,"keep"); canvas->forceActiveFocus();
+        const auto zoom=canvas->zoom();
+        QTest::keyClick(window,Qt::Key_Plus); QVERIFY(!canvas->editing()); QVERIFY(canvas->zoom()>zoom); QCOMPARE(plain(2),QString("keep"));
+        QTest::keyClick(window,Qt::Key_Minus); QVERIFY(!canvas->editing()); QCOMPARE(plain(2),QString("keep"));
+        QTest::keyClick(window,Qt::Key_Equal); QVERIFY(!canvas->editing()); QVERIFY(canvas->zoom()>zoom);
     }
     void resourcesInspectorAddsEditsAndRemoves() {
         document->select(2);
@@ -341,11 +346,12 @@ class UiTest : public QObject {
         QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
         auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
-        auto *choice=window->findChild<QObject *>("nodeTemplateChoice"); QVERIFY(choice);
-        choice->setProperty("currentIndex",0);
-        dialog->setProperty("month",document->templateCalendar("2026-09-01"));
         auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
-        QTest::qWait(50);
+        auto *choice=findVisual(content,"nodeTemplateChoice"); QVERIFY(choice);
+        QVERIFY(QMetaObject::invokeMethod(choice,"clicked"));
+        QTRY_VERIFY(dialog->property("needsWeek").toBool());
+        dialog->setProperty("month",document->templateCalendar("2026-09-01"));
+        QTest::qWait(250);
         auto *week=findVisual(content,"templateWeek_2026-09-07"); QVERIFY(week);
         QVERIFY(QMetaObject::invokeMethod(week,"clicked"));
         QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
@@ -382,11 +388,10 @@ class UiTest : public QObject {
         auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
         auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
-        auto *choice=findVisual(content,"nodeTemplateChoice"); QVERIFY(choice); choice->setProperty("currentIndex",1);
-        QTRY_VERIFY(!dialog->property("needsWeek").toBool());
+        QVERIFY(!dialog->property("needsWeek").toBool());
         auto *calendar=findVisual(content,"templateWeekCalendar"); QVERIFY(calendar); QVERIFY(!calendar->isVisible());
-        auto *add=findVisual(content,"addNodeTemplate"); QVERIFY(add);
-        QVERIFY(QMetaObject::invokeMethod(add,"clicked"));
+        auto *meetingOption=findVisual(content,"templateOption-meeting-notes"); QVERIFY(meetingOption);
+        QVERIFY(QMetaObject::invokeMethod(meetingOption,"clicked"));
         QTRY_VERIFY(canvas->editing()); QTRY_VERIFY(editor->hasActiveFocus());
         const int meeting=document->nodes().value(2).children.last();
         QCOMPARE(document->nodes().value(2).text,previous.text);
@@ -690,6 +695,13 @@ class UiTest : public QObject {
         QVERIFY(canvas->hasActiveFocus());
         QCOMPARE(window->activeFocusItem(), canvas);
         stage(QString::fromLatin1(QTest::currentTestFunction()));
+    }
+    void headerDragLeavesMacWindowButtons() {
+        if(QGuiApplication::platformName()!="cocoa") QSKIP("macOS traffic lights");
+        auto *drag=window->findChild<QQuickItem *>("headerDragArea");
+        QVERIFY(drag);
+        QVERIFY(drag->x()>=90);
+        QVERIFY(drag->width()<window->width());
     }
     void windowsHeaderReservesWindowControls() {
 #ifndef Q_OS_WIN

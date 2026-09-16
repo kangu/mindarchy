@@ -94,6 +94,61 @@ def gh(*args):
     return result.stdout
 
 
+def git(*args):
+    result = subprocess.run(['git', '-C', str(ROOT), *args], capture_output=True, text=True)
+    if result.returncode:
+        raise ReleaseError(result.stderr.strip() or result.stdout.strip() or 'git failed')
+    return result.stdout.strip()
+
+
+def resolve_commit(explicit=None):
+    spec = explicit or 'HEAD'
+    try:
+        return git('rev-parse', '--verify', f'{spec}^{{commit}}')
+    except ReleaseError as error:
+        raise ReleaseError(f'Could not resolve {spec} in {ROOT}. Pass --tag-commit SHA. {error}') from error
+
+
+def remote_tag_commit(repo, tag):
+    try:
+        data = json.loads(gh('api', '--hostname', 'github.com', f'repos/{repo}/git/ref/tags/{tag}'))
+    except ReleaseError as error:
+        if '404' in str(error) or 'Not Found' in str(error):
+            return None
+        raise
+    obj = data.get('object') or {}
+    if obj.get('type') == 'commit' and obj.get('sha'):
+        return obj['sha']
+    if obj.get('type') == 'tag' and obj.get('sha'):
+        peeled = json.loads(gh('api', '--hostname', 'github.com', f"repos/{repo}/git/tags/{obj['sha']}"))
+        sha = (peeled.get('object') or {}).get('sha')
+        if sha:
+            return sha
+    raise ReleaseError(f'Could not resolve GitHub tag {tag} to a commit.')
+
+
+def ensure_tag(repo, tag, commit, dry_run=False):
+    if dry_run:
+        print(f'Would ensure GitHub tag {tag} at {commit}')
+        return commit
+    existing = remote_tag_commit(repo, tag)
+    if existing:
+        if existing != commit:
+            raise ReleaseError(f'Tag {tag} already points to {existing[:12]}, not {commit[:12]}. Refusing to move it.')
+        print(f'Using existing GitHub tag {tag} ({commit[:12]})')
+        return existing
+    print(f'Creating GitHub tag {tag} at {commit[:12]}')
+    created = json.loads(gh('api', '--hostname', 'github.com', f'repos/{repo}/git/tags',
+                            '--method', 'POST', '-f', f'tag={tag}', '-f', f'message=Mindarchy {tag}',
+                            '-f', f'object={commit}', '-f', 'type=commit'))
+    sha = created.get('sha')
+    if not sha:
+        raise ReleaseError(f'GitHub did not return a tag object for {tag}.')
+    gh('api', '--hostname', 'github.com', f'repos/{repo}/git/refs', '--method', 'POST',
+       '-f', f'ref=refs/tags/{tag}', '-f', f'sha={sha}')
+    return commit
+
+
 def publish(repo, tag, files, notes, make_public, prerelease, resume):
     # Listing avoids interpreting authentication/network errors as "release absent".
     releases = gh('api', '--hostname', 'github.com', f'repos/{repo}/releases?per_page=100',
@@ -193,6 +248,7 @@ def main(argv=None):
     parser.add_argument('--prerelease', action='store_true', help='Mark as a preview/pre-release')
     parser.add_argument('--publish', action='store_true', help='Publish after all uploaded files pass verification; default is draft')
     parser.add_argument('--resume', action='store_true', help='Resume an existing draft; never replace differing assets')
+    parser.add_argument('--tag-commit', help='Git commit to tag as vVERSION (default: HEAD of this repository)')
     args = parser.parse_args(argv)
     if not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
         parser.error('--version must be major.minor.patch')
@@ -205,12 +261,14 @@ def main(argv=None):
         assets = collect(args.version, platforms, {p: getattr(args, f'{p}_dir') for p in PLATFORMS})
         notes = release_notes(args.version, args.repo, assets,
                               args.notes_file.read_text(encoding='utf-8') if args.notes_file else '')
-        print(f'Repository: {args.repo}\nTag: v{args.version}\nMode: {"publish" if args.publish else "draft"}')
+        commit = resolve_commit(args.tag_commit)
+        tag = f'v{args.version}'
+        print(f'Repository: {args.repo}\nTag: {tag}\nCommit: {commit}\nMode: {"publish" if args.publish else "draft"}')
         for asset in assets:
             print(f"{asset['sha256']}  {asset['path']} ({asset['size']} bytes)")
         if args.dry_run:
             print('\nAlso uploads: SHA256SUMS, release-assets.json\n\n' + notes)
-            print('Dry run complete. GitHub authentication and existing remote tag will be checked on upload.')
+            print(f'Dry run complete. Upload would ensure GitHub tag {tag} at {commit} if it is missing.')
             return 0
         if not shutil.which('gh'):
             raise ReleaseError('Install GitHub CLI (https://cli.github.com), then run gh auth login.')
@@ -232,7 +290,8 @@ def main(argv=None):
             ]}, indent=2) + '\n', encoding='utf-8')
             notes_path = stage / 'notes.md'
             notes_path.write_text(notes, encoding='utf-8')
-            publish(args.repo, f'v{args.version}', files + [checksums, manifest], notes_path,
+            ensure_tag(args.repo, tag, commit)
+            publish(args.repo, tag, files + [checksums, manifest], notes_path,
                     args.publish, args.prerelease, args.resume)
         return 0
     except (ReleaseError, OSError, ValueError, KeyError) as error:

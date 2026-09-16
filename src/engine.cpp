@@ -1436,9 +1436,11 @@ bool Engine::updateMeeting(QString date,QString time,QString attendees) {
 
 QVariantList Engine::nodeTemplates() const {
     return {QVariantMap{{"id","weekly-tasks"},{"name","Weekly task list"},
-        {"description","Monday–Friday, with an empty task for each day."}},
+        {"description","Monday–Friday, with an empty task for each day."},
+        {"icon","calendar-week"}},
         QVariantMap{{"id","meeting-notes"},{"name","Meeting Notes"},
-        {"description","Agenda, Notes, Decisions, and Actions, each with an empty entry."}}};
+        {"description","Agenda, Notes, Decisions, and Actions."},
+        {"icon","notebook-pen"}}};
 }
 QVariantMap Engine::templateCalendar(QString anchor, int monthOffset) const {
     QDate date=anchor.isEmpty() ? QDate::currentDate() : QDate::fromString(anchor,Qt::ISODate);

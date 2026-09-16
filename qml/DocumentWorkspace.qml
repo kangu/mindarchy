@@ -319,12 +319,6 @@ FocusScope {
         }
     }
 
-    NodeTemplateDialog {
-        id: nodeTemplateDialog
-        parent: window.hostWindow.Overlay.overlay
-        controller: window.controller
-    }
-
     FileDialog {
         id: openDialog; title: "Open Mindarchy document"; nameFilters: ["Mindmap documents (*.omm *.json)", "Open Mindmap (*.omm)", "Legacy JSON (*.json)"]
         onAccepted: { if (!window.commitEditor("")) return; controller.requestOpenDocument(window.localPath(selectedFile)); canvas.forceActiveFocus() }
@@ -350,6 +344,8 @@ FocusScope {
             MouseArea {
                 objectName: "headerDragArea"
                 anchors.fill: parent
+                anchors.leftMargin: window.integratedMacToolbar && window.hostWindow.visibility !== Window.FullScreen ? 96 : 0
+                anchors.rightMargin: window.windowsCaptionWidth
                 enabled: window.integratedToolbar
                 acceptedButtons: Qt.LeftButton
                 onPressed: window.hostWindow.startSystemMove()
@@ -483,7 +479,23 @@ FocusScope {
                         ToolbarButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c") }
                         ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
-                        ToolbarButton { objectName: "nodeTemplatesButton"; iconName: "calendar-week"; text: "Add node template"; enabled: controller.selection.length === 1; onClicked: { if (window.commitEditor("")) nodeTemplateDialog.open() } }
+                        ToolbarButton {
+                            id: nodeTemplatesButton
+                            objectName: "nodeTemplatesButton"
+                            iconName: "calendar-week"
+                            text: "Add node template"
+                            enabled: controller.selection.length === 1
+                            checked: nodeTemplateDialog.visible
+                            ToolTip.visible: hovered && !nodeTemplateDialog.visible
+                            onClicked: {
+                                if (!window.commitEditor("")) return
+                                nodeTemplateDialog.visible ? nodeTemplateDialog.close() : nodeTemplateDialog.open()
+                            }
+                            NodeTemplateDialog {
+                                id: nodeTemplateDialog
+                                controller: window.controller
+                            }
+                        }
                         ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
                         ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                     }

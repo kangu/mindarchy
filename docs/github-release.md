@@ -34,7 +34,7 @@ For the currently available macOS build:
 python3 scripts/release-github.py --version 0.1.4 --platforms macos --prerelease --dry-run
 ```
 
-Dry runs need neither `gh` nor authentication, and do not change GitHub or create local release output. They print the selected files, hashes and proposed notes. Remote tag existence and permissions are checked only during a real upload.
+Dry runs need neither `gh` nor authentication, and do not change GitHub or create local release output. They print the selected files, hashes, proposed notes, and the commit that would be tagged.
 
 ## Configure GitHub
 
@@ -46,14 +46,13 @@ gh auth login --hostname github.com
 
 On macOS, GitHub CLI can be installed with `brew install gh`. In automation, use `GH_TOKEN` with repository Contents write permission; do not put tokens into arguments or source files.
 
-The release tag must already exist on GitHub. Tag the source commit actually used to build these binaries, then push that tag. For example, after replacing `BUILD_COMMIT_SHA` with that commit:
+The publisher creates GitHub tag `v<version>` when it is missing. By default it tags `HEAD` of this repository. Pass `--tag-commit SHA` to tag the commit that actually produced the installers. If the tag already exists and points at that commit, it is reused. If it points at a different commit, the script stops rather than moving the tag.
 
 ```sh
-git tag -a v0.1.4 BUILD_COMMIT_SHA -m "Mindarchy 0.1.4"
-git push origin refs/tags/v0.1.4
+python3 scripts/release-github.py --version 0.1.4 --tag-commit BUILD_COMMIT_SHA
 ```
 
-Do not repeat tag creation if the correct tag already exists. The publisher uses GitHub CLI's `--verify-tag`; it never silently creates a tag at the current default branch. Current package manifests do not record a source commit, so the script cannot prove that the binaries were built from the tagged commit.
+`gh release create` still uses `--verify-tag` after the tag is present. Package manifests do not record a source commit, so `--tag-commit` is how you pin the tag to the build.
 
 ## Create, review, and publish
 

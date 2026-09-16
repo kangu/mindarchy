@@ -9,6 +9,7 @@ Lucide icons by Lucide Contributors, selected from https://icon-sets.iconify.des
 - redo-2: https://icon-sets.iconify.design/lucide/redo-2/
 - corner-down-right: https://icon-sets.iconify.design/lucide/corner-down-right/
 - list-plus: https://icon-sets.iconify.design/lucide/list-plus/
+- notebook-pen: https://icon-sets.iconify.design/lucide/notebook-pen/
 - link: https://icon-sets.iconify.design/lucide/link/
 - fold-vertical: https://icon-sets.iconify.design/lucide/fold-vertical/
 - unfold-vertical: https://icon-sets.iconify.design/lucide/unfold-vertical/

@@ -9,6 +9,7 @@
 #include "drawing.h"
 #include <QQuickWindow>
 #include <QWheelEvent>
+#include <QMouseEvent>
 #include <QPointingDevice>
 #include <QtTest>
 #include <cmath>
@@ -249,6 +250,40 @@ class CanvasTest : public QObject {
         QKeyEvent editPress(QEvent::KeyPress,Qt::Key_Left,Qt::ControlModifier);
         canvas.keyPressEvent(&editPress);
         QVERIFY(!editPress.isAccepted()); QCOMPARE(canvas.m_pan,before);
+    }
+    void marqueeHighlightsNodesBeforeRelease() {
+        Engine e; e.loadFixture(15); e.select(-1);
+        MindCanvas c; c.setSize({1000,700}); c.setEngine(&e); c.fit();
+        const QPointF a=c.mapFromWorld(e.nodes().value(2).rect.topLeft())-QPointF(16,16);
+        const QPointF b=c.mapFromWorld(e.nodes().value(3).rect.bottomRight())+QPointF(16,16);
+        QMouseEvent press(QEvent::MouseButtonPress,a,a,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        c.mousePressEvent(&press);
+        QVERIFY(e.selectedIds().isEmpty());
+        QMouseEvent move(QEvent::MouseMove,b,b,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        c.mouseMoveEvent(&move);
+        QVERIFY(c.m_marquee);
+        QVERIFY(c.m_marqueeHits.contains(2));
+        QVERIFY(c.m_marqueeHits.contains(3));
+        QVERIFY(e.selectedIds().isEmpty());
+        bool previewed=false;
+        for(const auto &n:c.m_draw) if(n.id==2 && n.selected) previewed=true;
+        QVERIFY(previewed);
+        QMouseEvent release(QEvent::MouseButtonRelease,b,b,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        c.mouseReleaseEvent(&release);
+        QVERIFY(e.selectedIds().contains(2));
+        QVERIFY(e.selectedIds().contains(3));
+        QVERIFY(c.m_marqueeHits.isEmpty());
+    }
+    void zoomShortcutsApplyWithSelection() {
+        Engine e(nullptr,Engine::InitialContent::Blank); e.select(1); QVERIFY(e.setText(1,"keep"));
+        MindCanvas c; c.setSize({1000,700}); c.setEngine(&e); c.restoreView(1,{0,0});
+        const auto zoom=c.zoom();
+        QKeyEvent plus(QEvent::KeyPress,Qt::Key_Plus,Qt::NoModifier,"+"); c.keyPressEvent(&plus);
+        QVERIFY(plus.isAccepted()); QVERIFY(!c.editing()); QVERIFY(c.zoom()>zoom); QVERIFY(e.nodes().value(1).text.contains("keep"));
+        QKeyEvent minus(QEvent::KeyPress,Qt::Key_Minus,Qt::NoModifier,"-"); c.keyPressEvent(&minus);
+        QVERIFY(minus.isAccepted()); QVERIFY(!c.editing()); QVERIFY(e.nodes().value(1).text.contains("keep"));
+        QKeyEvent equal(QEvent::KeyPress,Qt::Key_Equal,Qt::NoModifier,"="); c.keyPressEvent(&equal);
+        QVERIFY(equal.isAccepted()); QVERIFY(!c.editing()); QVERIFY(c.zoom()>zoom);
     }
     void creationHandleUsesConsistentContrastingThemeColor() {
         auto luminance=[](QColor c) {

@@ -45,6 +45,10 @@ int main(int argc, char **argv) {
             ++index;
         }
         if (native.titleVisibility != NSWindowTitleHidden) return 2;
+        for (NSNumber *kind in @[@(NSWindowCloseButton), @(NSWindowMiniaturizeButton), @(NSWindowZoomButton)]) {
+            NSButton *button = [native standardWindowButton:(NSWindowButton)kind.integerValue];
+            if (!button || button.hidden || !button.enabled) return 31;
+        }
         app.processEvents();
     }
     fprintf(stdout, "120 native resizes: all three controls remained aligned, title hidden.\n");

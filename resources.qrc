@@ -22,6 +22,7 @@
     <file>qml/icons/chevron-right.svg</file>
     <file>qml/icons/chevron-left.svg</file>
     <file>qml/icons/calendar-week.svg</file>
+    <file>qml/icons/notebook-pen.svg</file>
     <file>qml/DateEntryDialog.qml</file>
     <file>qml/icons/file-plus-2.svg</file>
     <file>qml/icons/calendar-days.svg</file>

@@ -67,7 +67,7 @@ Select **Help → Keyboard Shortcuts** for the full reference. On Omarchy, the a
 
 The tab bar appears when a window contains two or more mindmaps and hides again when only one remains. Tabs sit below the toolbar, between any open sidebars, with the same styling and behavior on every platform. Drag tabs to reorder them, or use a tab’s context menu to move it into a separate window. Tab commands also work from text fields; an invalid title edit must be corrected before switching, and modal dialogs temporarily block tab commands.
 
-Canvas shortcuts apply when a text field is not being edited. Typing with a text or task node selected replaces its title; use the edit shortcut to modify the existing text. Hold **Space** and drag to pan. Trackpad scrolling pans the canvas.
+Canvas shortcuts apply when a text field is not being edited. Typing with a text or task node selected replaces its title; use the edit shortcut to modify the existing text. **+** / **=** and **−** still zoom when a node is selected. Hold **Space** and drag to pan. Trackpad scrolling pans the canvas.
 
 ## Your documents
 

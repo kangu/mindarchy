@@ -156,10 +156,36 @@ void installMacToolbar(QWindow *window) {
             usingBlock:^(NSNotification *) { align(); }];
         [observers addObject:observer];
     }
-    QObject::connect(owner, &QObject::destroyed, [observers] {
+    auto buttonAt = ^NSButton *(NSEvent *event) {
+        if (event.window != native) return nil;
+        for (NSNumber *kind in @[@(NSWindowCloseButton), @(NSWindowMiniaturizeButton), @(NSWindowZoomButton)]) {
+            NSButton *button = [native standardWindowButton:(NSWindowButton)kind.integerValue];
+            NSPoint point = [button convertPoint:event.locationInWindow fromView:nil];
+            if (NSPointInRect(point, NSInsetRect(button.bounds, -6, -6))) return button;
+        }
+        return nil;
+    };
+    // Full-size content sits above the titlebar. Forward hits so close/minimize/zoom
+    // still track like native buttons instead of starting a Qt window drag.
+    id clickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:
+        (NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
+         NSEventMaskMouseMoved)
+        handler:^NSEvent *(NSEvent *event) {
+            NSButton *button = buttonAt(event);
+            if (!button) return event;
+            switch (event.type) {
+            case NSEventTypeLeftMouseDown: [button mouseDown:event]; return nil;
+            case NSEventTypeLeftMouseUp: [button mouseUp:event]; return nil;
+            case NSEventTypeLeftMouseDragged: [button mouseDragged:event]; return nil;
+            case NSEventTypeMouseMoved: [button mouseMoved:event]; return nil;
+            default: return event;
+            }
+        }];
+    QObject::connect(owner, &QObject::destroyed, [observers, clickMonitor] {
         for (id observer in observers)
             [[NSNotificationCenter defaultCenter] removeObserver:observer];
         [observers release];
+        [NSEvent removeMonitor:clickMonitor];
     });
     align();
 }
@@ -384,8 +410,8 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
             @[@"Canvas", @"Replace selected title", @"Type text"],
             @[@"Canvas", @"Fold or expand branch", @"⌥ F"],
             @[@"Canvas", @"Toggle Task node type", @"⌥ T"],
-            @[@"Canvas (no selection)", @"Zoom in", @"+ / ="],
-            @[@"Canvas (no selection)", @"Zoom out", @"−"],
+            @[@"Canvas", @"Zoom in", @"+ / ="],
+            @[@"Canvas", @"Zoom out", @"−"],
             @[@"Canvas (no selection)", @"Fit map", @"0"],
             @[@"Search", @"Open mind map search", @"⌘ F"],
             @[@"Search", @"Next result after automatic first match", @"Return"],
