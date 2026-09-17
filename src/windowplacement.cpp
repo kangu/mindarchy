@@ -143,12 +143,21 @@ void WindowPlacement::restoreQtState() {
     m_pendingQtState=Qt::WindowNoState;
     captureQt();
 }
+#ifdef Q_OS_MACOS
+bool macWindowIsZoomed(QWindow *window);
+#endif
 void WindowPlacement::captureQt() {
     if(m_restorePending) return;
     const auto state=m_window->windowState();
     if(state==Qt::WindowMinimized || !m_window->isVisible()) return;
-    m_current["state"]=state==Qt::WindowMaximized ? "maximized" : state==Qt::WindowFullScreen ? "fullscreen" : "normal";
-    if(state!=Qt::WindowNoState) return;
+#ifdef Q_OS_MACOS
+    const bool zoomed=state==Qt::WindowMaximized ||
+        (QGuiApplication::platformName()=="cocoa" && macWindowIsZoomed(m_window));
+#else
+    const bool zoomed=state==Qt::WindowMaximized;
+#endif
+    m_current["state"]=zoomed ? "maximized" : state==Qt::WindowFullScreen ? "fullscreen" : "normal";
+    if(zoomed || state!=Qt::WindowNoState) return;
     const auto rect=m_window->geometry();
     for(const auto &screen:screens()) if(screen.available.intersects(rect)) {
         m_current["rect"]=rect; m_current["screen"]=screen.id;

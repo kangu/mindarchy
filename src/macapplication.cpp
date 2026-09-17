@@ -26,6 +26,7 @@ void installMacReopenHandler(QWindow *, std::function<void()>);
 void showMacCloseConfirmation(QWindow *, const QString &, std::function<void(int)>);
 void showMacSavePanel(QWindow *, const QString &, std::function<void(QString)>);
 void showMacParentFolderMenu(QWindow *, const QString &, double, double);
+void presentMacWindow(QWindow *);
 
 #else
 #include "windowsdialogs.h"
@@ -362,7 +363,12 @@ void MacApplication::activate(qint64 id) {
         // activation only presents a minimized or hidden window.
         if(window->windowState()==Qt::WindowMinimized) window->showNormal();
         else if(!window->isVisible()) window->setVisible(true);
-        window->raise(); window->requestActivate(); m_active=window;
+#ifdef Q_OS_MACOS
+        if(QGuiApplication::platformName()=="cocoa") presentMacWindow(window);
+        else
+#endif
+        { window->raise(); window->requestActivate(); }
+        m_active=window;
         document->workspace->forceActiveFocus();
         updateTabs(); return;
     }

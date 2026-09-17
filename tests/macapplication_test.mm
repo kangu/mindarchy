@@ -47,6 +47,35 @@ private slots:
         app.tabAction("close"); QTRY_COMPARE(app.windows().size(),1); QVERIFY(aligned());
         while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
     }
+    void cyclingWindowsKeepsNativeZoom() {
+        QTemporaryDir directory;
+        MacApplication app(directory.path()); app.start({},true); QTest::qWait(150);
+        auto *first=app.activeWindow(); QVERIFY(first);
+        const auto firstId=first->property("documentTabId").toLongLong();
+        auto *second=app.open(); QVERIFY(second); QVERIFY(second!=first); QTest::qWait(150);
+        const auto secondId=second->property("documentTabId").toLongLong();
+        auto zoom=[](QWindow *window) {
+            NSWindow *native=reinterpret_cast<NSView *>(window->winId()).window;
+            if(!native.zoomed) [native zoom:nil];
+            return native.zoomed;
+        };
+        auto zoomed=[](QWindow *window) {
+            return reinterpret_cast<NSView *>(window->winId()).window.isZoomed;
+        };
+        QVERIFY(zoom(first)); QVERIFY(zoom(second));
+        const auto firstFrame=first->geometry();
+        const auto secondFrame=second->geometry();
+        app.activate(firstId); QTest::qWait(150);
+        QVERIFY(zoomed(first));
+        QCOMPARE(first->geometry(),firstFrame);
+        app.activate(secondId); QTest::qWait(150);
+        QVERIFY(zoomed(second));
+        QCOMPARE(second->geometry(),secondFrame);
+        app.activate(firstId); QTest::qWait(150);
+        QVERIFY(zoomed(first));
+        QCOMPARE(first->geometry(),firstFrame);
+        while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
+    }
     void sharedTabsAndSeparateWindows() {
         QTemporaryDir directory;
         MacApplication app(directory.path()); app.start({},true);
