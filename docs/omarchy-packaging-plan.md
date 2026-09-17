@@ -62,18 +62,23 @@ per version, epoch never set by tooling.
 
 ## 3. Plan
 
-### Phase A — app-side fixes (qt-prototype)
+### Phase A — app-side fixes (qt-prototype) — DONE 2026-09-18
 
-1. `prototype.pro`: install the full hicolor set (16, 24, 32, 48, 64, 128, 256, 512, 1024 →
-   `org.mindarchy.app.png`), matching the CMake list; keep the 512 as before for
-   compatibility.
-2. `packaging/org.mindarchy.app.desktop`: add `GenericName=Mind Map Editor`,
-   `Keywords=mind map;brainstorm;notes;tasks;`, `StartupNotify=true`.
-3. Set the Arch-correct licence identifier in the new PKGBUILD (`Apache-2.0`/`Apache` —
-   confirm what namcap accepts).
-4. Consolidate packaging: rework `scripts/build_omarchy.sh` to build the **checked-in
-   PKGBUILD** via `makepkg` instead of generating its own, so local installers and the
-   official recipe share one packaging path.
+1. ~~`prototype.pro`: install the full hicolor set~~ → implemented in the checked-in
+   `packaging/PKGBUILD` instead: qmake cannot rename files during `make install`, so the
+   PKGBUILD's `package()` installs all nine sizes as `org.mindarchy.app.png` with
+   `install -Dm644` (the 512px path qmake already covers is identical content and is simply
+   overwritten). CMake keeps covering the non-PKGBUILD install path.
+2. `packaging/org.mindarchy.app.desktop`: added `GenericName=Mind Map Editor`,
+   `Keywords=mind map;mindmap;brainstorm;notes;tasks;planning;`, `StartupNotify=true`.
+   DONE.
+3. Licence identifier: `license=('Apache-2.0')` (SPDX form) in the checked-in PKGBUILD;
+   confirm with namcap in Phase C.
+4. Consolidated: `scripts/build_omarchy.sh` now builds the **checked-in PKGBUILD** via
+   makepkg. On the Omarchy machine: default mode packages the current working tree (stages
+   the archive, mechanically substitutes pkgver/source/sha256 into a copy of the recipe);
+   `--release` runs the recipe verbatim against the published GitHub tag. The macOS branch
+   only delegates over SSH.
 
 ### Phase B — omarchy-pkgs recipe (fork)
 

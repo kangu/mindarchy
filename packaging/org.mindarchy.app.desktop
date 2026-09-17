@@ -1,10 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=Mindarchy
+GenericName=Mind Map Editor
 Comment=Create and explore mind maps
 Exec=mindarchy %f
 Icon=org.mindarchy.app
 Terminal=false
 Categories=Office;
+StartupNotify=true
 StartupWMClass=org.mindarchy.app
 MimeType=application/x-omm+json;
+Keywords=mind map;mindmap;brainstorm;notes;tasks;planning;

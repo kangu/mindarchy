@@ -1,0 +1,32 @@
+# Maintainer: Radu Stanciu <radu@kangu.ro>
+pkgname=mindarchy
+pkgver=0.1.4
+pkgrel=1
+pkgdesc='A desktop mind map editor'
+arch=('x86_64' 'aarch64')
+url='https://mindarchy.xyz'
+license=('Apache-2.0')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland')
+makedepends=('gcc' 'make')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/kangu/mindarchy/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('a3d3ba32d2487b99851619ffea99cec7092e93e5d7dbeb4f2eaec122261cbb07')
+options=('!debug')
+# Uninstallation keeps user data: maps and preferences live outside the package.
+
+build() {
+    mkdir -p "$srcdir/build"
+    cd "$srcdir/build"
+    qmake6 "$srcdir/$pkgname-$pkgver/prototype.pro" PREFIX=/usr
+    make -j"$(nproc)"
+}
+
+package() {
+    cd "$srcdir/build"
+    make INSTALL_ROOT="$pkgdir" install
+    # qmake cannot rename files during install, so the full hicolor set lands here.
+    local size
+    for size in 16 24 32 48 64 128 256 512 1024; do
+        install -Dm644 "$srcdir/$pkgname-$pkgver/assets/icons/mindarchy-$size.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/org.mindarchy.app.png"
+    done
+}
