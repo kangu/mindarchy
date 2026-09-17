@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QStringList>
 #include <QFontDatabase>
 
 // Use the host's UI sans serif; keep measurement, canvas, export and editor identical.

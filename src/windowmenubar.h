@@ -13,6 +13,13 @@ public:
     }
 protected:
     bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::ShortcutOverride) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (!visible() && canvasAltShortcut(key)) {
+                event->accept();
+                return true;
+            }
+        }
         if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
             auto *key = static_cast<QKeyEvent *>(event);
             if (key->key() == Qt::Key_Alt && !(key->modifiers() & (Qt::ControlModifier | Qt::GroupSwitchModifier))) {
@@ -20,9 +27,13 @@ protected:
                 if (event->type() == QEvent::KeyPress) {
                     m_altDown = true; m_altUsed = false;
                     m_wasVisible = visible();
-                    if (!m_wasVisible) QMetaObject::invokeMethod(m_window, "showWindowsMenu");
                 } else if (m_altDown) {
-                    if (m_wasVisible && !m_altUsed) hide(true);
+                    // Bare Alt toggles the menu; Alt+letter is a canvas shortcut
+                    // (fold/task) and must not open File first.
+                    if (!m_altUsed) {
+                        if (m_wasVisible) hide(true);
+                        else QMetaObject::invokeMethod(m_window, "showWindowsMenu");
+                    }
                     m_altDown = false;
                 }
                 return true;
@@ -40,6 +51,10 @@ protected:
         return false;
     }
 private:
+    static bool canvasAltShortcut(const QKeyEvent *key) {
+        if (!(key->modifiers() & Qt::AltModifier) || (key->modifiers() & Qt::ControlModifier)) return false;
+        return key->key() == Qt::Key_F || key->key() == Qt::Key_T;
+    }
     bool visible() const { return m_window->property("windowsMenuVisible").toBool(); }
     bool popupOpen() const { return m_window->property("windowsMenuPopupOpen").toBool(); }
     void hide(bool restore) { QMetaObject::invokeMethod(m_window, "hideWindowsMenu", Q_ARG(QVariant, QVariant(restore))); }
