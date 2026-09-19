@@ -1,8 +1,10 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
+    <file>qml/WelcomeScreen.qml</file>
     <file>qml/DocumentWorkspace.qml</file>
     <file>qml/DocumentTabStrip.qml</file>
     <file>qml/DesktopMenus.qml</file>
     <file>qml/icons/menu.svg</file>
+    <file>qml/icons/files.svg</file>
     <file>qml/KeyboardShortcuts.qml</file>
     <file>qml/icons/inspector-map.svg</file>
     <file>qml/icons/inspector-node.svg</file>

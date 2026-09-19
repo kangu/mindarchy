@@ -8,6 +8,7 @@ ColumnLayout {
     required property var controller
     required property var commitEditor
     readonly property var values: controller.selectedStyle
+    readonly property bool artisticBranches: controller.branchStyle !== "Rounded" && controller.branchStyle !== "Angular"
     readonly property bool bare: values.shape === 3 || values.shape === 6
     property bool calendarNode: false
     spacing: 10
@@ -99,8 +100,13 @@ ColumnLayout {
     NumberField { label: "Thickness (px)"; field: "borderWidth"; enabled: !panel.bare }
     ColorField { label: "Border"; field: "border"; enabled: !panel.bare }
     Section { text: "BRANCH" }
-    Choice { label: "Stroke"; field: "branchStroke"
+    Choice { label: "Stroke"; field: "branchStroke"; enabled: !panel.artisticBranches
         choices: [{label:"Solid",value:1},{label:"Dashed",value:2},{label:"Dotted",value:3}] }
+    Label {
+        visible: panel.artisticBranches; Layout.fillWidth: true; wrapMode: Text.WordWrap
+        text: "Artistic branches use continuous strokes."
+        color: (ShellTheme.colors["#94a9b7"] || "#94a9b7"); font.pixelSize: 11
+    }
     CheckBox {
         objectName: "style-themeBranchWidth"; text: "Use theme thickness"
         checked: panel.values.themeBranchWidth && !panel.mixed("themeBranchWidth")
@@ -130,7 +136,12 @@ ColumnLayout {
         Accessible.name: "Font face"
         onActivated: { if (panel.commitEditor("")) controller.applyNodeStyle({bold: (currentIndex & 1) !== 0, italic: (currentIndex & 2) !== 0}) }
     }
-    NumberField { label: "Size (px)"; field: "fontSize"; minimum: 8; maximum: 144 }
+    Label {
+        objectName: "style-fontSize"; Layout.fillWidth: true
+        text: panel.mixed("fontSize") ? "Size: automatic by depth" : "Size: automatic · " + panel.values.fontSize + " px"
+        wrapMode: Text.Wrap
+        Accessible.name: text
+    }
     RowLayout {
         Layout.fillWidth: true
         Repeater {

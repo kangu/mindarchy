@@ -221,6 +221,8 @@ private slots:
             // Cycling in one process must use the active window, not process ID.
             app.activate(firstId); firstEngine->cycleApplicationWindow(1);
             QCOMPARE(app.activeWindow(),second);
+            // Keep both documents unfinished: clean saved maps now reopen from Home.
+            firstEngine->setNotes("Unfinished notes");
             // A failed checkpoint cancels the entire quit without closing peers.
             QTest::qWait(1100);
             const auto snapshots=QDir(history).entryList({"*.recovery"},QDir::Files);

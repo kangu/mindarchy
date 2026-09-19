@@ -5,6 +5,7 @@
 #include "viewportstate.h"
 #include "windowplacement.h"
 #include "recentdocuments.h"
+#include "recentpreview.h"
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QLocalSocket>
@@ -117,7 +118,13 @@ public:
             if(!QFileInfo::exists(placementFile)) {
                 std::unique_ptr<QSettings> defaults(AppIdentity::windowSettings());
                 QSettings individual(placementFile,QSettings::IniFormat);
-                for(const auto &key:defaults->allKeys()) individual.setValue(key,defaults->value(key));
+                for(const auto &key:defaults->allKeys()) {
+                    // A new window must join the compositor's tiling layout like
+                    // any other client, so on Wayland it never inherits the last
+                    // window's rectangle or floating state.
+                    if(QGuiApplication::platformName().startsWith("wayland") && key=="windowPlacement/v1") continue;
+                    individual.setValue(key,defaults->value(key));
+                }
                 individual.sync();
             }
             installGroupPlacement(window,placementFile,application->m_directory);
@@ -170,12 +177,13 @@ public:
         poll.start(150);
         window->setVisible(true);
         if(!theme.isEmpty()) window->setProperty("inspectorVisible",true);
-        if(path.isEmpty()) QTimer::singleShot(0,this,[canvas] { canvas->fit(); canvas->beginEdit(1); });
+        if(path.isEmpty()) QTimer::singleShot(0,this,[this,canvas] { if(!window->property("welcomeVisible").toBool() && engine.documentPath().isEmpty()) { canvas->fit(); canvas->beginEdit(1); } });
         return true;
     }
 };
 
 MacApplication::MacApplication(QString directory,QObject *parent) : QObject(parent),m_directory(std::move(directory)) {
+    m_qml.addImageProvider("recent",new RecentPreviewProvider);
     QGuiApplication::setQuitOnLastWindowClosed(false);
     qApp->installEventFilter(this);
     connect(&m_qml,&QQmlEngine::warnings,this,[](const QList<QQmlError> &errors) {
@@ -224,15 +232,17 @@ MacApplication::Launch MacApplication::startOrForward(const QStringList &files,b
 }
 void MacApplication::start(const QStringList &files,bool fresh,const QString &theme) {
 #ifdef Q_OS_MACOS
+    if(QGuiApplication::platformName()=="cocoa") {
     installMacFileMenu(&m_menuOwner,[this](QString action,QString path) { command(action,path); },[this] { return RecentDocuments(m_directory).list(); });
     installMacHelpMenu(&m_menuOwner);
     installMacWindowMenu(&m_menuOwner,[this] { return windows(); },[this](qint64 id) { activate(id); });
     installMacReopenHandler(&m_menuOwner,[this] { reopen(); });
+    }
 #endif
     m_restoringTabs=true;
-    const auto paths=files.isEmpty()&&!fresh?DocumentSession::restorePaths(m_directory,true):files;
+    const auto paths=files.isEmpty()&&!fresh?DocumentSession::unfinishedPaths(m_directory):files;
     for(const auto &path:paths) open(path,theme);
-    if(m_documents.empty()) open({},theme);
+    if(m_documents.empty()) { auto *host=open({},theme); if(host && files.isEmpty() && !fresh) host->setProperty("welcomeVisible",true); }
     if(files.isEmpty() && !fresh) {
         QSettings saved(m_directory+"/tabs.ini",QSettings::IniFormat);
         std::vector<MacDocumentWindow *> restoredOrder;
@@ -266,6 +276,16 @@ QQuickWindow *MacApplication::open(const QString &path,const QString &theme) {
         if(QFileInfo(document->engine.documentPath()).canonicalFilePath()==QFileInfo(path).canonicalFilePath() && !document->engine.documentPath().isEmpty() && QFileInfo(path).exists()) {
             activate(document->id); return document->window;
         }
+    }
+    // The welcome host owns an untouched editor, reused for the first map.
+    for(auto *existing:m_documents) if(existing->window->property("welcomeVisible").toBool() && !path.endsWith(".recovery")) {
+        if(!path.isEmpty() && !existing->engine.open(path)) { m_error=existing->engine.error(); return nullptr; }
+        if(!theme.isEmpty()) existing->engine.setThemeId(theme);
+        existing->window->setProperty("welcomeVisible",false);
+        activate(existing->id);
+        auto *canvas=existing->workspace->findChild<MindCanvas *>("mindCanvas");
+        if(canvas && path.isEmpty()) { canvas->fit(); canvas->beginEdit(1); }
+        return existing->window;
     }
     auto *document=new MacDocumentWindow(this,m_nextId++);
     if(!document->load(path,theme)) {
@@ -373,12 +393,12 @@ void MacApplication::activate(qint64 id) {
         updateTabs(); return;
     }
 }
-void MacApplication::reopen() { if(m_documents.empty()) open(); else if(auto *host=activeWindow()) activate(host->property("documentTabId").toLongLong()); }
+void MacApplication::reopen() { if(m_documents.empty()) { if(auto *host=open()) host->setProperty("welcomeVisible",true); } else if(auto *host=activeWindow()) activate(host->property("documentTabId").toLongLong()); }
 void MacApplication::command(const QString &action,const QString &path) {
     if(action=="new") { if(prepareTabCommand()) open(); return; }
     if(action=="newtab") { tabAction("new"); return; }
     if(action=="recent") { open(path); return; }
-    if(action=="clear") { RecentDocuments(m_directory).clear(); return; }
+    if(action=="clear") { RecentDocuments(m_directory).clear(); if(auto *host=activeWindow()) QMetaObject::invokeMethod(host,"refreshWelcome"); return; }
     auto *window=activeWindow();
     if(!window && action=="open") window=open();
     if(!window) return;
@@ -515,7 +535,7 @@ QQuickWindow *MacApplication::createHost(Engine *engine) {
     connect(host,&QWindow::activeChanged,this,[this,host] { if(host->isActive() && host->isVisible()) m_active=host; });
     connect(host,SIGNAL(tabMoveRequested(double,int)),this,SLOT(moveTab(double,int)));
 #ifdef Q_OS_MACOS
-    installMacToolbar(host);
+    if(QGuiApplication::platformName()=="cocoa") installMacToolbar(host);
 #elif defined(Q_OS_WIN)
     new WindowMenuBar(host);
 #endif

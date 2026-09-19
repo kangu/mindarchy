@@ -38,8 +38,13 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
             if(!compact && engine.appearance(n.parent).shape==NodeShape::Underline) a.setY(parent.bottom());
         }
         if(style.branchWidth>0) {
-            painter.setPen(QPen(style.branch,style.branchWidth,style.branchStroke));
-            painter.drawPolyline(MapDrawing::edgePath(a,b,compact || engine.branchStyle()=="Angular",vertical || compact));
+            if(MapDrawing::artisticBranch(engine.branchStyle()))
+                MapDrawing::paintBranches(painter,MapDrawing::branchGeometry(a,b,engine.branchStyle(),
+                    vertical || compact,style.branch,engine.canvasColor(),style.branchWidth,n.depth,quint32(id),scale));
+            else {
+                painter.setPen(QPen(style.branch,style.branchWidth,style.branchStroke));
+                painter.drawPolyline(MapDrawing::edgePath(a,b,compact || engine.branchStyle()=="Angular",vertical || compact));
+            }
         }
     }
     for(const auto &link:engine.connections()) if(visible.contains(link.first) && visible.contains(link.second)) {
@@ -61,7 +66,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
         const auto content=n.image.contentRect(r,engine.contentSize(n.id));
         painter.save(); painter.translate(content.topLeft());
         if(n.kind=="date") {
-            painter.translate(0,(content.height()-(Calendar::size(n.calendar)*Calendar::textScale(n.text,engine.textFamily())).height())/2);
+            painter.translate(0,(content.height()-(Calendar::size(n.calendar)*Calendar::textScale(n.text,engine.textFamily(),style.fontSize)).height())/2);
             MapDrawing::paintCalendar(painter,n.calendar,style,n.text);
         }
         else {
@@ -71,7 +76,7 @@ QImage renderMapPreview(const Engine &engine, QSize maximum) {
             PreviewText text; QFont font(engine.textFamily()); font.setPixelSize(15);
             text.setDefaultFont(font); text.setDocumentMargin(0);
             text.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(style.text.name()));
-            text.setHtml(n.text); text.setTextWidth(std::max(0.,content.width()-30-(n.task?20:0)));
+            text.setHtml(n.text); applyMindarchyNodeSize(text,style.fontSize); text.setTextWidth(std::max(0.,content.width()-30-(n.task?20:0)));
             painter.translate(15+(n.task?20:0),std::max(8.,(content.height()-text.size().height())/2));
             QAbstractTextDocumentLayout::PaintContext context; context.palette.setColor(QPalette::Text,style.text);
             text.documentLayout()->draw(&painter,context);

@@ -50,9 +50,11 @@ if (!(Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     throw 'Install Visual Studio Build Tools with Desktop development with C++.'
 }
 $env:PATH = "$QtDir\bin;$env:PATH"
-Run cmake @('-S', $source, '-B', $BuildDir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_PREFIX_PATH=$QtDir", "-DMINDMAP_VERSION=$Version")
+Run cmake @('-S', $source, '-B', $BuildDir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=ON', "-DCMAKE_PREFIX_PATH=$QtDir", "-DMINDMAP_VERSION=$Version")
 Run cmake @('--build', $BuildDir, '--parallel', '4')
-if (!$SkipTests) { Run ctest @('--test-dir', $BuildDir, '--output-on-failure') }
+if (!$SkipTests) {
+    Run cmake @('--build', $BuildDir, '--target', 'mindarchy-tests', '--parallel', '4')
+    Run ctest @('--test-dir', $BuildDir, '--output-on-failure') }
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force $stage,$output | Out-Null
 Run cmake @('--install', $BuildDir, '--prefix', $stage)

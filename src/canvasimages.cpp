@@ -25,7 +25,7 @@ QRectF MindCanvas::contentRect(int id,QRectF rect) const {
     if(!m_engine) return rect;
     const auto node=m_engine->nodes().value(id);
     if(!node.image.empty()) return node.image.contentRect(rect,id==m_editingId?m_editContentSize:m_engine->contentSize(id),imageWidth(id));
-    if(node.kind=="date") { const auto size=Calendar::size(node.calendar)*Calendar::textScale(node.text,m_engine->textFamily()); rect.setTop(rect.center().y()-size.height()/2); rect.setSize(size); }
+    if(node.kind=="date") { const auto size=Calendar::size(node.calendar)*Calendar::textScale(node.text,m_engine->textFamily(),m_engine->appearance(id).fontSize); rect.setTop(rect.center().y()-size.height()/2); rect.setSize(size); }
     return rect;
 }
 QRectF MindCanvas::imageWorldRect(int id) const {

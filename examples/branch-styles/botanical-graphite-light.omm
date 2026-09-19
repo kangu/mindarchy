@@ -1,0 +1,145 @@
+{
+  "format": "mindarchy",
+  "version": 1,
+  "themeId": "sage",
+  "layout": "Horizontal",
+  "spacing": "Wide",
+  "branchStyle": "Botanical graphite",
+  "manual": false,
+  "connections": [],
+  "nodes": [
+    {
+      "id": 1,
+      "parent": -1,
+      "text": "Today",
+      "children": [
+        2,
+        3,
+        4
+      ],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "text": "Create",
+      "children": [
+        5,
+        6
+      ],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 3,
+      "parent": 1,
+      "text": "Organize",
+      "children": [
+        7,
+        8
+      ],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 4,
+      "parent": 1,
+      "text": "Reflect",
+      "children": [
+        9,
+        10
+      ],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 5,
+      "parent": 2,
+      "text": "Sketch",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 6,
+      "parent": 2,
+      "text": "Build",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 7,
+      "parent": 3,
+      "text": "Plan",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 8,
+      "parent": 3,
+      "text": "Prioritize",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 9,
+      "parent": 4,
+      "text": "Learn",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    },
+    {
+      "id": 10,
+      "parent": 4,
+      "text": "Grow",
+      "children": [],
+      "folded": false,
+      "task": false,
+      "checked": false,
+      "x": 0,
+      "y": 0,
+      "notes": ""
+    }
+  ]
+}

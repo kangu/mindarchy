@@ -2,6 +2,7 @@
 #include "canvas.h"
 #include "shelltheme.h"
 #include "tabshortcuts.h"
+#include "viewportstate.h"
 #include <QQuickStyle>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -9,10 +10,88 @@
 #include <QTemporaryDir>
 #include <QtTest>
 #include <QTextDocument>
+#include <QProcess>
+#include <QImage>
 static QString testThemeDirectory;
 class ApplicationTest : public QObject {
     Q_OBJECT
 private slots:
+    void welcomeLaunchReusesHost() {
+        QTemporaryDir directory;
+        MacApplication app(directory.path()); app.start({},false);
+        auto *home=app.activeWindow(); QVERIFY(home);
+        QVERIFY(home->property("welcomeVisible").toBool());
+        QTest::qWait(100);
+        auto *canvas=app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas"); QVERIFY(canvas);
+        QVERIFY(!canvas->editing());
+        QCOMPARE(app.open(),home);
+        QVERIFY(!home->property("welcomeVisible").toBool());
+        QCOMPARE(app.windows().size(),1);
+        QVERIFY(canvas->editing());
+    }
+
+    void welcomeFileOpenReusesHost() {
+        QTemporaryDir directory;
+        Engine saved; const auto path=directory.filePath("Saved map.omm"); QVERIFY(saved.save(path));
+        QSettings views("Mindarchy","Mindarchy");
+        const QVariantList expectedView{1.25,345.,-210.};
+        views.setValue(ViewportState::keyFor(path),expectedView); views.sync();
+        MacApplication app(directory.path()); app.start({},false);
+        auto *home=app.activeWindow(); QVERIFY(home->property("welcomeVisible").toBool());
+        QCOMPARE(app.open(path),home); QCOMPARE(app.windows().size(),1);
+        QVERIFY(!home->property("welcomeVisible").toBool());
+        QCOMPARE(app.activeDocument()->nodeCount(),saved.nodeCount());
+        auto *canvas=app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas"); QVERIFY(canvas);
+        const auto actualView=canvas->persistentView();
+        for(int i=0;i<3;++i) QVERIFY(qAbs(actualView[i].toDouble()-expectedView[i].toDouble())<1e-8);
+        views.remove(ViewportState::keyFor(path)); views.sync();
+    }
+    void standaloneHomepageRunnerRestoresCamera() {
+        QTemporaryDir directory;
+        Engine map; const auto path=directory.filePath("Viewport.omm"); QVERIFY(map.save(path));
+        const QVariantList expected{1.75,345.,-210.};
+        QSettings settings("Mindarchy","Mindarchy"); settings.setValue(ViewportState::keyFor(path),expected); settings.sync();
+#ifdef Q_OS_MACOS
+        const auto binary=QCoreApplication::applicationDirPath()+"/mindarchy.app/Contents/MacOS/mindarchy";
+#elif defined(Q_OS_WIN)
+        const auto binary=QCoreApplication::applicationDirPath()+"/mindarchy.exe";
+#else
+        const auto binary=QCoreApplication::applicationDirPath()+"/mindarchy";
+#endif
+        const auto imagePath=directory.filePath("view.png");
+        QProcess process; auto environment=QProcessEnvironment::systemEnvironment();
+        environment.insert("QT_QPA_PLATFORM","offscreen"); process.setProcessEnvironment(environment);
+        process.start(binary,{"--no-window-state","--document",path,"--screenshot",imagePath,"--quit-after","2200"});
+        QVERIFY(process.waitForStarted()); QVERIFY(process.waitForFinished(15000));
+        QCOMPARE(process.exitCode(),0);
+        const QImage screenshot(imagePath); QVERIFY(!screenshot.isNull());
+        const auto actual=QJsonDocument::fromJson(screenshot.text("MindarchyViewport").toUtf8()).array().toVariantList();
+        QCOMPARE(actual.size(),3);
+        settings.remove(ViewportState::keyFor(path)); settings.sync();
+        for(int i=0;i<3;++i) QVERIFY2(qAbs(actual[i].toDouble()-expected[i].toDouble())<1e-8,qPrintable(QString("Camera component %1: got %2, expected %3").arg(i).arg(actual[i].toDouble()).arg(expected[i].toDouble())));
+    }
+    void closeAndReopenThroughWelcomeRestoresCamera() {
+        QTemporaryDir directory;
+        Engine map; const auto path=directory.filePath("Camera roundtrip.omm"); QVERIFY(map.save(path));
+        MacApplication app(directory.path()); app.start({path},false);
+        auto *canvas=app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas"); QVERIFY(canvas);
+        QTest::qWait(150);
+        canvas->resetZoom(); canvas->zoomIn(); canvas->panBy(267,-143);
+        const auto expected=canvas->persistentView();
+        // Close before the persistence debounce has fired.
+        QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTRY_COMPARE(app.windows().size(),0);
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        app.reopen(); QVERIFY(app.activeWindow()->property("welcomeVisible").toBool());
+        auto *home=app.activeWindow()->findChild<QObject *>("welcomeScreen"); QVERIFY(home);
+        QVERIFY(QMetaObject::invokeMethod(home,"openMap",Q_ARG(QVariant,path)));
+        QTRY_VERIFY(!app.activeWindow()->property("welcomeVisible").toBool());
+        canvas=app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas"); QVERIFY(canvas);
+        // Verify after delayed QML initialization, layout and persistence timers.
+        QTest::qWait(700);
+        QVERIFY(!canvas->editing());
+        const auto actual=canvas->persistentView();
+        for(int i=0;i<3;++i) QVERIFY(qAbs(actual[i].toDouble()-expected[i].toDouble())<1e-8);
+    }
     void shortcutMapping_data() {
         QTest::addColumn<bool>("mac");
         QTest::newRow("Omarchy-Linux-Windows") << false;
@@ -183,7 +262,7 @@ private slots:
         QCOMPARE(app.windows().size(),2);
         while(!app.windows().isEmpty()) { QMetaObject::invokeMethod(app.activeWindow(),"approveClose"); QTest::qWait(30); }
     }
-    void reorderedTabsRecoverInOrder() {
+    void unfinishedTabsRecoverInOrder() {
         QTemporaryDir directory;
         QStringList expected;
         {
@@ -193,6 +272,7 @@ private slots:
                 QTest::qWait(100);
                 app.activeWorkspace()->findChild<MindCanvas *>("mindCanvas")->commitEditing(QString("Map %1").arg(i));
                 QVERIFY(app.activeDocument()->save(directory.filePath(QString("Map %1.omm").arg(i))));
+                app.activeDocument()->setNotes("Unfinished notes");
             }
             auto *host=app.activeWindow();
             QMetaObject::invokeMethod(host,"tabMoveRequested",Q_ARG(double,host->property("documentTabId").toDouble()),Q_ARG(int,0));

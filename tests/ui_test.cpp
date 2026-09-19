@@ -19,6 +19,9 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTextDocument>
+#include "recentpreview.h"
+#include "viewportstate.h"
+#include <QTextCursor>
 #include <QtTest>
 
 class UiTest : public QObject {
@@ -65,6 +68,18 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void branchStylePickerTracksUndo() {
+        auto *picker=window->findChild<QObject *>("branchStylePicker"); QVERIFY(picker);
+        QCOMPARE(picker->property("count").toInt(),7);
+        const auto before=document->branchStyle();
+        QVERIFY(QMetaObject::invokeMethod(picker,"activated",Q_ARG(int,6)));
+        QCOMPARE(document->branchStyle(),QString("Elven filigree"));
+        auto *stroke=window->findChild<QObject *>("style-branchStroke"); QVERIFY(stroke);
+        QTRY_VERIFY(!stroke->property("enabled").toBool());
+        QTRY_COMPARE(picker->property("currentIndex").toInt(),6);
+        document->undo(); QCOMPARE(document->branchStyle(),before);
+        QTRY_COMPARE(picker->property("currentIndex").toInt(),document->branchStyles().indexOf(before));
+    }
     void imageClipboardShortcuts() {
         NodeImage image; QImage pixels(120,60,QImage::Format_RGB32); pixels.fill(Qt::red);
         QVERIFY(NodeImage::importPixels(pixels,image)); QVERIFY(document->setImage(2,image));
@@ -356,6 +371,9 @@ class UiTest : public QObject {
         QVERIFY(QMetaObject::invokeMethod(week,"clicked"));
         QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
         auto *otherWeek=findVisual(content,"templateWeek_2026-09-21"); QVERIFY(otherWeek);
+        // Popup size changes animate: synchronize the scene before using its hit coordinates.
+        QSignalSpy framePresented(window,&QQuickWindow::frameSwapped);
+        window->requestUpdate(); QVERIFY(framePresented.wait(1000));
         // Click Wednesday, well away from the week-number column.
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
             otherWeek->mapToScene(QPointF(otherWeek->width()*3.5/8,otherWeek->height()/2)).toPoint());
@@ -499,7 +517,7 @@ class UiTest : public QObject {
     }
     void headerButtonsDoNotShowFocusFeedback() {
         QTest::mouseMove(window,QPoint(window->width()/2,window->height()-100));
-        for(const QString &name:{QString("openDocumentButton"),QString("saveDocumentButton"),QString("zoomPercentage"),QString("searchButton"),QString("nodeTemplatesButton")}) {
+        for(const QString &name:{QString("fileMenuButton"),QString("zoomPercentage"),QString("searchButton"),QString("nodeTemplatesButton")}) {
             auto *button=window->findChild<QQuickItem *>(name); QVERIFY(button);
             QCOMPARE(button->property("focusPolicy").toInt(),int(Qt::NoFocus));
             button->forceActiveFocus(); QTRY_VERIFY(button->hasActiveFocus());
@@ -596,6 +614,10 @@ class UiTest : public QObject {
         QVERIFY(loaded.open(path));
         QCOMPARE(loaded.selectedText(), QString("Saved by shortcut"));
         document->setText(1, "Saved by toolbar");
+        auto *fileButton=window->findChild<QQuickItem *>("fileMenuButton"); QVERIFY(fileButton);
+        fileButton->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        auto *fileMenu=window->findChild<QObject *>("fileActionsMenu"); QVERIFY(fileMenu);
+        QTRY_VERIFY(fileMenu->property("opened").toBool());
         auto *button = window->findChild<QQuickItem *>("saveDocumentButton");
         QVERIFY(button);
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
@@ -665,6 +687,7 @@ class UiTest : public QObject {
         qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
         document = new Engine(this);
         qml = new QQmlApplicationEngine(this);
+        qml->addImageProvider("recent",new RecentPreviewProvider);
         qml->rootContext()->setContextProperty("engine", document);
         qml->load(QUrl("qrc:/qml/Main.qml"));
         QVERIFY2(!qml->rootObjects().isEmpty(), "The full application QML must load");
@@ -979,6 +1002,28 @@ class UiTest : public QObject {
         canvas->fit(); const auto fitted=canvas->zoom();
         canvas->zoomIn(); choose("zoomFitAction"); QCOMPARE(canvas->zoom(),fitted);
     }
+    void fileMenuKeyboardAndExport() {
+        auto *button=window->findChild<QQuickItem *>("fileMenuButton"); QVERIFY(button);
+        QVERIFY(button->height()<=36);
+        auto *menu=window->findChild<QObject *>("fileActionsMenu"); QVERIFY(menu);
+        button->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QCOMPARE(menu->property("count").toInt(),5);
+        auto *first=window->findChild<QQuickItem *>("newDocumentButton"); QVERIFY(first);
+        QTRY_VERIFY(first->hasActiveFocus());
+        if(const auto path=qEnvironmentVariable("MINDARCHY_FILE_MENU_SCREENSHOT");!path.isEmpty()) {
+            QTest::qWait(180); QVERIFY(window->grabWindow().save(path));
+        }
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!menu->property("visible").toBool());
+        button->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Down);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        auto *exportItem=window->findChild<QQuickItem *>("exportDocumentButton"); QVERIFY(exportItem);
+        exportItem->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        auto *dialog=window->findChild<QObject *>("exportImageDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTest::keyClick(QGuiApplication::focusWindow()?QGuiApplication::focusWindow():window,Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool()); window->requestActivate(); canvas->forceActiveFocus();
+    }
     void toolbarGroupsAndNewDocument() {
         auto *left=window->findChild<QQuickItem *>("documentActions");
         auto *center=window->findChild<QQuickItem *>("editingActions");
@@ -1002,6 +1047,10 @@ class UiTest : public QObject {
         QVERIFY(x(center)+center->width()<x(right));
         QVERIFY(qAbs(x(center)+center->width()/2-window->width()/2)<1);
         QSignalSpy requested(document,&Engine::newDocumentRequested);
+        auto *fileButton=window->findChild<QQuickItem *>("fileMenuButton"); QVERIFY(fileButton);
+        fileButton->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        auto *fileMenu=window->findChild<QObject *>("fileActionsMenu"); QVERIFY(fileMenu);
+        QTRY_VERIFY(fileMenu->property("opened").toBool());
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint());
         QCOMPARE(requested.count(),1); QCOMPARE(document->nodeCount(),15);
         QTest::keySequence(window,QKeySequence(QKeySequence::New));
@@ -1058,7 +1107,7 @@ class UiTest : public QObject {
         auto button=[this](const QString &name) { auto *item=window->findChild<QQuickItem *>(name); if(item) {item->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);} return item!=nullptr; };
         const auto days=Calendar::days(document->nodes().value(id).calendar);
         const int index=days.indexOf(QDate(2026,9,8)); QVERIFY(index>=0);
-        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index,Calendar::weekGutter(document->nodes().value(id).calendar)).center())).toPoint(); };
+        auto point=[&] { return canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(id).topLeft()+Calendar::cell(index,Calendar::weekGutter(document->nodes().value(id).calendar)).center()*(document->appearance(id).fontSize/15.))).toPoint(); };
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point());
         QTRY_VERIFY(dialog->property("opened").toBool()); QVERIFY(!dialog->property("existing").toBool());
         field->setProperty("text","Design review"); QVERIFY(button("dateEntryCancel"));
@@ -1146,9 +1195,9 @@ class UiTest : public QObject {
             return QMetaObject::invokeMethod(panel,"apply",Q_RETURN_ARG(QVariant,accepted),
                 Q_ARG(QVariant,key),Q_ARG(QVariant,value)) && accepted.toBool();
         };
-        QVERIFY(apply("fontSize",30)); QVERIFY(apply("italic",true));
+        QVERIFY(!apply("fontSize",30)); QVERIFY(apply("italic",true));
         QVERIFY(apply("textColor",QString("#683286"))); QVERIFY(apply("borderWidth",3));
-        QCOMPARE(document->contentSize(2),before*2);
+        QCOMPARE(document->contentSize(2),before);
         QVERIFY(Calendar::textFont(document->nodes().value(2).text).italic());
         QCOMPARE(document->appearance(2).text,QColor("#683286"));
         QCOMPARE(document->appearance(2).borderWidth,3.);
@@ -1156,7 +1205,7 @@ class UiTest : public QObject {
         const auto data=document->nodes().value(2).calendar;
         const int index=Calendar::days(data).indexOf(QDate(2026,9,8));
         const auto cell=Calendar::cell(index,Calendar::weekGutter(data));
-        const auto point=canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(2).topLeft()+cell.center()*2)).toPoint();
+        const auto point=canvas->mapToScene(canvas->mapFromWorld(canvas->nodeRect(2).topLeft()+cell.center()*1.2)).toPoint();
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,point);
         auto *dialog=window->findChild<QObject *>("dateEntryDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
@@ -1164,6 +1213,97 @@ class UiTest : public QObject {
         cancel->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
         QTRY_VERIFY(!dialog->property("opened").toBool());
         document->resetNodeStyle(); QCOMPARE(document->contentSize(2),before);
+    }
+    void welcomeKeyboardNavigationAndActivation() {
+        QTemporaryDir directory; document->setRecentDirectory(directory.path());
+        for(int i=0;i<6;++i) {
+            Engine map; map.setRecentDirectory(directory.path());
+            QVERIFY(map.save(directory.filePath(QString("Keyboard %1.omm").arg(i))));
+        }
+        QVERIFY(QFile::remove(directory.filePath("Keyboard 4.omm"))); // second card unavailable
+        window->resize(1380,900); window->setProperty("welcomeVisible",true);
+        auto focused=[this](const QString &name) { return window->activeFocusItem() && window->activeFocusItem()->objectName()==name; };
+        QTRY_VERIFY(focused("welcomeCard0"));
+        QTest::keyClick(window,Qt::Key_Right); QVERIFY(focused("welcomeCard2"));
+        QTest::keyClick(window,Qt::Key_Down); QVERIFY(focused("welcomeCard5"));
+        QTest::keyClick(window,Qt::Key_Up); QVERIFY(focused("welcomeCard2"));
+        QTest::keyClick(window,Qt::Key_Home); QVERIFY(focused("welcomeCard0"));
+        QTest::keyClick(window,Qt::Key_End); QVERIFY(focused("welcomeCard5"));
+        QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeNewMap"));
+        QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeOpenMap"));
+        QTest::keyClick(window,Qt::Key_Return);
+        auto *picker=window->findChild<QObject *>("welcomeFilePicker"); QVERIFY(picker);
+        QTRY_VERIFY(picker->property("visible").toBool());
+        QTest::keyClick(QGuiApplication::focusWindow()?QGuiApplication::focusWindow():window,Qt::Key_Escape);
+        QTRY_VERIFY(!picker->property("visible").toBool());
+        QTRY_VERIFY(focused("welcomeOpenMap"));
+        QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeCard0"));
+        QTest::keyClick(window,Qt::Key_Backtab,Qt::ShiftModifier); QVERIFY(focused("welcomeOpenMap"));
+        QTest::keyClick(window,Qt::Key_Escape); QVERIFY(focused("welcomeNewMap"));
+        window->resize(600,640); QTest::keyClick(window,Qt::Key_End);
+        QTRY_VERIFY(focused("welcomeCard5"));
+        auto *last=window->activeFocusItem();
+        QTRY_VERIFY(last->mapToScene(QPointF(0,last->height())).y()<=window->height());
+        QTest::keyClick(window,Qt::Key_Home); QTRY_VERIFY(focused("welcomeCard0"));
+        QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(!window->property("welcomeVisible").toBool());
+        QCOMPARE(document->documentPath(),QFileInfo(directory.filePath("Keyboard 5.omm")).canonicalFilePath());
+        window->resize(1380,900); document->setRecentDirectory(""); document->loadFixture(1);
+        window->setProperty("welcomeVisible",true); QTRY_VERIFY(focused("welcomeNewMap"));
+        QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(!window->property("welcomeVisible").toBool()); QTRY_VERIFY(canvas->editing()); canvas->endEdit();
+    }
+    void welcomeGridPreviewsAndOpening() {
+        QTemporaryDir directory;
+        QSettings views(directory.filePath("views.ini"),QSettings::IniFormat);
+        ViewportState viewport(canvas,document,&views);
+        document->setRecentDirectory(directory.path());
+        for(int i=0;i<6;++i) {
+            Engine map; map.loadFixture(8+i); map.setLayout(i%2?"Vertical":"Horizontal"); map.setThemeId(i%2?"porcelain":"sage");
+            map.setRecentDirectory(directory.path());
+            QVERIFY(map.save(directory.filePath(QString("Project %1.omm").arg(i+1))));
+        }
+        const QVariantList expectedView{1.4,234.,-120.};
+        views.setValue(ViewportState::keyFor(directory.filePath("Project 6.omm")),expectedView); views.sync();
+        window->setProperty("welcomeVisible",true);
+        auto *home=window->findChild<QQuickItem *>("welcomeScreen"); QTRY_VERIFY(home);
+        auto *grid=window->findChild<QQuickItem *>("welcomeGrid"); QVERIFY(grid);
+        QCOMPARE(grid->property("columns").toInt(),3);
+        QQuickItem *preview=nullptr; QTRY_VERIFY((preview=findVisual(home,"welcomeThumbnail0")));
+        QTRY_COMPARE_WITH_TIMEOUT(preview->property("status").toInt(),1,15000);
+        if(const auto path=qEnvironmentVariable("MINDARCHY_WELCOME_SCREENSHOT");!path.isEmpty()) {
+            QTest::qWait(200); QVERIFY(window->grabWindow().save(path));
+        }
+        window->resize(800,900); QTRY_COMPARE(grid->property("columns").toInt(),2);
+        window->resize(600,900); QTRY_COMPARE(grid->property("columns").toInt(),1);
+        window->resize(1380,900); QTRY_COMPARE(grid->property("columns").toInt(),3);
+        auto *card=findVisual(home,"welcomeCard0"); QVERIFY(card);
+        card->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(!window->property("welcomeVisible").toBool());
+        QCOMPARE(document->documentPath(),QFileInfo(directory.filePath("Project 6.omm")).canonicalFilePath());
+        QVERIFY(document->nodeCount()>1);
+        const auto actualView=canvas->persistentView();
+        for(int i=0;i<3;++i) QVERIFY(qAbs(actualView[i].toDouble()-expectedView[i].toDouble())<1e-8);
+        // Empty-state creation is tested with a fresh document fixture.
+        document->setRecentDirectory(""); document->loadFixture(1);
+        window->setProperty("welcomeVisible",true);
+        auto *create=window->findChild<QQuickItem *>("welcomeNewMap"); QVERIFY(create);
+        create->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QTRY_VERIFY(!window->property("welcomeVisible").toBool());
+        QTRY_VERIFY(canvas->editing()); canvas->endEdit();
+    }
+    void pastedFontSizesFollowNodeDepth() {
+        document->select(2); canvas->beginEdit(2);
+        auto *editor=window->findChild<QQuickItem *>("titleEditor"); QVERIFY(editor);
+        editor->setProperty("text",QString("<span style='font-size:72pt;font-weight:700'>Pasted title</span>"));
+        QTextDocument text; text.setHtml(editor->property("text").toString());
+        QTextCursor cursor(&text); cursor.movePosition(QTextCursor::NextCharacter,QTextCursor::KeepAnchor);
+        QCOMPARE(cursor.charFormat().font().pixelSize(),18);
+        QVERIFY(cursor.charFormat().font().bold());
+        QCOMPARE(text.toPlainText(),QString("Pasted title"));
+        QTest::keyClick(window,Qt::Key_Return); QTRY_VERIFY(!canvas->editing());
+        QCOMPARE(document->selectedStyle()["fontSize"].toInt(),18);
+        QVERIFY(document->selectedStyle()["bold"].toBool());
     }
     void nodePanelAppliesStylesAndProtectsDraft() {
         window->setProperty("inspectorVisible",true);
@@ -1182,12 +1322,12 @@ class UiTest : public QObject {
                 Q_ARG(QVariant,key),Q_ARG(QVariant,value));
             return called && accepted.toBool();
         };
-        QVERIFY(apply("fontSize",28)); QVERIFY(apply("bold",true)); QVERIFY(apply("width",240));
+        QVERIFY(!apply("fontSize",28)); QVERIFY(apply("bold",true)); QVERIFY(apply("width",240));
         QVERIFY(apply("borderWidth",3)); QVERIFY(apply("borderStyle",2));
         QVERIFY(apply("branchStroke",3)); QVERIFY(apply("branchWidth",4));
         QVERIFY(apply("fill",QString("#d7e9b4"))); QVERIFY(apply("textColor",QString("#24311a")));
         QVERIFY(apply("alignment",1));
-        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),28.);
+        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),18.);
         QVERIFY(document->selectedStyle()["bold"].toBool());
         auto *family=window->findChild<QQuickItem *>("style-fontFamily"); QVERIFY(family);
         QCOMPARE(family->property("editText").toString(),document->selectedStyle()["fontFamily"].toString());
@@ -1200,7 +1340,7 @@ class UiTest : public QObject {
         if(!dir.isEmpty()) { QDir().mkpath(dir); QVERIFY(window->grabWindow().save(dir+"/node-panel-editing.png")); }
         QTest::keyClick(window,Qt::Key_Return); QTRY_VERIFY(!canvas->editing());
         QCOMPARE(document->nodes().value(2).rect.size()*canvas->zoom(),before.size());
-        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),28.);
+        QCOMPARE(document->selectedStyle()["fontSize"].toDouble(),18.);
         QVERIFY(document->selectedStyle()["bold"].toBool());
         QTest::qWait(200);
         if(!dir.isEmpty()) {

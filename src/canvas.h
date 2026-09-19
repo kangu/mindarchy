@@ -1,5 +1,6 @@
 #pragma once
 #include "engine.h"
+#include "drawing.h"
 #include <QElapsedTimer>
 #include <QImage>
 #include <QQuickItem>
@@ -70,6 +71,7 @@ class MindCanvas : public QQuickItem {
     QPointF mapFromWorld(QPointF p) const { return p * m_zoom + m_pan; }
     void zoomAt(QPointF p, double factor);
     Q_INVOKABLE void panBy(double dx, double dy);
+    Q_INVOKABLE void normalizeEditorSize(QObject *editor);
     Q_INVOKABLE void formatText(QObject *editor, QString command);
     Q_INVOKABLE QVariantMap appearanceForNode(int id) const;
     Q_INVOKABLE void fit();
@@ -145,7 +147,18 @@ class MindCanvas : public QQuickItem {
         bool vertical;
         qreal width = 1.5;
         Qt::PenStyle stroke = Qt::SolidLine;
+        QVector<MapDrawing::BranchStroke> artistic;
     };
+    struct BranchCache {
+        QPointF a,b;
+        QString style;
+        QColor tint,background;
+        qreal width=0;
+        int depth=0;
+        bool vertical=false,detailed=false;
+        QVector<MapDrawing::BranchStroke> geometry;
+    };
+    QHash<int,BranchCache> m_branchCache;
     struct CachedLabel {
         QString text;
         QColor textColor;

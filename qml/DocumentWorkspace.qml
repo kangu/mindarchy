@@ -11,6 +11,7 @@ FocusScope {
     anchors.fill: parent
     implicitWidth: parent ? parent.width : 0
     implicitHeight: parent ? parent.height : 0
+    readonly property bool welcomeVisible: hostWindow.welcomeVisible
     property var controller: engine
     readonly property bool integratedMacToolbar: hostWindow.integratedMacToolbar
     readonly property bool integratedWindowsToolbar: hostWindow.integratedWindowsToolbar
@@ -34,6 +35,7 @@ FocusScope {
     readonly property bool modalTabBlocked: modalInteraction
     function commitForTabSwitch() { return !modalInteraction && commitEditor("") }
     function focusDocument() { canvas.forceActiveFocus() }
+    function startWelcomeMap() { canvas.fit(); canvas.beginEdit(1) }
     signal closeApproved()
     signal closeCancelled()
     property string exportStatus: ""
@@ -330,7 +332,7 @@ FocusScope {
         onRejected: window.finishSaveDialog("")
     }
     FileDialog {
-        id: imageDialog; title: "Export current canvas view"; fileMode: FileDialog.SaveFile
+        id: imageDialog; objectName: "exportImageDialog"; title: "Export current canvas view"; fileMode: FileDialog.SaveFile
         nameFilters: ["PNG image (*.png)"]; defaultSuffix: "png"
         onAccepted: { if (!window.commitEditor("")) return; canvas.exportPng(window.localPath(selectedFile)) }
     }
@@ -462,10 +464,50 @@ FocusScope {
                                 }
                             }
                         }
-                        ToolbarButton { objectName: "newDocumentButton"; iconName: "file-plus-2"; text: "New mindmap"; onClicked: controller.newDocumentRequested() }
-                        ToolbarButton { objectName: "openDocumentButton"; iconName: "folder-open"; text: "Open document"; onClicked: openDialog.open() }
-                        ToolbarButton { objectName: "saveDocumentButton"; iconName: "save"; text: "Save document"; onClicked: window.saveDocument(false) }
-                        ToolbarButton { iconName: "image-down"; text: "Export canvas as PNG"; onClicked: imageDialog.open() }
+                        ToolbarButton {
+                            id: fileButton; objectName: "fileMenuButton"
+                            iconName: "files"; text: "File  ▾"
+                            Accessible.name: "File menu"
+                            ToolTip.text: "New, open, save and export"
+                            display: AbstractButton.TextBesideIcon
+                            implicitWidth: 92; implicitHeight: window.width < 800 ? 32 : 36; font.pixelSize: 13
+                            checked: fileMenu.visible
+                            onClicked: fileMenu.visible ? fileMenu.close() : fileMenu.open()
+                            Keys.onDownPressed: fileMenu.open()
+                            Keys.onReturnPressed: fileMenu.open()
+                            Menu {
+                                id: fileMenu; objectName: "fileActionsMenu"
+                                y: fileButton.height + 8; x: 0; width: 240; padding: 6
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                onOpened: { currentIndex = 0; fileNew.forceActiveFocus() }
+                                background: Rectangle {
+                                    radius: 10
+                                    color: ShellTheme.colors["#172129"] || "#172129"
+                                    border.color: ShellTheme.colors["#34434c"] || "#34434c"
+                                }
+                                MenuItem {
+                                    id: fileNew; objectName: "newDocumentButton"
+                                    text: "New map"; icon.source: "qrc:/qml/icons/file-plus-2.svg"; icon.color: window.ink
+                                    onTriggered: { fileMenu.close(); if (window.commitEditor("")) controller.newDocumentRequested() }
+                                }
+                                MenuItem {
+                                    objectName: "openDocumentButton"
+                                    text: "Open map…"; icon.source: "qrc:/qml/icons/folder-open.svg"; icon.color: window.ink
+                                    onTriggered: { fileMenu.close(); openDialog.open() }
+                                }
+                                MenuSeparator {}
+                                MenuItem {
+                                    objectName: "saveDocumentButton"
+                                    text: "Save map"; icon.source: "qrc:/qml/icons/save.svg"; icon.color: window.ink
+                                    onTriggered: { fileMenu.close(); window.saveDocument(false) }
+                                }
+                                MenuItem {
+                                    objectName: "exportDocumentButton"
+                                    text: "Export as PNG…"; icon.source: "qrc:/qml/icons/image-down.svg"; icon.color: window.ink
+                                    onTriggered: { fileMenu.close(); if (window.commitEditor("")) imageDialog.open() }
+                                }
+                            }
+                        }
                     }
                     RowLayout {
                         id: editingActions; objectName: "editingActions"
@@ -690,15 +732,23 @@ FocusScope {
                         TextEdit {
                             id: editor; objectName: "titleEditor"
                             property string initialText: ""
+                            property bool normalizingSize: false
                             x: inlineEditor.textInset
                             y: Math.max(8, (inlineEditor.height - contentHeight) / 2)
                             width: Math.max(1, inlineEditor.width - inlineEditor.textInset - 15)
                             height: Math.max(22, inlineEditor.height - y)
                             clip: true; textMargin: 0
                             textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
-                            font.family: controller.textFamily; font.pixelSize: 15
+                            font.family: controller.textFamily; font.pixelSize: inlineEditor.nodeAppearance.fontSize || 20
                             color: inlineEditor.nodeAppearance.text || "#f1fff9"; selectionColor: "#438b78"
-                            onTextChanged: { if (canvas.editing) canvas.updateEditingText(text) }
+                            onTextChanged: {
+                                if (canvas.editing && !normalizingSize) {
+                                    normalizingSize = true
+                                    canvas.normalizeEditorSize(editor)
+                                    normalizingSize = false
+                                    canvas.updateEditingText(text)
+                                }
+                            }
                             Text {
                                 visible: editor.length===0 && !editor.inputMethodComposing
                                 text: controller.selectedEntryPrompt; color: "#718896"; font: editor.font
@@ -749,8 +799,22 @@ FocusScope {
                                     onChosen: function(value) { if (!window.commitEditor("")) return; controller.spacing = value }
                                 }
                                 Caption { text: "CONNECTIONS" }
-                                MapOptionBar { selectedValue: controller.branchStyle; options: [{"value": "Rounded", "label": "Rounded connections", "path": "M3 18h5a4 4 0 0 0 4-4v-4a4 4 0 0 1 4-4h5"}, {"value": "Angular", "label": "Angular connections", "path": "M3 18h9V6h9"}]
-                                    onChosen: function(value) { if (!window.commitEditor("")) return; controller.branchStyle = value }
+                                ComboBox {
+                                    id: branchStylePicker
+                                    objectName: "branchStylePicker"
+                                    Layout.fillWidth: true
+                                    model: controller.branchStyles
+                                    currentIndex: controller.branchStyles.indexOf(controller.branchStyle)
+                                    Accessible.name: "Branch style"
+                                    onActivated: function(index) {
+                                        if (window.commitEditor("")) controller.branchStyle = controller.branchStyles[index]
+                                        currentIndex = Qt.binding(function() { return controller.branchStyles.indexOf(controller.branchStyle) })
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                    text: "Artistic branches adapt to light and dark map backgrounds."
+                                    color: window.muted; font.pixelSize: 11
                                 }
                                 Caption { text: "PLACEMENT" }
                                 MapOptionBar {

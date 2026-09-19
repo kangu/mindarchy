@@ -75,10 +75,10 @@ def main():
             return result.stdout
 
     try:
-        run(['cmake', '-S', PROJECT, '-B', build, '-UQt6*_DIR', '-DCMAKE_BUILD_TYPE=Release',
+        run(['cmake', '-S', PROJECT, '-B', build, '-UQt6*_DIR', '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=ON',
              f'-DCMAKE_PREFIX_PATH={args.qt}', f'-DMINDMAP_VERSION={args.version}',
              f'-DCMAKE_OSX_ARCHITECTURES={";".join(architectures)}', f'-DCMAKE_OSX_DEPLOYMENT_TARGET={args.min_macos}'])
-        run(['cmake', '--build', build, '--parallel', '4'])
+        run(['cmake', '--build', build, '--target', 'mindarchy', 'mindarchy-tests', '--parallel', '4'])
         run(['ctest', '--test-dir', build, '--output-on-failure'])
         with tempfile.TemporaryDirectory(prefix='.payload-', dir=release) as temporary:
             work = Path(temporary)

@@ -21,7 +21,7 @@ Mindarchy is under active development. Platform builds and individual features c
 - **Turn plans into action.** Add tasks with branch progress, notes, and calendar nodes. Start with weekly task lists or meeting templates containing notes, decisions, and actions.
 - **Connect the context.** Link related branches, embed images, and attach references to websites and local files.
 - **Find your thread.** Search titles, notes, and calendar entries. Focus on a branch while keeping its place in the larger map.
-- **Make the map yours.** Apply themes with bundled fonts, customize node shapes and colors, and adjust text and connector styles.
+- **Make the map yours.** Apply themes with bundled fonts, customize node shapes and colors, and adjust text and connector styles. Choose from five [artistic branch styles](docs/artistic-branch-styles.md), with palettes that adapt to light and dark canvases.
 - **Keep your work together.** Open documents in tabs or separate windows, copy entire branches between maps, and paste indented text or Markdown lists as a hierarchy.
 - **Keep your files.** Save readable `.omm` documents, reopen them across platforms, and export PNG images.
 
@@ -163,13 +163,16 @@ cmake --build build --parallel
 
 ### Tests
 
-After building, run the configured test suites:
+Use the incremental development commands (reuse the same build directory):
 
 ```sh
-ctest --test-dir build --output-on-failure
+python3 scripts/dev.py build   # App only; no tests or packaging
+python3 scripts/dev.py check   # Fast, offscreen checks; leaves your desktop alone
+python3 scripts/dev.py ui      # Opt-in offscreen UI suite
+python3 scripts/dev.py full    # Full release checks; native tests open windows
 ```
 
-The suites cover document operations, layout, manual placement, canvas input, QML interactions, previews, and platform-specific window behavior. Some platform tests require a graphical desktop session.
+Pass `--qt /path/to/Qt` when configuring a fresh build, or `--build-dir build` to choose the build directory. The macOS default is `build-macos`; other platforms use `build`. `scripts/test.sh` runs the fast checks. Test binaries are excluded from ordinary app builds. See [Development pipeline](docs/development-pipeline.md) for test selection and release policy.
 
 ## Build installers
 
