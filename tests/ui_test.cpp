@@ -357,8 +357,11 @@ class UiTest : public QObject {
     }
     void weeklyTemplatePickerAddsBranch() {
         document->select(1); const int before=document->nodeCount();
-        auto *button=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(button);
-        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *button=window->findChild<QQuickItem *>("addMenuButton"); QVERIFY(button);
+        button->forceActiveFocus(); QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *templateButton=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(templateButton);
+        QTRY_VERIFY(QMetaObject::invokeMethod(templateButton,"clicked"));
+        QTest::qWait(50);
         auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
         auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
@@ -401,8 +404,11 @@ class UiTest : public QObject {
         auto *tabs=window->findChild<QQuickItem *>("inspectorTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
         document->select(2); const auto previous=document->nodes().value(2);
         QVERIFY(!window->findChild<QObject *>("applyMeetingTemplate"));
-        auto *button=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(button);
-        QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *button=window->findChild<QQuickItem *>("addMenuButton"); QVERIFY(button);
+        button->forceActiveFocus(); QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+        auto *templateButton=window->findChild<QObject *>("nodeTemplatesButton"); QVERIFY(templateButton);
+        QTRY_VERIFY(QMetaObject::invokeMethod(templateButton,"clicked"));
+        QTest::qWait(50);
         auto *dialog=window->findChild<QObject *>("nodeTemplateDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
         auto *content=dialog->property("contentItem").value<QQuickItem *>(); QVERIFY(content);
@@ -517,7 +523,7 @@ class UiTest : public QObject {
     }
     void headerButtonsDoNotShowFocusFeedback() {
         QTest::mouseMove(window,QPoint(window->width()/2,window->height()-100));
-        for(const QString &name:{QString("fileMenuButton"),QString("zoomPercentage"),QString("searchButton"),QString("nodeTemplatesButton")}) {
+        for(const QString &name:{QString("fileMenuButton"),QString("addMenuButton"),QString("zoomPercentage"),QString("searchButton")}) {
             auto *button=window->findChild<QQuickItem *>(name); QVERIFY(button);
             QCOMPARE(button->property("focusPolicy").toInt(),int(Qt::NoFocus));
             button->forceActiveFocus(); QTRY_VERIFY(button->hasActiveFocus());
@@ -1023,6 +1029,45 @@ class UiTest : public QObject {
         QTRY_VERIFY(dialog->property("visible").toBool());
         QTest::keyClick(QGuiApplication::focusWindow()?QGuiApplication::focusWindow():window,Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("visible").toBool()); window->requestActivate(); canvas->forceActiveFocus();
+    }
+    void addMenuCondensesActions() {
+        document->select(2); document->select(1);
+        auto *left=window->findChild<QQuickItem *>("documentActions"); QVERIFY(left);
+        auto *addButton=window->findChild<QQuickItem *>("addMenuButton"); QVERIFY(addButton);
+        // The Add button lives in the left group, next to File, inside the toolbar.
+        const auto addScene=addButton->mapToScene(QPointF(addButton->width()/2,addButton->height()/2));
+        QVERIFY(addScene.x() < window->width()/2);
+        auto *addMenu=window->findChild<QObject *>("addActionsMenu"); QVERIFY(addMenu);
+        QVERIFY(!addMenu->property("opened").toBool());
+        addButton->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(addMenu->property("opened").toBool());
+        QCOMPARE(addMenu->property("count").toInt(),3);
+        auto *childItem=window->findChild<QQuickItem *>("addChildButton"); QVERIFY(childItem);
+        QTRY_VERIFY(childItem->hasActiveFocus());
+        QTest::keyClick(window,Qt::Key_Down); // move to the template item
+        auto *templateItem=window->findChild<QQuickItem *>("nodeTemplatesButton"); QVERIFY(templateItem);
+        QTest::keyClick(window,Qt::Key_Down); // move to the sibling item
+        auto *siblingItem=window->findChild<QQuickItem *>("addSiblingButton"); QVERIFY(siblingItem);
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!addMenu->property("visible").toBool());
+        // Triggering the child item adds a child to the selection, same as the old toolbar button.
+        const int before=document->nodeCount();
+        addButton->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(addMenu->property("opened").toBool());
+        auto *childItem2=window->findChild<QQuickItem *>("addChildButton"); QVERIFY(childItem2);
+        QTRY_VERIFY(childItem2->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(childItem2,"clicked"));
+        QTest::qWait(50);
+        QCOMPARE(document->nodeCount(),before+1);
+        window->findChild<QQuickItem *>("centerWorkspace");
+        canvas->forceActiveFocus(); document->undo();
+        QCOMPARE(document->nodeCount(),before);
+        // Disabled without selection: clear the selection makes the template item disabled.
+        document->selectMany({});
+        addButton->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Return);
+        QTRY_VERIFY(addMenu->property("opened").toBool());
+        auto *templateItem2=window->findChild<QQuickItem *>("nodeTemplatesButton"); QVERIFY(templateItem2);
+        QVERIFY(!templateItem2->property("enabled").toBool());
+        QTest::keyClick(window,Qt::Key_Escape); QTRY_VERIFY(!addMenu->property("visible").toBool());
     }
     void toolbarGroupsAndNewDocument() {
         auto *left=window->findChild<QQuickItem *>("documentActions");
