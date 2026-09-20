@@ -1,5 +1,8 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
     <file>qml/DocumentWorkspace.qml</file>
+    <file>qml/ShareDialog.qml</file>
+    <file>qml/SharedMaps.qml</file>
+    <file>qml/PresenceStrip.qml</file>
     <file>qml/DocumentTabStrip.qml</file>
     <file>qml/DesktopMenus.qml</file>
     <file>qml/icons/menu.svg</file>

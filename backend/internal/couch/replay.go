@@ -10,10 +10,15 @@ import (
 )
 
 type Batch struct {
-	ID      string `json:"id"`
-	Parent  string `json:"parent"`
-	Seq     uint64 `json:"seq"`
-	Changes []byte `json:"changes"`
+	ID         string             `json:"id"`
+	Parent     string             `json:"parent"`
+	Seq        uint64             `json:"seq"`
+	Account    protocol.AccountID `json:"account"`
+	DeviceID   protocol.DeviceID  `json:"deviceId"`
+	Counter    uint64             `json:"counter"`
+	Hash       string             `json:"hash"`
+	ReceiptSeq uint64             `json:"receiptSeq"`
+	Changes    []byte             `json:"changes"`
 }
 
 // Replay reconstructs only the chain reachable from the authoritative head.

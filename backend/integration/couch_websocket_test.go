@@ -2,6 +2,8 @@ package integration
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -66,8 +68,11 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 	if err := wsjson.Read(context.Background(), conn, &hello); err != nil {
 		t.Fatal(err)
 	}
-	update := protocol.Submit{Version: 1, MapID: protocol.MapID(created.ID), DeviceID: protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), Counter: 1, Hash: strings.Repeat("0", 64), Changes: []byte{0}}
-	if err := wsjson.Write(context.Background(), conn, map[string]any{"type": "submit", "changes": update}); err != nil {
+	changes := []byte{0}
+	digest := sha256.Sum256(changes)
+	update := protocol.Submit{Version: 1, MapID: protocol.MapID(created.ID), DeviceID: protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), Counter: 1, Hash: fmt.Sprintf("%x", digest[:]), Changes: changes}
+	frame := map[string]any{"version": update.Version, "mapId": update.MapID, "deviceId": update.DeviceID, "counter": update.Counter, "hash": update.Hash, "changes": base64.StdEncoding.EncodeToString(update.Changes)}
+	if err := wsjson.Write(context.Background(), conn, map[string]any{"type": "submit", "changes": frame}); err != nil {
 		t.Fatal(err)
 	}
 	var committed map[string]any

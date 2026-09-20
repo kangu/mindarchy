@@ -20,7 +20,7 @@ type Manager struct {
 
 type roomState struct {
 	mu       sync.Mutex
-	counters map[string]string
+	counters map[string]protocol.Receipt
 }
 
 func NewManager(store couch.Store) *Manager {
@@ -33,7 +33,7 @@ func (m *Manager) room(mapID protocol.MapID) *roomState {
 	if state := m.rooms[mapID]; state != nil {
 		return state
 	}
-	state := &roomState{counters: make(map[string]string)}
+	state := &roomState{counters: make(map[string]protocol.Receipt)}
 	m.rooms[mapID] = state
 	return state
 }
@@ -45,15 +45,11 @@ func (m *Manager) Submit(ctx context.Context, account protocol.AccountID, update
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	key := fmt.Sprintf("%s:%s:%d", account, update.DeviceID, update.Counter)
-	if hash, ok := state.counters[key]; ok {
-		if hash != update.Hash {
+	if receipt, ok := state.counters[key]; ok {
+		if receipt.Hash != update.Hash {
 			return protocol.Receipt{}, ErrCounterReuse
 		}
-		head, err := m.store.LoadHead(ctx, update.MapID)
-		if err != nil {
-			return protocol.Receipt{}, err
-		}
-		return protocol.Receipt{DeviceID: update.DeviceID, Counter: update.Counter, Hash: hash, Seq: head.Seq}, nil
+		return receipt, nil
 	}
 	head, err := m.store.LoadHead(ctx, update.MapID)
 	if err == couch.ErrNotFound {
@@ -62,7 +58,15 @@ func (m *Manager) Submit(ctx context.Context, account protocol.AccountID, update
 	if err != nil {
 		return protocol.Receipt{}, err
 	}
-	batch := couch.Batch{Parent: head.BatchID, Seq: head.Seq + 1, Changes: update.Changes}
+	if receipt, found, conflict, err := findReceipt(ctx, m.store, head.BatchID, account, update); err != nil {
+		return protocol.Receipt{}, err
+	} else if conflict {
+		return protocol.Receipt{}, ErrCounterReuse
+	} else if found {
+		state.counters[key] = receipt
+		return receipt, nil
+	}
+	batch := couch.Batch{Parent: head.BatchID, Seq: head.Seq + 1, Account: account, DeviceID: update.DeviceID, Counter: update.Counter, Hash: update.Hash, ReceiptSeq: head.Seq + 1, Changes: update.Changes}
 	encoded, err := json.Marshal(batch)
 	if err != nil {
 		return protocol.Receipt{}, err
@@ -81,6 +85,33 @@ func (m *Manager) Submit(ctx context.Context, account protocol.AccountID, update
 	if _, err := m.store.CompareAndSwapHead(ctx, update.MapID, head.Rev, head); err != nil {
 		return protocol.Receipt{}, err
 	}
-	state.counters[key] = update.Hash
-	return protocol.Receipt{DeviceID: update.DeviceID, Counter: update.Counter, Hash: update.Hash, Seq: batch.Seq}, nil
+	receipt := protocol.Receipt{DeviceID: update.DeviceID, Counter: update.Counter, Hash: update.Hash, Seq: batch.Seq}
+	state.counters[key] = receipt
+	return receipt, nil
+}
+
+func findReceipt(ctx context.Context, store couch.Store, id string, account protocol.AccountID, update protocol.Submit) (protocol.Receipt, bool, bool, error) {
+	seen := map[string]bool{}
+	for id != "" {
+		if seen[id] {
+			return protocol.Receipt{}, false, false, fmt.Errorf("batch cycle")
+		}
+		seen[id] = true
+		data, err := store.GetImmutable(ctx, id)
+		if err != nil {
+			return protocol.Receipt{}, false, false, err
+		}
+		var batch couch.Batch
+		if err := json.Unmarshal(data, &batch); err != nil {
+			return protocol.Receipt{}, false, false, err
+		}
+		if batch.Account == account && batch.DeviceID == update.DeviceID && batch.Counter == update.Counter {
+			if batch.Hash != update.Hash {
+				return protocol.Receipt{}, false, true, nil
+			}
+			return protocol.Receipt{DeviceID: batch.DeviceID, Counter: batch.Counter, Hash: batch.Hash, Seq: batch.ReceiptSeq}, true, false, nil
+		}
+		id = batch.Parent
+	}
+	return protocol.Receipt{}, false, false, nil
 }

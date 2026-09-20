@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -22,10 +23,23 @@ type ProductionServer struct {
 	sharing *sharing.Service
 	session *auth.CouchSession
 	rooms   *rooms.Manager
+	liveMu  sync.Mutex
+	live    map[protocol.MapID]map[*livePeer]struct{}
+}
+
+type livePeer struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (p *livePeer) write(ctx context.Context, value any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return wsjson.Write(ctx, p.conn, value)
 }
 
 func NewProductionServer(ready func(context.Context) error, verify *auth.Verifier, service *sharing.Service, session *auth.CouchSession, manager *rooms.Manager) *ProductionServer {
-	return &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager}
+	return &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager, live: map[protocol.MapID]map[*livePeer]struct{}{}}
 }
 
 func (s *ProductionServer) Handler() http.Handler {
@@ -142,7 +156,15 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
-	_ = wsjson.Write(request.Context(), conn, map[string]any{"type": "hello", "mapId": mapID, "role": role})
+	peer := &livePeer{conn: conn}
+	s.liveMu.Lock()
+	if s.live[mapID] == nil {
+		s.live[mapID] = map[*livePeer]struct{}{}
+	}
+	s.live[mapID][peer] = struct{}{}
+	s.liveMu.Unlock()
+	defer func() { s.liveMu.Lock(); delete(s.live[mapID], peer); s.liveMu.Unlock() }()
+	_ = peer.write(request.Context(), map[string]any{"type": "hello", "mapId": mapID, "role": role})
 	for {
 		var message struct {
 			Type    string          `json:"type"`
@@ -153,30 +175,46 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		}
 		switch message.Type {
 		case "presence":
-			_ = wsjson.Write(request.Context(), conn, map[string]any{"type": "presence", "accountId": identity.Account})
+			s.broadcast(request.Context(), mapID, map[string]any{"type": "presence", "accountId": identity.Account})
 		case "submit":
 			if role == "viewer" {
-				_ = wsjson.Write(request.Context(), conn, map[string]string{"type": "rejected", "code": "access_revoked"})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "access_revoked"})
 				continue
 			}
 			if s.rooms == nil {
-				_ = wsjson.Write(request.Context(), conn, map[string]string{"type": "rejected", "code": "resync_required"})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "resync_required"})
 				continue
 			}
-			var update protocol.Submit
-			if err := json.Unmarshal(message.Changes, &update); err != nil {
-				_ = wsjson.Write(request.Context(), conn, map[string]string{"type": "rejected", "code": "invalid_message"})
+			update, err := protocol.DecodeSubmit(message.Changes)
+			if err != nil {
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "invalid_message"})
+				continue
+			}
+			if update.MapID != mapID {
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "access_revoked"})
 				continue
 			}
 			receipt, err := s.rooms.Submit(request.Context(), identity.Account, update)
 			if err != nil {
-				_ = wsjson.Write(request.Context(), conn, map[string]string{"type": "rejected", "code": err.Error()})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": err.Error()})
 				continue
 			}
-			_ = wsjson.Write(request.Context(), conn, map[string]any{"type": "committed", "receipt": receipt})
+			s.broadcast(request.Context(), mapID, map[string]any{"type": "committed", "receipt": receipt})
 		default:
-			_ = wsjson.Write(request.Context(), conn, map[string]string{"type": "rejected", "code": "invalid_message"})
+			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "invalid_message"})
 		}
+	}
+}
+
+func (s *ProductionServer) broadcast(ctx context.Context, mapID protocol.MapID, value any) {
+	s.liveMu.Lock()
+	peers := make([]*livePeer, 0, len(s.live[mapID]))
+	for peer := range s.live[mapID] {
+		peers = append(peers, peer)
+	}
+	s.liveMu.Unlock()
+	for _, peer := range peers {
+		_ = peer.write(ctx, value)
 	}
 }
 
