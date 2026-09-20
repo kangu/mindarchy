@@ -39,6 +39,7 @@ class Engine : public QObject {
     Q_PROPERTY(bool edited READ edited NOTIFY changed)
     Q_PROPERTY(QString layout READ layout WRITE setLayout NOTIFY changed)
     Q_PROPERTY(QString spacing READ spacing WRITE setSpacing NOTIFY changed)
+    Q_PROPERTY(QStringList branchStyles READ branchStyles CONSTANT)
     Q_PROPERTY(QString branchStyle READ branchStyle WRITE setBranchStyle NOTIFY changed)
     Q_PROPERTY(bool manual READ manual WRITE setManual NOTIFY changed)
     Q_PROPERTY(int selectedId READ selectedId NOTIFY changed)
@@ -82,6 +83,7 @@ class Engine : public QObject {
     bool isDescendant(int node, int ancestor) const;
     QString layout() const { return m_layout; }
     QString spacing() const { return m_spacing; }
+    QStringList branchStyles() const;
     QString branchStyle() const { return m_branchStyle; }
     bool manual() const { return m_manual; }
     int selectedId() const { return m_selected; }
@@ -192,6 +194,7 @@ class Engine : public QObject {
     Q_INVOKABLE QString documentPath() const { return m_documentPath; }
     void setRecentDirectory(QString directory) { m_recentDirectory=std::move(directory); }
     Q_INVOKABLE QVariantList recentDocuments() const;
+    Q_INVOKABLE QVariantList recentMaps() const;
     Q_INVOKABLE void clearRecentDocuments();
     Q_INVOKABLE bool requestOpenDocument(QString path);
     Q_INVOKABLE bool save(QString path);
@@ -202,6 +205,8 @@ class Engine : public QObject {
   signals:
     void clipboardMessage(QString text);
     void documentSaved();
+    void documentOpening();
+    void documentOpened();
     void openDocumentRequested(QString path);
     void nativeCloseRequested();
     void nativeSaveRequested();
@@ -249,8 +254,9 @@ class Engine : public QObject {
         QSizeF size;
         double width = 0;
         QString family;
+        int depth = -1;
     };
-    bool measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth = 0, QString family = {}) const;
+    bool measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth = 0, QString family = {}, int depth = 0) const;
     QHash<int, TextMeasure> m_textCache;
     QHash<int, int> m_branchIndices;
     QHash<int, QRectF> m_layoutRects;

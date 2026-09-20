@@ -2,6 +2,8 @@
 
 An `.omm` document is the existing UTF-8 JSON document, saved with a dedicated extension. There is no archive, binary header, embedded screenshot, or platform-specific wrapper. The schema remains `format: "mindarchy"`, `version: 1`. Text, Task, Date, calendar entries, themes, layout, manual offsets, notes, folding and relationships retain their existing representation.
 
+The map-level `branchStyle` accepts `Rounded`, `Angular`, `Botanical graphite`, `Living oak`, `Sumi branch`, `Silver birch`, or `Elven filigree`. Artistic palettes adapt to the saved canvas theme; no additional light/dark field is stored. Older app versions only recognize the original two values. See [artistic branch styles](artistic-branch-styles.md).
+
 Save dialogs default to `.omm`. Open dialogs accept `.omm` and `.json` files containing the current `mindarchy` v1 document format. Older prototype format identifiers are not supported. The app still validates the content regardless of its extension and saves atomically.
 
 ```sh

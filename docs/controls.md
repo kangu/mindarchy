@@ -81,6 +81,8 @@ On macOS, window coordinates are restored directly; maximized/fullscreen launche
 
 `--no-window-state` starts with defaults without updating the stored preference. Benchmark, screenshot and timed test launches also bypass placement persistence so test windows do not overwrite the user's preference. Multiple normal instances share the preference; the last one closed wins.
 
+On Wayland, newly created windows never inherit a previous window's placement: they join the compositor's tiling layout like any other client, so on Omarchy a new Mindarchy window splits the focused tile instead of floating at a saved rectangle. Saved placements restore only the window they belong to — a floating window comes back at its saved rectangle on relaunch, and a tiled window stays under the compositor's control.
+
 
 Platform references: [Qt window positioning limitations](https://doc.qt.io/qt-6/qwindow.html#setPosition), [Hyprland dispatchers](https://wiki.hypr.land/configuring/core/dispatchers/).
 
@@ -108,3 +110,11 @@ Select one node and click **Add node template** in the header (the calendar icon
 Click the magnifying-glass button in the header, or press Command-F on macOS / Ctrl-F on Omarchy, to open the inline search field. Type a query; after a 300 ms pause, the first match is automatically centered and its matching letters highlighted. Enter then moves to the second match and continues through the results, wrapping after the last. Pressing Enter before the pause completes runs the pending search immediately. The counter shows your position. Results are centered at the existing zoom and briefly outlined with a fading flash. Escape or the close button hides the search field.
 
 Search matches plain node titles, notes, and date-entry text, ignoring case and accents. Exact matches rank before abbreviations and minor spelling errors; ties follow tree order. Folded descendants are searchable. Visiting one expands its ancestors using an undoable fold-state change. Letter highlighting uses contrasting foreground/background colors for the active node/theme, preserves rich text, and is cleared when the query changes or search closes. Queries and highlights are not stored in the document. Command-F now opens search; Fit Map remains available in the zoom dropdown and with the 0 key.
+
+## Welcome screen
+
+The most recent available map receives keyboard focus; an empty history focuses New Map. Arrow keys move spatially through the grid and skip unavailable files. Tab and Shift+Tab cycle through New Map, Open Map and the available cards. Enter or Space activates the focused item. Home/End focus the first/last available card, and Escape focuses New Map. Command-N/Command-O on macOS (Ctrl-N/Ctrl-O elsewhere) create or open a map. Keyboard-focused cards scroll into view, and cancelling the file picker restores focus to the invoking control.
+
+## Header file menu
+
+The header’s File control groups New Map, Open Map, Save Map and Export as PNG in one dropdown. It uses a compact document-stack icon and follows the shell palette. Existing file shortcuts are unchanged. The menu supports arrow navigation, activation and Escape dismissal; new-map creation and PNG export commit pending title edits first.

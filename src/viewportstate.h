@@ -12,6 +12,7 @@ public:
         m_timer.setSingleShot(true);
         m_timer.setInterval(300);
         connect(&m_timer, &QTimer::timeout, this, [this] { flush(); });
+        connect(engine, &Engine::documentOpening, this, [this] { flush(); m_ready = false; });
         connect(canvas, &MindCanvas::viewInitializing, this, [this] { flush(); m_ready = false; });
         connect(canvas, &MindCanvas::viewInitialized, this, [this] { restore(); });
         connect(canvas, &MindCanvas::viewChanged, this, [this] {
@@ -51,6 +52,7 @@ private:
         // initializeView fits first, so capture is suspended until restoration.
         m_ready = false;
         m_key = keyFor(m_engine->documentPath());
+        m_settings->sync();
         const auto saved = m_key.isEmpty() ? QVariantList{} : m_settings->value(m_key).toList();
         if (!m_key.isEmpty() && saved.size() == 3) {
             bool a, b, c;

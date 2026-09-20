@@ -75,7 +75,7 @@ class CanvasTest : public QObject {
         QCOMPARE(c.taskHit(c.mapFromWorld(c.imageWorldRect(1).center())),-1);
         QVERIFY(e.setNodeKind(1,"date")); c.m_animating=false; c.refresh();
         const auto calendar=c.contentRect(1,c.nodeRect(1));
-        QCOMPARE(calendar.size(),Calendar::size(e.nodes()[1].calendar));
+        QCOMPARE(calendar.size(),Calendar::size(e.nodes()[1].calendar)*(e.appearance(1).fontSize/15.));
         QVERIFY(calendar.left()>c.imageWorldRect(1).right());
         const auto point=c.mapFromWorld(calendar.topLeft()+QRectF(256,10,28,28).center());
         const auto before=e.nodes()[1].calendar.anchor;
@@ -386,6 +386,24 @@ class CanvasTest : public QObject {
         QTest::mouseRelease(&window,Qt::LeftButton,Qt::NoModifier,QPoint(700,200));
         QCOMPARE(engine.nodeCount(),1); QVERIFY(!engine.edited()); QVERIFY(!engine.canUndo());
         QVERIFY(canvas->creationPreview().isEmpty());
+    }
+    void reopeningMapsRestoresViewWithoutManualInitialization() {
+        QTemporaryDir dir;
+        const auto a=dir.filePath("a.omm"), b=dir.filePath("b.omm");
+        Engine source; QVERIFY(source.save(a)); QVERIFY(source.save(b));
+        QSettings settings(dir.filePath("views.ini"),QSettings::IniFormat);
+        Engine engine; QVERIFY(engine.open(a));
+        MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&engine);
+        ViewportState state(&canvas,&engine,&settings); canvas.initializeView();
+        QVERIFY(canvas.restoreView(1.7,{321,-234}));
+        const auto first=canvas.persistentView();
+        // Switch before the 300 ms write debounce; opening flushes the old map.
+        QVERIFY(engine.open(b)); QVERIFY(canvas.restoreView(.65,{-456,789}));
+        const auto second=canvas.persistentView();
+        QVERIFY(engine.open(a)); QCOMPARE(canvas.persistentView(),first);
+        QVERIFY(engine.open(b)); QCOMPARE(canvas.persistentView(),second);
+        QVERIFY(!engine.open(dir.filePath("missing.omm"))); QCOMPARE(canvas.persistentView(),second);
+        QVERIFY(!engine.edited());
     }
     void viewportPersistsPerFileOutsideDocument() {
         QTemporaryDir dir;

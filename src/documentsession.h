@@ -9,6 +9,7 @@
 #include <QVariantList>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QUuid>
 #include <memory>
 #include <algorithm>
@@ -53,6 +54,26 @@ public:
         }
         paths.removeDuplicates();
         return paths;
+    }
+    // Normal launches go home. Only unfinished snapshots bypass the homepage.
+    static QStringList unfinishedPaths(const QString &directory) {
+        QStringList result;
+        for(const auto &path:restorePaths(directory,true)) {
+            if(!path.endsWith(".recovery")) continue;
+            QFile file(path); if(!file.open(QIODevice::ReadOnly) || file.size()>64*1024*1024) continue;
+            const auto snapshot=QJsonDocument::fromJson(file.readAll()).object();
+            const auto document=snapshot["document"].toObject();
+            const auto baseline=QJsonDocument::fromJson(QByteArray::fromBase64(snapshot["baseline"].toString().toLatin1())).object();
+            const auto ui=snapshot["ui"].toObject();
+            bool unfinished=document!=baseline || ui["editingId"].toInt(-1)>=0;
+            for(const auto &value:document["nodes"].toArray()) {
+                const auto node=value.toObject();
+                if(node["id"].toInt()==ui["notesId"].toInt(-1) && ui.contains("notes") && node["notes"]!=ui["notes"]) unfinished=true;
+            }
+            if(!ui["date"].toObject().isEmpty()) unfinished=true;
+            if(unfinished) result.append(path);
+        }
+        return result;
     }
     explicit DocumentSession(const QString &directory = defaultDirectory(), const QString &recovery = {})
         : m_directory(directory), m_id(recovery.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : QFileInfo(recovery).completeBaseName()) {

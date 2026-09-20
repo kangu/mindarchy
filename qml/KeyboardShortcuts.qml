@@ -16,6 +16,12 @@ Window {
     readonly property var rows: (controller ? controller.tabShortcutHelp.map(function(entry) {
         return ["Document tabs", entry.label, entry.shortcut]
     }) : []).concat([
+        ["Welcome", "Move between map cards", "Arrow keys"],
+        ["Welcome", "Next / previous action or card", "Tab / Shift+Tab"],
+        ["Welcome", "Open focused map or activate action", "Enter / Space"],
+        ["Welcome", "First / last card", "Home / End"],
+        ["Welcome", "Focus New Map", "Esc"],
+        ["Welcome", "New map / open file", "Ctrl+N / Ctrl+O"],
         ["Document", "Open document", "Ctrl+O"],
         ["Document", "Save", "Ctrl+S"],
         ["Document", "Undo / redo", "Ctrl+Z / Ctrl+Y"],

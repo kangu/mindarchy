@@ -209,8 +209,10 @@ void MindCanvas::setEngine(Engine *e) {
     if(m_focusReturning) { m_zoom=m_beforeFocusZoom; m_pan=m_beforeFocusPan; }
     stopFocusAnimation();
     m_engine = e;
+    m_branchCache.clear();
     if (e) {
         connect(e, &Engine::changed, this, &MindCanvas::documentChanged);
+        connect(e, &Engine::documentOpened, this, &MindCanvas::initializeView);
         connect(e, &Engine::editRequested, this, &MindCanvas::beginEdit);
         documentChanged();
     }
@@ -295,13 +297,14 @@ QVariantMap MindCanvas::appearanceForNode(int id) const {
     if(!m_engine) return {};
     const auto a=m_engine->appearance(id);
     return {{"fill",a.fill.alpha() ? a.fill : m_engine->canvasColor()},
-            {"text",a.text},{"border",a.border}};
+            {"text",a.text},{"border",a.border},{"fontSize",a.fontSize}};
 }
 void MindCanvas::refresh() {
     ++m_geometryRevision;
     m_canvasColor = m_engine ? m_engine->canvasColor() : QColor("#111920");
     m_draw.clear();
     m_edges.clear();
+    QSet<int> cachedBranches;
     m_labels.clear();
     if (!m_engine || width() <= 0 || height() <= 0) {
         update();
@@ -344,9 +347,30 @@ void MindCanvas::refresh() {
                 if (!compact && m_engine->appearance(n.parent).shape == NodeShape::Underline)
                     a.setY(parent.bottom());
             }
-            if (QRectF(a, b).normalized().adjusted(-4, -4, 4, 4).intersects(viewport))
-                m_edges.append({a, b, color, m_engine->branchStyle() == "Angular" || compact,
-                                vertical || compact, appearance.branchWidth, appearance.branchStroke});
+            if (QRectF(a, b).normalized().adjusted(-24, -24, 24, 24).intersects(viewport)) {
+                Edge edge{a, b, color, m_engine->branchStyle() == "Angular" || compact,
+                          vertical || compact, appearance.branchWidth, appearance.branchStroke};
+                if(artisticBranch(m_engine->branchStyle())) {
+                    cachedBranches.insert(id);
+                    auto &cached=m_branchCache[id];
+                    const bool detailed=m_zoom>=.48;
+                    if(cached.a!=a || cached.b!=b || cached.style!=m_engine->branchStyle() ||
+                       cached.tint!=appearance.branch || cached.background!=m_canvasColor ||
+                       cached.width!=appearance.branchWidth || cached.depth!=n.depth ||
+                       cached.vertical!=(vertical || compact) || cached.detailed!=detailed) {
+                        cached={a,b,m_engine->branchStyle(),appearance.branch,m_canvasColor,
+                            appearance.branchWidth,n.depth,vertical || compact,detailed,
+                            branchGeometry(a,b,m_engine->branchStyle(),vertical || compact,
+                                appearance.branch,m_canvasColor,appearance.branchWidth,n.depth,quint32(id),m_zoom)};
+                    }
+                    edge.artistic=cached.geometry;
+                }
+                if(!focusIncludes(id)) for(auto &stroke:edge.artistic)
+                    stroke.color=QColor::fromRgbF(stroke.color.redF()*.18+m_canvasColor.redF()*.82,
+                        stroke.color.greenF()*.18+m_canvasColor.greenF()*.82,
+                        stroke.color.blueF()*.18+m_canvasColor.blueF()*.82,stroke.color.alphaF());
+                m_edges.append(edge);
+            }
         }
         if (!r.intersects(viewport))
             continue;
@@ -364,7 +388,7 @@ void MindCanvas::refresh() {
         }
         if(m_animating && !n.image.empty()) labelRect.setSize(m_target.value(id).size());
         const QRectF content=contentRect(id,QRectF(QPointF(),labelRect.size()));
-        const QString labelKey=m_engine->textFamily()+(n.kind=="date" ? Calendar::key(n.calendar)+n.text+appearance.branch.name(QColor::HexArgb) : n.text)
+        const QString labelKey=QString::number(appearance.fontSize)+m_engine->textFamily()+(n.kind=="date" ? Calendar::key(n.calendar)+n.text+appearance.branch.name(QColor::HexArgb) : n.text)
             + (id==m_searchResult ? "\nsearch:"+m_searchQuery+appearance.fill.name(QColor::HexArgb)+m_canvasColor.name(QColor::HexArgb) : QString()) + (!focusIncludes(id) ? "\nfocus-dim" : "") + "\nimage:" + QString::number(n.image.pixels.cacheKey()) + ":" + QString::number(imageWidth(id)) + n.image.placement + (m_zoom<.28 ? ":overview" : ":detail") + (editingId()==id ? "editing" : "");
         auto it = m_cache.find(id);
         if (it == m_cache.end() || it->text != labelKey || it->size != labelRect.size() ||
@@ -392,6 +416,7 @@ void MindCanvas::refresh() {
             doc.setDocumentMargin(0);
             doc.setDefaultStyleSheet(QString("body,p {color:%1; margin:0;}").arg(appearance.text.name()));
             doc.setHtml(n.text);
+            applyMindarchyNodeSize(doc,appearance.fontSize);
             doc.setTextWidth(std::max(0., content.width() - 30 - (n.task ? 20 : 0)));
             QPainter painter(&image);
             painter.setRenderHint(QPainter::TextAntialiasing);
@@ -442,6 +467,9 @@ void MindCanvas::refresh() {
             m_edges.append({a, b, focusIncludes(link.first) && focusIncludes(link.second) ? QColor("#efb86f")
                 : QColor::fromRgbF(.18*.94+.82*m_canvasColor.redF(),.18*.72+.82*m_canvasColor.greenF(),.18*.44+.82*m_canvasColor.blueF()), false, false});
     }
+    // Keep only visible connector geometry: panning reuses it without retaining every visited branch.
+    for(auto it=m_branchCache.begin();it!=m_branchCache.end();)
+        if(!cachedBranches.contains(it.key())) it=m_branchCache.erase(it); else ++it;
     // Bound inactive label memory; textures are culled separately on the render thread.
     qsizetype cachedBytes = 0;
     for (const auto &entry : m_cache)
@@ -474,6 +502,7 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
         painter.translate(m_pan);
         painter.scale(m_zoom, m_zoom);
         for (const auto &e : m_edges) {
+            if(!e.artistic.isEmpty()) { paintBranches(painter,e.artistic); continue; }
             painter.setPen(QPen(e.color, e.width, e.stroke));
             if(e.width>0) painter.drawPolyline(edgePath(e.a,e.b,e.angular,e.vertical,m_zoom*window()->effectiveDevicePixelRatio()));
         }
@@ -572,6 +601,11 @@ QSGNode *MindCanvas::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     vertices.reserve(m_draw.size() * 12 + m_edges.size() * 24);
     box(vertices, m_cullViewport, m_canvasColor);
     for (const auto &e : m_edges) {
+        if(!e.artistic.isEmpty()) {
+            for(const auto &stroke:e.artistic)
+                for(const auto &point:branchTriangles(stroke)) vertex(vertices,point,stroke.color);
+            continue;
+        }
         strokePath(vertices,edgePath(e.a,e.b,e.angular,e.vertical,m_zoom*window()->effectiveDevicePixelRatio()),e.width,e.color,e.stroke);
     }
     for (const auto &n : m_draw) {
@@ -816,7 +850,9 @@ void MindCanvas::beginEdit(int id) {
     ensureVisible(id);
     emit editingChanged();
     refresh();
-    emit editRequested(id, m_engine->nodes().value(id).text);
+    QTextDocument editorText; editorText.setDefaultFont(QFont(m_engine->textFamily())); editorText.setHtml(m_engine->nodes().value(id).text);
+    applyMindarchyNodeSize(editorText,m_engine->appearance(id).fontSize);
+    emit editRequested(id, editorText.toHtml());
 }
 void MindCanvas::editSelected() {
     if (m_engine)
@@ -1192,7 +1228,7 @@ void MindCanvas::mouseReleaseEvent(QMouseEvent *e) {
     } else if(!m_panning && !m_extend && m_pressedId>=0 && hit(e->position())==m_pressedId &&
               m_engine->nodes().value(m_pressedId).kind=="date" && m_imageSelected!=m_pressedId) {
         const int id=m_pressedId; const auto n=m_engine->nodes().value(id);
-        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily());
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily(),mindarchyNodeFontSize(n.depth));
         const auto days=Calendar::days(n.calendar);
         for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
             editDateEntry(id,days[i].toString(Qt::ISODate)); break;
@@ -1260,7 +1296,7 @@ void MindCanvas::hoverMoveEvent(QHoverEvent *e) {
     }
     if(m_engine && id>=0 && m_engine->nodes().value(id).kind=="date") {
         const auto n=m_engine->nodes().value(id); const auto days=Calendar::days(n.calendar);
-        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily());
+        const QPointF local=(mapToWorld(e->position())-contentRect(id,displayRect(id)).topLeft())/Calendar::textScale(n.text,m_engine->textFamily(),mindarchyNodeFontSize(n.depth));
 
         for(int i=0;i<days.size();++i) if(days[i].isValid() && Calendar::cell(i,Calendar::weekGutter(n.calendar)).contains(local)) {
             text=n.calendar.entries.value(days[i].toString(Qt::ISODate)); actionable=true; break;
@@ -1449,6 +1485,12 @@ void MindCanvas::panBy(double dx, double dy) {
     stopFocusAnimation();
     m_pan += QPointF(dx, dy);
     refreshView();
+}
+void MindCanvas::normalizeEditorSize(QObject *editor) {
+    if(!editor || !m_engine || !editing()) return;
+    auto *quickDoc=qvariant_cast<QQuickTextDocument *>(editor->property("textDocument"));
+    if(quickDoc && quickDoc->textDocument())
+        applyMindarchyNodeSize(*quickDoc->textDocument(),m_engine->appearance(editingId()).fontSize);
 }
 void MindCanvas::formatText(QObject *editor, QString command) {
     if (!editor)

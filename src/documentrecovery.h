@@ -29,6 +29,7 @@ public:
         });
     }
     bool checkpoint() {
+        if(m_window->property("welcomeVisible").toBool()) return true;
         if(m_removed) return false;
         QVariant draft;
         if(!QMetaObject::invokeMethod(m_window,"recoveryDraft",Q_RETURN_ARG(QVariant,draft))) return false;

@@ -132,6 +132,9 @@ WindowPlacement::WindowPlacement(QWindow *window, const QString &settingsFile)
         connect(window,&QWindow::windowStateChanged,this,capture);
     }
 }
+WindowPlacement::~WindowPlacement() {
+    if(!m_address.isEmpty()) s_claimed.remove(m_address);
+}
 void WindowPlacement::restoreQtState() {
     if(m_hyprland || !m_restorePending || !m_window->isVisible()) return;
     // Apply deferred states after the initial show (including native
@@ -173,9 +176,15 @@ void WindowPlacement::captureHypr(const QByteArray &data) {
     for(const auto &value:QJsonDocument::fromJson(data).array()) {
         const auto client=value.toObject();
         if(client["pid"].toInteger()!=QCoreApplication::applicationPid() || !client["mapped"].toBool()) continue;
-        if(client["initialTitle"].toString()!=m_window->title()) continue;
         const QString address=client["address"].toString();
         if(!QRegularExpression("^0x[0-9a-fA-F]+$").match(address).hasMatch()) return;
+        // Claim this instance's client once, at map time, then track it by its
+        // stable address: titles change with the document, and sibling windows
+        // can share one, so title matching alone would freeze or cross wires.
+        if(m_address.isEmpty()) {
+            if(s_claimed.contains(address) || client["initialTitle"].toString()!=m_window->title()) continue;
+            m_address=address; s_claimed.insert(address);
+        } else if(address!=m_address) continue;
         if(m_restorePending) {
             m_restorePending=false; m_settling=true;
             // Only floating windows have an application-restorable pixel rectangle.

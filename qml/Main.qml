@@ -22,7 +22,7 @@ ApplicationWindow {
     // The toolbar reserves horizontal space for the native window controls.
     // Avoid ApplicationWindow's automatic inset below the macOS title bar.
     Binding { target: window; property: "topPadding"; value: 0; when: window.integratedToolbar }
-    title: controller ? controller.documentName : "Mindarchy"
+    title: welcomeVisible ? "Mindarchy" : controller ? controller.documentName : "Mindarchy"
     property bool windowsMenuVisible: false
     property var windowsMenuPreviousFocus: null
     readonly property real windowsMenuHeight: windowsMenus.height
@@ -60,6 +60,20 @@ ApplicationWindow {
         }
     }
     color: ShellTheme.colors["#111920"] || "#111920"
+    property bool welcomeVisible: false
+    function refreshWelcome() { if (welcome.item) welcome.item.refresh() }
+    function startWelcomeMap() {
+        welcomeVisible = false
+        if (activeWorkspace) activeWorkspace.startWelcomeMap()
+    }
+    Binding { target: window.activeWorkspace; property: "visible"; value: false; when: window.welcomeVisible && window.activeWorkspace !== null }
+    Binding { target: window.activeWorkspace; property: "enabled"; value: false; when: window.welcomeVisible && window.activeWorkspace !== null }
+    Loader {
+        id: welcome; anchors.fill: parent; z: 100; active: window.welcomeVisible
+        sourceComponent: WelcomeScreen { host: window }
+    }
+    Shortcut { enabled: window.welcomeVisible; sequences: [StandardKey.New]; onActivated: window.startWelcomeMap() }
+    Shortcut { enabled: window.welcomeVisible; sequences: [StandardKey.Open]; onActivated: welcome.item.openDocument() }
     property var activeWorkspace: defaultWorkspace.item
     property var controller: activeWorkspace ? activeWorkspace.controller : (typeof engine !== "undefined" ? engine : null)
     onControllerChanged: if (activeWorkspace && activeWorkspace.controller !== controller) activeWorkspace.controller = controller
@@ -120,8 +134,8 @@ ApplicationWindow {
     function prepareRecoveryQuit() { if (activeWorkspace) return activeWorkspace.prepareRecoveryQuit() }
     function abortSessionQuit() { if (activeWorkspace) return activeWorkspace.abortSessionQuit() }
     function completeSessionQuit() { if (activeWorkspace) return activeWorkspace.completeSessionQuit() }
-    function saveDocument(closing) { if (activeWorkspace) return activeWorkspace.saveDocument(closing) }
-    function openDocumentMenu() { if (activeWorkspace) return activeWorkspace.openDocumentMenu() }
+    function saveDocument(closing) { if (welcomeVisible) return false; if (activeWorkspace) return activeWorkspace.saveDocument(closing) }
+    function openDocumentMenu() { if (welcomeVisible && welcome.item) return welcome.item.openDocument(); if (activeWorkspace) return activeWorkspace.openDocumentMenu() }
     function requestClose(forget, quitting) { if (activeWorkspace) return activeWorkspace.requestClose(forget, quitting) }
     function approveClose() { if (activeWorkspace) return activeWorkspace.approveClose() }
     function cancelClose() { if (activeWorkspace) return activeWorkspace.cancelClose() }

@@ -1,3 +1,4 @@
+#include "drawing.h"
 #include "manualplacement.h"
 #include "appfont.h"
 #include "noderesources.h"
@@ -52,7 +53,7 @@ bool validLayout(const QString &s) {
     return s == "Horizontal" || s == "Vertical" || s == "Compact";
 }
 bool validSpacing(const QString &s) { return s == "Narrow" || s == "Standard" || s == "Wide"; }
-bool validBranch(const QString &s) { return s == "Rounded" || s == "Angular"; }
+bool validBranch(const QString &s) { return MapDrawing::branchStyles().contains(s); }
 bool validNodeStyle(const QVariantMap &s) {
     for (auto it=s.begin(); it!=s.end(); ++it) {
         const QString k=it.key(); const QVariant v=it.value();
@@ -177,7 +178,7 @@ QVariantList Engine::outline() const {
     }
     return result;
 }
-bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth, QString family) const {
+bool Engine::measureText(const QString &text, bool task, TextMeasure &result, double fixedWidth, QString family, int depth) const {
     QTextDocument doc;
     QFont font(family.isEmpty() ? textFamily() : family, 11);
     font.setPixelSize(15);
@@ -194,6 +195,7 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
                 return false;
         }
     }
+    applyMindarchyNodeSize(doc,mindarchyNodeFontSize(depth));
     doc.setTextWidth(-1);
     const double idealWidth = doc.idealWidth();
     if (!std::isfinite(idealWidth))
@@ -205,7 +207,7 @@ bool Engine::measureText(const QString &text, bool task, TextMeasure &result, do
     if (!std::isfinite(measured.width()) || !std::isfinite(measured.height()) ||
         measured.height() < 0 || measured.width() < 0 || height > 4096)
         return false;
-    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth, font.family()};
+    result = {text, doc.toPlainText(), task, QSizeF(width + 30 + (task ? 20 : 0), height), fixedWidth, font.family(), depth};
     return true;
 }
 void Engine::rebuild() {
@@ -277,11 +279,11 @@ void Engine::rebuild() {
         n.depth = n.parent < 0 ? 0 : m_nodes[n.parent].depth + 1;
         QSizeF size;
         auto cached = m_textCache.constFind(id);
-        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble() && cached->family == textFamily())
+        if (cached != m_textCache.cend() && cached->text == n.text && cached->task == n.task && cached->width == n.style.value("width").toDouble() && cached->family == textFamily() && cached->depth == n.depth)
             size = cached->size;
         else {
             TextMeasure measurement;
-            if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble())) {
+            if (!measureText(n.text, n.task, measurement, n.style.value("width").toDouble(),{},n.depth)) {
                 // All title entry points validate before mutation; retain a safe rectangle
                 // if an unsupported font backend nevertheless produces invalid geometry.
                 measurement = {n.text, QString(), n.task, QSizeF(102 + (n.task ? 20 : 0), 42)};
@@ -289,7 +291,7 @@ void Engine::rebuild() {
             size = measurement.size;
             m_textCache.insert(id, measurement);
         }
-        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
+        if(n.kind=="date") size=Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily(),mindarchyNodeFontSize(n.depth));
         size=n.image.expanded(size);
         n.rect = QRectF(QPointF(), size);
         depthSize[n.depth] = std::max(depthSize[n.depth], vertical ? size.height() : size.width());
@@ -363,6 +365,7 @@ NodeAppearance Engine::appearance(int id) const {
     if (it == m_nodes.cend())
         return Themes::appearance(m_themeId, 0, 0);
     auto a = Themes::appearance(m_themeId, it->depth, m_branchIndices.value(id));
+    a.fontSize=mindarchyNodeFontSize(it->depth);
     const auto &s = it->style;
     if (s.contains("shape")) a.shape = NodeShape(s["shape"].toInt());
     if (s.contains("radius")) a.radius = s["radius"].toDouble();
@@ -400,6 +403,7 @@ void Engine::setSpacing(QString value) {
     m_spacing = value;
     rebuild();
 }
+QStringList Engine::branchStyles() const { return MapDrawing::branchStyles(); }
 void Engine::setBranchStyle(QString value) {
     if (!validBranch(value) || m_branchStyle == value)
         return;
@@ -574,7 +578,7 @@ QSizeF Engine::previewTextSize(int id, const QString &text) const {
 QSizeF Engine::previewContentSize(int id, const QString &text) const {
     if (!m_nodes.contains(id) || text.size() > MaxText) return {};
     TextMeasure measurement;
-    if (!measureText(text, m_nodes.value(id).task, measurement, m_nodes.value(id).style.value("width").toDouble())) return {};
+    if (!measureText(text, m_nodes.value(id).task, measurement, m_nodes.value(id).style.value("width").toDouble(),{},m_nodes.value(id).depth)) return {};
     return measurement.size;
 }
 bool Engine::setText(int id, QString text) {
@@ -588,7 +592,7 @@ bool Engine::setText(int id, QString text) {
         return false;
     }
     TextMeasure measurement;
-    if (!measureText(text, m_nodes[id].task, measurement, m_nodes[id].style.value("width").toDouble()))
+    if (!measureText(text, m_nodes[id].task, measurement, m_nodes[id].style.value("width").toDouble(),{},m_nodes[id].depth))
         return fail("Node text is too tall (maximum measured height is 4,096 pixels).");
     checkpoint();
     m_textCache.insert(id, measurement);
@@ -950,6 +954,7 @@ bool Engine::openRecovery(const QString &path, QVariantMap *ui) {
     RecentDocuments(m_recentDirectory).record(m_documentPath);
     if(ui) *ui=envelope["ui"].toObject().toVariantMap();
     emit changed();
+    emit documentOpened();
     return true;
 }
 bool Engine::open(QString path) {
@@ -960,6 +965,7 @@ bool Engine::open(QString path) {
         return fail("Document exceeds the 20 MB prototype limit.");
     if(!loadDocumentBytes(file.readAll(), localPath(path))) return false;
     RecentDocuments(m_recentDirectory).record(m_documentPath);
+    emit documentOpened();
     return true;
 }
 bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
@@ -1106,6 +1112,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     checkpoint();
     m_textCache = std::move(candidateMeasurements);
     m_connections = connections;
+    emit documentOpening();
     m_nodes = std::move(candidate);
     m_nextId = nextId;
     m_layout = layout;
@@ -1166,6 +1173,7 @@ QVariantMap Engine::selectedStyle() const {
         const auto n=m_nodes.value(id); const auto a=appearance(id);
         QTextDocument doc; QFont font(textFamily()); font.setPixelSize(15);
         doc.setDefaultFont(font); doc.setHtml(n.text);
+        applyMindarchyNodeSize(doc,mindarchyNodeFontSize(n.depth));
         QTextCursor cursor(&doc); cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         const auto f=cursor.charFormat().font().resolve(font);
         const auto alignment=cursor.blockFormat().alignment();
@@ -1189,6 +1197,7 @@ QVariantMap Engine::selectedStyle() const {
     return result;
 }
 bool Engine::applyNodeStyle(QVariantMap patch) {
+    if(patch.contains("fontSize")) return fail("Font size is automatic and follows node depth.");
     if (m_selection.isEmpty() || patch.isEmpty()) return true;
     const QStringList typography{"fontFamily","fontSize","bold","italic","underline","strike","alignment"};
     QVariantMap visual=patch;
@@ -1197,7 +1206,6 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
     for(auto it=patch.begin();it!=patch.end();++it) {
         const auto k=it.key(); const auto v=it.value();
         if(k=="fontFamily" && (v.metaType().id()!=QMetaType::QString || v.toString().isEmpty() || v.toString().size()>200)) return fail("Invalid font family.");
-        if(k=="fontSize" && (!v.canConvert<double>() || !std::isfinite(v.toDouble()) || v.toDouble()<8 || v.toDouble()>144)) return fail("Font size must be 8–144 pixels.");
         if(k=="alignment" && (v.toInt()<0 || v.toInt()>3 || v.toDouble()!=v.toInt())) return fail("Invalid text alignment.");
         if(QStringList{"bold","italic","underline","strike"}.contains(k) && v.metaType().id()!=QMetaType::Bool) return fail("Invalid font option.");
     }
@@ -1207,25 +1215,8 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
         for(auto it=visual.begin();it!=visual.end();++it) n.style.insert(it.key(),it.value());
         QTextDocument doc; QFont base(textFamily()); base.setPixelSize(15); doc.setDefaultFont(base);
         doc.setDocumentMargin(0); doc.setHtml(n.text);
-        if(patch.contains("fontSize")) {
-            // Imported point sizes take precedence over pixel sizes during HTML
-            // serialization. Remove that competing property on each text run.
-            QVector<QPair<QTextCursor,QTextCharFormat>> runs;
-            for(auto block=doc.begin();block.isValid();block=block.next())
-                for(auto it=block.begin();!it.atEnd();++it) {
-                    const auto fragment=it.fragment(); auto f=fragment.charFormat();
-                    f.clearProperty(QTextFormat::FontPointSize);
-                    f.clearProperty(QTextFormat::FontSizeAdjustment);
-                    f.setProperty(QTextFormat::FontPixelSize,patch["fontSize"].toInt());
-                    QTextCursor run(&doc); run.setPosition(fragment.position());
-                    run.setPosition(fragment.position()+fragment.length(),QTextCursor::KeepAnchor);
-                    runs.append({run,f});
-                }
-            for(auto &run:runs) run.first.setCharFormat(run.second);
-        }
         QTextCursor cursor(&doc); cursor.select(QTextCursor::Document); QTextCharFormat format;
         if(patch.contains("fontFamily")) format.setFontFamilies({patch["fontFamily"].toString()});
-        if(patch.contains("fontSize")) format.setProperty(QTextFormat::FontPixelSize,patch["fontSize"].toInt());
         if(patch.contains("bold")) format.setFontWeight(patch["bold"].toBool()?QFont::Bold:QFont::Normal);
         if(patch.contains("italic")) format.setFontItalic(patch["italic"].toBool());
         if(patch.contains("underline")) format.setFontUnderline(patch["underline"].toBool());
@@ -1240,7 +1231,7 @@ bool Engine::applyNodeStyle(QVariantMap patch) {
         bool hasTypography=patch.contains("textColor"); for(const auto &key:typography) hasTypography |= patch.contains(key);
         if(hasTypography) n.text=inheritedThemeFont(doc.toHtml(),textFamily());
         TextMeasure measurement;
-        if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement,n.style.value("width").toDouble()))
+        if(n.text.size()>MaxText || !measureText(n.text,n.task,measurement,n.style.value("width").toDouble(),{},n.depth))
             return fail("This style makes the title too large.");
     }
     bool different=false; for(int id:m_selection) different |= next[id].style!=m_nodes[id].style || next[id].text!=m_nodes[id].text;
@@ -1717,6 +1708,16 @@ void Engine::cycleApplicationWindow(int direction) {
 }
 
 QVariantList Engine::recentDocuments() const { return RecentDocuments(m_recentDirectory).list(); }
+QVariantList Engine::recentMaps() const {
+    QVariantList result;
+    for(const auto &entry:recentDocuments().mid(0,6)) {
+        auto item=entry.toMap(); const QFileInfo file(item["path"].toString());
+        const auto encoded=file.absoluteFilePath().toUtf8().toBase64(QByteArray::Base64UrlEncoding|QByteArray::OmitTrailingEquals);
+        item.insert("thumbnail",QString("image://recent/%1/%2-%3").arg(QString::fromLatin1(encoded)).arg(file.lastModified().toMSecsSinceEpoch()).arg(file.size()));
+        item.insert("modified",file.lastModified().toString("d MMM yyyy")); result.append(item);
+    }
+    return result;
+}
 void Engine::clearRecentDocuments() { RecentDocuments(m_recentDirectory).clear(); }
 bool Engine::requestOpenDocument(QString path) {
     path=QFileInfo(localPath(path)).absoluteFilePath();
@@ -1727,9 +1728,9 @@ bool Engine::requestOpenDocument(QString path) {
 
 QSizeF Engine::contentSize(int id) const {
     const auto n=m_nodes.value(id);
-    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily());
+    if(n.kind=="date") return Calendar::size(n.calendar)*Calendar::textScale(n.text,textFamily(),mindarchyNodeFontSize(n.depth));
     TextMeasure measure;
-    return measureText(n.text,n.task,measure,n.style.value("width").toDouble()) ? measure.size : QSizeF(100,42);
+    return measureText(n.text,n.task,measure,n.style.value("width").toDouble(),{},n.depth) ? measure.size : QSizeF(100,42);
 }
 bool Engine::importImage(int id,QString path) {
     NodeImage image;

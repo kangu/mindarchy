@@ -8,6 +8,7 @@
 #include "viewportstate.h"
 #include "canvas.h"
 #include "preview.h"
+#include "recentpreview.h"
 #include <QFileOpenEvent>
 #include <QProcess>
 #include <functional>
@@ -172,7 +173,7 @@ int main(int argc, char **argv) {
     files.append(app.pendingFiles); app.pendingFiles.clear(); files.removeDuplicates();
     const bool sessionEnabled = !parser.isSet("nodes") && !parser.isSet("screenshot") &&
         !parser.isSet("quit-after") && !parser.isSet("render-benchmark") && !parser.isSet("no-window-state");
-    if(sessionEnabled) document.setRecentDirectory(DocumentSession::defaultDirectory());
+    document.setRecentDirectory(DocumentSession::defaultDirectory());
     const bool recoveryEnabled = sessionEnabled && (QGuiApplication::platformName()=="cocoa" || QGuiApplication::platformName()=="windows");
     QString recoveryFile=parser.value("recover");
     if(!recoveryFile.isEmpty() && (!recoveryEnabled ||
@@ -227,6 +228,7 @@ int main(int argc, char **argv) {
     qmlRegisterUncreatableType<Engine>("Mindarchy", 1, 0, "Engine", "Provided by application");
     qmlRegisterType<MindCanvas>("Mindarchy", 1, 0, "MindCanvas");
     QQmlApplicationEngine qml;
+    qml.addImageProvider("recent",new RecentPreviewProvider);
     qml.rootContext()->setContextProperty("engine", &document);
     qml.rootContext()->setContextProperty("deferWindowShow", true);
     qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa" || QGuiApplication::platformName() == "windows");
@@ -245,9 +247,12 @@ int main(int argc, char **argv) {
     if (qml.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(qml.rootObjects().first());
+    if(window && !startedWithFile && !parser.isSet("new") && !parser.isSet("nodes") && !parser.isSet("render-benchmark"))
+        window->setProperty("welcomeVisible",true);
     QSettings viewportSettings("Mindarchy", "Mindarchy");
     std::unique_ptr<ViewportState> viewportState;
-    if (sessionEnabled && window) {
+    // Camera memory is independent of window geometry/session restoration.
+    if (window && !parser.isSet("nodes") && !parser.isSet("render-benchmark")) {
         if (auto *canvas = window->findChild<MindCanvas *>("mindCanvas"))
             viewportState = std::make_unique<ViewportState>(canvas, &document, &viewportSettings);
     }
@@ -397,7 +402,7 @@ int main(int argc, char **argv) {
     app.pendingFiles.clear();
     // Preserve the state prepared by WindowPlacement; show() calls showNormal().
     if(window) window->setVisible(true);
-    if(window && !startedWithFile && !parser.isSet("nodes") && !parser.isSet("render-benchmark")) {
+    if(window && !window->property("welcomeVisible").toBool() && !startedWithFile && !parser.isSet("nodes") && !parser.isSet("render-benchmark")) {
         QTimer::singleShot(0,window,[window] {
             if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas"); canvas && canvas->engine()->documentPath().isEmpty()) {
                 canvas->fit(); canvas->beginEdit(1);
@@ -485,7 +490,10 @@ int main(int argc, char **argv) {
     if (window && parser.isSet("screenshot")) {
         QString path = parser.value("screenshot");
         QTimer::singleShot(1800, window, [window, path] {
-            bool ok = window->grabWindow().save(path);
+            auto screenshot=window->grabWindow();
+            if(auto *canvas=window->findChild<MindCanvas *>("mindCanvas"))
+                screenshot.setText("MindarchyViewport",QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(canvas->persistentView())).toJson(QJsonDocument::Compact)));
+            bool ok = screenshot.save(path);
             fprintf(stderr, "Application screenshot: %s (%s)\n", qPrintable(path),
                     ok ? "saved" : "FAILED");
         });

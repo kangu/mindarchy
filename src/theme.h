@@ -26,6 +26,7 @@ struct NodeAppearance {
     qreal branchWidth = 2;
     TaskAppearance task;
     QString fontFamily;
+    int fontSize = 15;
 };
 
 struct MapTheme {

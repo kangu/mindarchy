@@ -387,6 +387,12 @@ void installMacWindowMenu(QWindow *window, std::function<QVariantList()> list,
 - (void)showShortcuts:(id)sender {
     if (!shortcutsWindow) {
         rows=[@[
+            @[@"Welcome", @"Move between map cards", @"Arrow keys"],
+            @[@"Welcome", @"Next / previous action or card", @"Tab / ⇧ Tab"],
+            @[@"Welcome", @"Open focused map or activate action", @"Return / Space"],
+            @[@"Welcome", @"First / last card", @"Home / End"],
+            @[@"Welcome", @"Focus New Map", @"Esc"],
+            @[@"Welcome", @"New map / open file", @"⌘ N / ⌘ O"],
             @[@"Document", @"Open document", @"⌘ O"],
             @[@"Document", @"Save", @"⌘ S"],
             @[@"Document", @"Quit application", @"⌘ Q"],

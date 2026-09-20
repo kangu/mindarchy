@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QRect>
+#include <QSet>
 #include <QVariantMap>
 #include <QVector>
 #include <QProcess>
@@ -16,6 +17,7 @@ PlacementResult resolveWindowPlacement(const QVariantMap &saved, const QVector<P
 class WindowPlacement : public QObject {
 public:
     explicit WindowPlacement(QWindow *window, const QString &settingsFile = {});
+    ~WindowPlacement() override;
     void save();
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -26,6 +28,10 @@ private:
     void restoreQtState();
     void captureHypr(const QByteArray &data);
     void queryHypr();
+    // Hyprland clients of this process are claimed by address so sibling
+    // windows with identical titles never control each other's geometry.
+    static inline QSet<QString> s_claimed;
+    QString m_address;
     QWindow *m_window;
     std::unique_ptr<QSettings> m_settings;
     QVariantMap m_saved, m_current;

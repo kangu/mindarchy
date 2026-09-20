@@ -192,6 +192,20 @@ class EngineTest : public QObject {
         QVERIFY(order.moveBranches({3,4},1,2)); QCOMPARE(order.nodes()[1].children,QVector<int>({3,4,2,5}));
         order.undo(); QCOMPARE(order.nodes()[1].children,QVector<int>({2,3,4,5}));
     }
+    void welcomeRecentsAndUnfinishedRecovery() {
+        QTemporaryDir dir;
+        Engine e(nullptr,Engine::InitialContent::Blank); e.setRecentDirectory(dir.path());
+        for(int i=0;i<8;++i) { QVERIFY(e.setText(1,QString("Map %1").arg(i))); QVERIFY(e.save(dir.filePath(QString("map-%1.omm").arg(i)))); }
+        const auto maps=e.recentMaps(); QCOMPARE(maps.size(),6);
+        QCOMPARE(maps.first().toMap()["name"].toString(),QString("map-7"));
+        QVERIFY(maps.first().toMap()["thumbnail"].toString().startsWith("image://recent/"));
+        const QString recovery=dir.filePath(QUuid::createUuid().toString(QUuid::WithoutBraces)+".recovery");
+        QVERIFY(e.saveRecovery(recovery,{})); QVERIFY(DocumentSession::unfinishedPaths(dir.path()).isEmpty());
+        QVERIFY(e.setText(1,"Unfinished idea")); QVERIFY(e.saveRecovery(recovery,{}));
+        QCOMPARE(DocumentSession::unfinishedPaths(dir.path()),QStringList{recovery});
+        QVERIFY(QFile::remove(maps.first().toMap()["path"].toString()));
+        QVERIFY(!e.recentMaps().first().toMap()["available"].toBool());
+    }
     void recentDocumentsPersistWithoutReplacingWork() {
         QTemporaryDir dir; Engine writer(nullptr,Engine::InitialContent::Blank);
         writer.setRecentDirectory(dir.filePath("history"));
@@ -596,13 +610,13 @@ class EngineTest : public QObject {
         const auto original=e.nodes().value(2).text;
         QVERIFY(e.applyNodeStyle({{"shape",7},{"fill",QString("#123456")},{"borderWidth",3.5},
             {"borderStyle",2},{"branchStroke",3},{"branchWidth",4.5},{"width",240},
-            {"fontSize",28},{"bold",true},{"alignment",1}}));
+            {"bold",true},{"alignment",1}}));
         for(int id:{2,3}) {
             QCOMPARE(e.appearance(id).shape,NodeShape::Octagon);
             QCOMPARE(e.appearance(id).fill,QColor("#123456"));
             QCOMPARE(e.nodes().value(id).rect.width(),240.);
         }
-        QCOMPARE(e.selectedStyle()["fontSize"].toDouble(),28.);
+        QCOMPARE(e.selectedStyle()["fontSize"].toDouble(),18.);
         QVERIFY(e.selectedStyle()["bold"].toBool());
         QCOMPARE(e.selectedStyle()["alignment"].toInt(),1);
         e.undo(); QCOMPARE(e.nodes().value(2).text,original); QVERIFY(e.nodes().value(3).style.isEmpty());
@@ -635,11 +649,11 @@ class EngineTest : public QObject {
     void textColorOverridesRichRunsAndThicknessCanReset() {
         Engine e; e.select(2);
         QVERIFY(e.setText(2,"<span style='color:red;font-size:12pt'>Colored title</span>"));
-        QVERIFY(e.applyNodeStyle({{"textColor",QString("#123456")},{"fontSize",30},{"underline",true},{"strike",true},{"branchWidth",7}}));
+        QVERIFY(e.applyNodeStyle({{"textColor",QString("#123456")},{"underline",true},{"strike",true},{"branchWidth",7}}));
         QTextDocument doc; doc.setHtml(e.selectedText()); QTextCursor cursor(&doc);
         cursor.movePosition(QTextCursor::NextCharacter,QTextCursor::KeepAnchor);
         QCOMPARE(cursor.charFormat().foreground().color(),QColor("#123456"));
-        QCOMPARE(e.selectedStyle()["fontSize"].toDouble(),30.);
+        QCOMPARE(e.selectedStyle()["fontSize"].toDouble(),18.);
         QVERIFY(e.selectedStyle()["underline"].toBool()); QVERIFY(e.selectedStyle()["strike"].toBool());
         QVERIFY(!e.selectedStyle()["themeBranchWidth"].toBool());
         e.resetBranchWidth(); QVERIFY(e.selectedStyle()["themeBranchWidth"].toBool());
@@ -720,7 +734,7 @@ class EngineTest : public QObject {
         QVERIFY(!restored.openRecovery(recovery)); QCOMPARE(restored.selectedText(),QString("Untitled work"));
     }
     void fixedWidthWrapsDraftWithFinalMetrics() {
-        Engine e; e.select(2); QVERIFY(e.applyNodeStyle({{"width",160},{"fontSize",26},{"italic",true}}));
+        Engine e; e.select(2); QVERIFY(e.applyNodeStyle({{"width",160},{"italic",true}}));
         const QString title="A longer title which wraps across several lines";
         const auto preview=e.previewTextSize(2,title);
         QVERIFY(e.setText(2,title)); QCOMPARE(e.nodes().value(2).rect.size(),preview);
