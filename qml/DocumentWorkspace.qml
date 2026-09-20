@@ -504,10 +504,54 @@ FocusScope {
                                 MenuItem {
                                     objectName: "exportDocumentButton"
                                     text: "Export as PNG…"; icon.source: "qrc:/qml/icons/image-down.svg"; icon.color: window.ink
-                                    onTriggered: { fileMenu.close(); if (window.commitEditor("")) imageDialog.open() }
-                                }
+                                onTriggered: { fileMenu.close(); if (window.commitEditor("")) imageDialog.open() }
                             }
                         }
+                        ToolbarButton {
+                            id: addMenuButton; objectName: "addMenuButton"
+                            iconName: "plus"; text: "Add  ▾"
+                            Accessible.name: "Add menu"
+                            ToolTip.text: "New child, template or sibling nodes"
+                            display: AbstractButton.TextBesideIcon
+                            implicitWidth: 92; implicitHeight: window.width < 800 ? 32 : 36; font.pixelSize: 13
+                            checked: addMenu.visible
+                            onClicked: addMenu.visible ? addMenu.close() : addMenu.open()
+                            Keys.onDownPressed: addMenu.open()
+                            Keys.onReturnPressed: addMenu.open()
+                            Menu {
+                                id: addMenu; objectName: "addActionsMenu"
+                                y: addMenuButton.height + 8; x: 0; width: 240; padding: 6
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                onOpened: { currentIndex = 0; addChildItem.forceActiveFocus() }
+                                background: Rectangle {
+                                    radius: 10
+                                    color: ShellTheme.colors["#172129"] || "#172129"
+                                    border.color: ShellTheme.colors["#34434c"] || "#34434c"
+                                }
+                                MenuItem {
+                                    id: addChildItem; objectName: "addChildButton"
+                                    text: "Add child"; icon.source: "qrc:/qml/icons/corner-down-right.svg"; icon.color: window.ink
+                                    onTriggered: { addMenu.close(); if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() }
+                                }
+                                MenuItem {
+                                    id: nodeTemplatesItem; objectName: "nodeTemplatesButton"
+                                    text: "Add node template"; icon.source: "qrc:/qml/icons/calendar-week.svg"; icon.color: window.ink
+                                    enabled: controller.selection.length === 1
+                                    onTriggered: { addMenu.close(); if (!window.commitEditor("")) return;
+                                        nodeTemplateDialog.open() }
+                                }
+                                MenuItem {
+                                    objectName: "addSiblingButton"
+                                    text: "Add sibling"; icon.source: "qrc:/qml/icons/list-plus.svg"; icon.color: window.ink
+                                    onTriggered: { addMenu.close(); if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() }
+                                }
+                            }
+                            NodeTemplateDialog {
+                                id: nodeTemplateDialog
+                                controller: window.controller
+                            }
+                        }
+                    }
                     }
                     RowLayout {
                         id: editingActions; objectName: "editingActions"
@@ -520,25 +564,6 @@ FocusScope {
                         ToolbarButton { iconName: "undo-2"; text: "Undo"; enabled: controller.canUndo; onClicked: { if (!window.commitEditor("")) return; controller.undo() } }
                         ToolbarButton { iconName: "redo-2"; text: "Redo"; enabled: controller.canRedo; onClicked: { if (!window.commitEditor("")) return; controller.redo() } }
                         Rectangle { implicitWidth: 1; implicitHeight: 24; color: (ShellTheme.colors["#34434c"] || "#34434c") }
-                        ToolbarButton { iconName: "corner-down-right"; text: "Add child"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addChild() } }
-                        ToolbarButton {
-                            id: nodeTemplatesButton
-                            objectName: "nodeTemplatesButton"
-                            iconName: "calendar-week"
-                            text: "Add node template"
-                            enabled: controller.selection.length === 1
-                            checked: nodeTemplateDialog.visible
-                            ToolTip.visible: hovered && !nodeTemplateDialog.visible
-                            onClicked: {
-                                if (!window.commitEditor("")) return
-                                nodeTemplateDialog.visible ? nodeTemplateDialog.close() : nodeTemplateDialog.open()
-                            }
-                            NodeTemplateDialog {
-                                id: nodeTemplateDialog
-                                controller: window.controller
-                            }
-                        }
-                        ToolbarButton { iconName: "list-plus"; text: "Add sibling"; onClicked: { if (!window.commitEditor("")) return; canvas.forceActiveFocus(); controller.addSibling() } }
                         ToolbarButton { iconName: controller.selectedFolded ? "unfold-vertical" : "fold-vertical"; text: controller.selectedFolded ? "Expand branch" : "Fold branch"; onClicked: { if (!window.commitEditor("")) return; controller.toggleFold() } }
                     }
                     RowLayout {
