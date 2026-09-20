@@ -11,3 +11,12 @@ Replaced the three separate Add buttons in `qml/DocumentWorkspace.qml` with a si
 
 ## Proposed Next Steps
 Run the Step 4 visual smoke check on a live window when the app is next opened: confirm Add ▾ placement next to File ▾, menu items and enabled states, Escape / click-outside / keyboard navigation, and that Undo/Redo/Fold remain in the center group. If the flaky ui test reproduces, identify and stabilize it with `ctest --output-on-failure`.
+
+## Follow-up: visual smoke check completed (2026-09-20)
+
+The freshly built app was launched and the on-window smoke check from Next Steps was
+performed by the user with the controller driving screenshots: "Add ▾" sits next to
+"File ▾" in the left group, the menu lists Add child / Add node template / Add sibling
+with icons, Escape and click-outside close it, Undo/Redo/Fold remain in the center group,
+and the toolbar renders without overlap. All checks passed. No app restart was needed
+because no prior instance was running.
