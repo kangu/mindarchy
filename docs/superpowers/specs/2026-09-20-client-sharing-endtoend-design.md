@@ -12,7 +12,7 @@ User decisions recorded during brainstorming:
 - Real end-to-end sharing (not a stub/status-only milestone).
 - Authentication: CouchDB dev accounts through the server's `<span class="math-inline">\_session</span>` flow (full OIDC later, this iteration is dev accounts against CouchDB).
 - Server picker lives directly in the Share dialog, persisted via QSettings, with a `--share-server` override.
-- Editing model: full two-way live editing (accepts concurrency-testing risk on macOS; C++ sends opaque engine change bytes — Go↔C++ byte interop already verified in the Linux compat gate).
+- Editing model: two-way live editing via snapshot-payload transactions (concurrency resolves last-writer-wins; see Payload model below).
 - Server-side work: fix only what blocks the client path (P1 #1, #2, #4, #5, #6, #7 from `docs/collaboration-implementation-review-2026-09-20.md`), leaving #3 (durable receipt metadata across restart) and the P2 findings documented as known issues.
 
 ## Architecture
@@ -43,7 +43,7 @@ User decisions recorded during brainstorming:
 
 Key decisions:
 - One new C++ class `ShareCoordinator` per open document owns `CollaborationSession` + network; exposed to QML as a context property so the existing stub dialog becomes live.
-- The engine's change bytes travel as opaque base64 `changes` inside the protocol's `Submit` envelope.
+- **Payload model (confirmed 2026-09-20): snapshot payloads.** The Engine has no Automerge change emission (nothing calls `CollaborationEngineBridge::recordLocalTransaction` in `src/engine` today; the engine exposes `documentBytes()` / `loadDocumentBytes()` whole-document serialization only, and the native Automerge gate is unverified on macOS). Each collaborative transaction therefore carries the whole Engine document (engine `documentBytes`); the server validates the envelope (strict protocol decode, SHA-256 hash, size ≤ 1 MiB, valid JSON document body) and persists it as a batch — no Automerge apply. Concurrency converges last-writer-wins per transaction. The Submit envelope (version, mapId, deviceId, counter, hash, changes) is unchanged so a future Automerge-engine swap replaces payload decoding without touching the transport/room/ACL surface. This is a deliberate deviation from the review doc's Automerge ingestion gate; known-issue list updated below.
 - Offline map first: the existing SQLite outbox persists accepted state and queued changes; when the socket is up, the outbox drains in order.
 - Server choices ship as two presets (`share.mindarchy.xyz`, `http://localhost:8080`), stored via `QSettings("Mindarchy")` (`AppIdentity::windowSettings()`), with `--share-server <url>` as a non-persisted CLI override.
 
@@ -63,7 +63,7 @@ Wiring: `DocumentWorkspace` (per-window) constructs the coordinator with the wor
 Anchors from the review doc `docs/collaboration-implementation-review-2026-09-20.md`:
 
 1. **#1 Cross-map writes** (`backend/internal/httpapi/server.go:166-171`, `backend/internal/rooms/manager.go:43-65`): bind the socket to exactly one room at the transport boundary (the authorized URL map). The socket path never consults a payload `mapId` for routing — payload map ID must equal the bound map or is rejected. The coordinator refuses create/step for any head other than the bound one and never implicitly creates a head.
-2. **#2 Validation** (`server.go:166-171`, `manager.go:65`): production submit switches to `protocol.DecodeSubmit` (already exists with tests), then fork-from-head → apply candidate → SHA-256 verify → schema/projection check → CAS persist immutable batch → bump head → receipt, in that order, and only after the candidate is loadable. Map creation likewise requires a snapshot loadable through the same path. `backend/integration/couch_websocket_test.go:69` (currently asserting success for `{0}` bytes with a zero hash) is inverted to assert rejection with the proper machine-readable code.
+2. **#2 Validation** (`server.go:166-171`, `manager.go:65`): production submit keeps `protocol.DecodeSubmit` (strict envelope: version, mapId binding, hash, size, counter), then persists only a batch whose `changes` payload is a valid JSON document body (snapshot-payload model above; Automerge candidate application is explicitly NOT performed in this iteration). Map creation requires a JSON-decodable snapshot. `backend/integration/couch_websocket_test.go:69` (currently asserting success for `{0}` bytes with a zero hash) is inverted to assert rejection with the proper machine-readable code.
 3. **#4 Durable invitations/grants** (`backend/internal/sharing/service.go:186`, `:203-205`): invitations and acceptance evidence become CouchDB documents bound to the map+account, updated through the same head-CAS transition edits use. Restart rehydrates invitations, ACLs, and acceptance; repeated acceptance is idempotent (not `not-found`).
 4. **#5 Peer fanout** (`server.go:145-176`): the production WebSocket handler installs registry-driven room membership keyed by the bound room; committed events (ordered by sequence) broadcast to all joined sockets; presence entries carry a heartbeat-refreshed TTL and expire silently. The two-peer integration test moves to the genuine production WS route (no longer the `/v1/test` harness).
 5. **#6 Stale reads** (`sharing/service.go:117`, `:135-151`): `Get`/hydration replays head → batches via `couch.Replay` (bounded, cache invalidated by head version) instead of returning the creation snapshot. Acknowledged edits are visible after `committed`, including after restart.
@@ -113,8 +113,10 @@ Server (Go):
 
 ## Known issues (documented, not fixed here)
 
+- **Snapshot payloads, not CRDT changes:** whole-document transactions converge last-writer-wins; per-element CRDT merge waits for an in-engine Automerge change stream (macOS native gate unverified).
 - #3 durable receipt/idempotency metadata across server restart (client mitigates `counter_reuse` by re-enqueueing).
 - P2: retried historical submission may return current head sequence instead of the original receipt.
+- Snapshot payload element-level schema validation (per `backend/internal/collab/schema.go`) is future work; this iteration validates envelope + JSON-decodable body + size.
 - Native Automerge gates for macOS/Windows remain unverified; the Linux compat gate stays the interop proof for change-byte format.
 - Backend capacity/latency work per Task 12 remains future work.
 
