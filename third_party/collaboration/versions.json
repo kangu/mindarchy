@@ -1,0 +1,18 @@
+{
+  "engine": {
+    "name": "automerge-go",
+    "module": "github.com/automerge/automerge-go",
+    "version": "v0.0.0-20241030180337-6fb4f2d08244",
+    "commit": "6fb4f2d0824411287925acfc0232948b46d899f8",
+    "license": "MIT",
+    "binding": "cgo",
+    "goInterop": "verified on linux/amd64 with Go 1.27.1"
+  },
+  "nativeCppBinding": {
+    "status": "linux-shim-verified",
+    "source": "automerge-go bundled automerge-c header and libautomerge_core_linux_amd64.a",
+    "boundary": "C translation-unit shim exposed to C++",
+    "verified": ["C API compile", "C++ link", "create/save/load smoke test", "Go-created bytes loaded by C++", "C++-created bytes loaded by Go"],
+    "notYetVerified": ["macOS", "Windows", "rich-text marks", "undo"]
+  }
+}

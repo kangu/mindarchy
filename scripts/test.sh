@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-for suite in engine canvas ui windowplacement preview; do
+# Keep Omarchy's routine pass focused on the model and end-to-end UI smoke
+# coverage. The broader platform and component suites remain in CTest/macOS.
+for suite in engine ui; do
   build_dir="$project_dir/build-tests/$suite"
   mkdir -p "$build_dir"
   cd "$build_dir"
