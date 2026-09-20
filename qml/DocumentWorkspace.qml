@@ -504,7 +504,8 @@ FocusScope {
                                 MenuItem {
                                     objectName: "exportDocumentButton"
                                     text: "Export as PNG…"; icon.source: "qrc:/qml/icons/image-down.svg"; icon.color: window.ink
-                                onTriggered: { fileMenu.close(); if (window.commitEditor("")) imageDialog.open() }
+                                    onTriggered: { fileMenu.close(); if (window.commitEditor("")) imageDialog.open() }
+                                }
                             }
                         }
                         ToolbarButton {
@@ -551,7 +552,6 @@ FocusScope {
                                 controller: window.controller
                             }
                         }
-                    }
                     }
                     RowLayout {
                         id: editingActions; objectName: "editingActions"
