@@ -33,6 +33,7 @@ signals:
     void mapsReady();
     void mapStateReady(QString mapId, QByteArray state, quint64 seq);
     void mapCreated(QString mapId);
+    void inviteAccepted(QString mapId, QString role);
     void inviteSent();
     void error(QString message);
 

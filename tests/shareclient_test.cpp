@@ -98,7 +98,7 @@ private slots:
         QSignalSpy readySpy(&client, &ShareClient::mapsReady);
         client.maps();
         QTRY_COMPARE(readySpy.count(), 1);
-        QCOMPARE(client.mapState("a1b2c3"), QByteArray());
+        QCOMPARE(client.mapState("a1b2c3"), QString());
         QSignalSpy createdSpy(&client, &ShareClient::mapCreated);
         client.createMap(QByteArray("{\"nodes\":[]}"));
         QTRY_COMPARE(createdSpy.count(), 1);
@@ -113,10 +113,11 @@ private slots:
         QSignalSpy sentSpy(&client, &ShareClient::inviteSent);
         client.invite("m-123", "bo", "editor");
         QTRY_COMPARE(sentSpy.count(), 1);
-        QSignalSpy acceptedSpy(&client, &ShareClient::mapCreated);
+        QSignalSpy acceptedSpy(&client, &ShareClient::inviteAccepted);
         client.acceptInvite("tok-9");
         QTRY_COMPARE(acceptedSpy.count(), 1);
         QCOMPARE(acceptedSpy.at(0).at(0).toString(), QString("m-123"));
+        QCOMPARE(acceptedSpy.at(0).at(1).toString(), QString("editor"));
     }
     void fetchMapState() {
         StubHttpServer server;
@@ -129,7 +130,7 @@ private slots:
         QCOMPARE(stateSpy.at(0).at(0).toString(), QString("m-123"));
         QCOMPARE(stateSpy.at(0).at(1).toByteArray(), QByteArray("hello"));
         QCOMPARE(stateSpy.at(0).at(2).toULongLong(), quint64(0));
-        QCOMPARE(client.mapState("m-123"), QByteArray("hello"));
+        QCOMPARE(client.mapState("m-123"), QString("hello"));
     }
 };
 

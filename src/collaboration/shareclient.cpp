@@ -38,7 +38,12 @@ void ShareClient::login(const QString &username, const QString &password) {
         reply->deleteLater();
         if (handleHttpError(reply, QStringLiteral("login"))) return;
         const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        m_accountName = doc.object().value("accountId").toString();
+        const QString accountId = doc.object().value("accountId").toString();
+        if (accountId.isEmpty()) {
+            emit loginFailed(QStringLiteral("invalid_message"));
+            return;
+        }
+        m_accountName = accountId;
         m_signedIn = true;
         emit signedInChanged();
     });
@@ -50,11 +55,11 @@ void ShareClient::account() {
         reply->deleteLater();
         if (handleHttpError(reply, QStringLiteral("account check"))) return;
         const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        m_accountName = doc.object().value("accountId").toString();
-        if (!m_signedIn) {
-            m_signedIn = true;
-            emit signedInChanged();
-        }
+        const QString accountId = doc.object().value("accountId").toString();
+        const bool changed = accountId != m_accountName || !m_signedIn;
+        m_accountName = accountId;
+        m_signedIn = true;
+        if (changed) emit signedInChanged();
     });
 }
 
@@ -109,9 +114,13 @@ void ShareClient::acceptInvite(const QString &token) {
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
         if (handleHttpError(reply, QStringLiteral("accepting invite"))) return;
-        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        const QString mapId = doc.object().value("id").toString();
-        if (!mapId.isEmpty()) emit mapCreated(mapId);
+        const QJsonObject object = QJsonDocument::fromJson(reply->readAll()).object();
+        const QString mapId = object.value("id").toString();
+        if (mapId.isEmpty()) {
+            emit error(QStringLiteral("accepting invite failed: invalid response"));
+            return;
+        }
+        emit inviteAccepted(mapId, object.value("role").toString());
     });
 }
 
