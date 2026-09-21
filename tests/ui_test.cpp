@@ -68,6 +68,18 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void shareLivesInDocumentToolbar() {
+        auto *workspace=window->findChild<QQuickItem *>("documentWorkspace"); QVERIFY(workspace);
+        auto *button=workspace->findChild<QQuickItem *>("shareButton"); QVERIFY(button);
+        QVERIFY(button->isVisible());
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint());
+        auto *dialog=workspace->findChild<QObject *>("shareDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(workspace->property("modalInteraction").toBool());
+        auto *invite=dialog->findChild<QObject *>("shareInvite"); QVERIFY(invite);
+        QVERIFY(!invite->property("enabled").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog,"close"));
+    }
     void branchStylePickerTracksUndo() {
         auto *picker=window->findChild<QObject *>("branchStylePicker"); QVERIFY(picker);
         QCOMPARE(picker->property("count").toInt(),7);

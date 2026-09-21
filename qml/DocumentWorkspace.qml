@@ -31,7 +31,7 @@ FocusScope {
     readonly property bool canMergeWindows: hostWindow.canMergeWindows
     readonly property bool outlineVisible: hostWindow.outlineVisible && width >= 545
     readonly property bool inspectorVisible: hostWindow.inspectorVisible && width >= 595 + (hostWindow.outlineVisible ? 225 : 0)
-    readonly property bool modalInteraction: closeDialog.visible || dateDialog.visible || nodeTemplateDialog.visible || openDialog.visible || saveDialog.visible || imageDialog.visible || quitPending
+    readonly property bool modalInteraction: shareDialog.visible || closeDialog.visible || dateDialog.visible || nodeTemplateDialog.visible || openDialog.visible || saveDialog.visible || imageDialog.visible || quitPending
     readonly property bool modalTabBlocked: modalInteraction
     function commitForTabSwitch() { return !modalInteraction && commitEditor("") }
     function focusDocument() { canvas.forceActiveFocus() }
@@ -337,6 +337,12 @@ FocusScope {
         onAccepted: { if (!window.commitEditor("")) return; canvas.exportPng(window.localPath(selectedFile)) }
     }
 
+    ShareDialog {
+        id: shareDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+
     ColumnLayout {
         anchors.fill: parent; spacing: 0
         Rectangle {
@@ -551,6 +557,12 @@ FocusScope {
                                 id: nodeTemplateDialog
                                 controller: window.controller
                             }
+                        }
+                        ToolbarButton {
+                            id: shareButton; objectName: "shareButton"
+                            iconName: "share"; text: "Share map"
+                            checked: shareDialog.visible
+                            onClicked: { if (window.commitEditor("")) shareDialog.open() }
                         }
                     }
                     RowLayout {

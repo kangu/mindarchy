@@ -124,7 +124,6 @@ ApplicationWindow {
     font.pixelSize: 13
 
     property bool searchOpen: activeWorkspace ? activeWorkspace.searchOpen : false
-    property bool sharingAvailable: true
     onSearchOpenChanged: if (activeWorkspace && activeWorkspace.searchOpen !== searchOpen) activeWorkspace.searchOpen = searchOpen
     property bool useThemeLayouts: activeWorkspace ? activeWorkspace.useThemeLayouts : false
     onUseThemeLayoutsChanged: if (activeWorkspace && activeWorkspace.useThemeLayouts !== useThemeLayouts) activeWorkspace.useThemeLayouts = useThemeLayouts
@@ -146,18 +145,4 @@ ApplicationWindow {
     function applyTheme(id) { if (activeWorkspace) return activeWorkspace.applyTheme(id) }
     function focusDocument() { if (activeWorkspace) return activeWorkspace.focusDocument() }
 
-    ToolButton {
-        id: shareButton
-        objectName: "shareButton"
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.rightMargin: 12
-        anchors.topMargin: 8
-        text: "Share"
-        visible: window.sharingAvailable
-        onClicked: shareDialog.open()
-    }
-    PresenceStrip { id: presence; anchors.right: shareButton.left; anchors.rightMargin: 8; anchors.top: shareButton.top; participants: [] }
-    ShareDialog { id: shareDialog; mapId: controller ? controller.documentName : "" }
-    SharedMaps { id: sharedMaps }
 }
