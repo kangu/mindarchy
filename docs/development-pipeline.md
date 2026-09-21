@@ -21,7 +21,7 @@ python3 scripts/dev.py check
 python3 scripts/dev.py native
 ```
 
-`build` builds the app and its required dependencies only. `check` builds and runs engine, canvas, preview and manual-placement tests, offscreen and in parallel. `native` runs the opt-in native window-management suites (opens real windows). All reuse the existing CMake build tree. None of these launches or restarts the application.
+`build` builds the app and its required dependencies only. `check` builds and runs the fast offscreen suites, in parallel. `native` runs the opt-in native window-management suites (opens real windows). All reuse the existing CMake build tree. None of these launches or restarts the application.
 
 Measured warm runs on this Mac after the changes:
 
