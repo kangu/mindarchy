@@ -27,6 +27,7 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
       m_settings(settings ? settings : new ShareSettings(this)),
       m_deviceId(QUuid::createUuid().toString(QUuid::WithoutBraces)) {
     m_bridge = new CollaborationEngineBridge(m_engine, this);
+    m_transport->setDeviceId(m_deviceId);
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(300);
     connect(&m_debounce, &QTimer::timeout, this, [this] {
@@ -38,10 +39,12 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         ensureSession();
         if (m_session) m_session->queueChange(m_deviceCounter, m_pendingHash, m_pendingChanges);
         if (m_transport->connected()) {
-            m_transport->submit(m_deviceCounter, m_pendingHash, m_pendingChanges);
+            m_submitAttempts = 1;
+            submitPayload(m_deviceCounter, m_pendingHash, m_pendingChanges);
             setShareStatus("Syncing");
         } else {
-            setShareStatus(QStringLiteral("Offline · %1 queued").arg(m_deviceCounter));
+            const int queued = m_session ? m_session->pendingForSubmit().count() : 0;
+            setShareStatus(QStringLiteral("Offline · %1 queued").arg(queued));
         }
     });
     connect(m_engine, &Engine::changed, this, [this] {
@@ -127,7 +130,12 @@ QString ShareCoordinator::deviceId() const { return m_deviceId; }
 
 bool ShareCoordinator::attachMapId(const QString &mapId) {
     const QString path = m_engine->documentPath() + QStringLiteral(".share");
-    if (mapId.isEmpty()) return QFile::remove(path);
+    if (mapId.isEmpty()) {
+        const bool removed = QFile::remove(path);
+        m_mapId.clear();
+        emit mapChanged();
+        return removed;
+    }
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly)) return false;
     const QByteArray payload = QJsonDocument(QJsonObject{{"serverUrl", m_settings->serverUrl()},
@@ -207,21 +215,32 @@ void ShareCoordinator::drainOutbox() {
     if (!m_session) return;
     const auto pending = m_session->pendingForSubmit();
     for (const auto &row : pending)
-        m_transport->submit(row.counter, row.hash, row.changes);
+        submitPayload(row.counter, row.hash, row.changes);
+}
+
+void ShareCoordinator::submitPayload(quint64 counter, const QString &hash, const QByteArray &changes) {
+    m_lastSubmitCounter = counter;
+    m_lastSubmitHash = hash;
+    m_lastSubmitChanges = changes;
+    m_transport->submit(counter, hash, changes);
 }
 
 void ShareCoordinator::handleCommitted(quint64 seq, const QString &deviceId, quint64 counter,
                                        const QString &hash, const QByteArray &state, const QString &sender) {
     Q_UNUSED(deviceId);
+    Q_UNUSED(hash);
     if (sender == m_deviceId) {
         if (m_session) m_session->clearPendingByCounter(m_mapId, counter);
         m_pendingHash.clear();
         m_pendingChanges.clear();
+        m_lastSubmitCounter = 0;
+        m_lastSubmitHash.clear();
+        m_lastSubmitChanges.clear();
+        m_submitAttempts = 0;
         setShareStatus("Live");
         return;
     }
     applyRemote(state, seq, counter + 1);
-    m_pendingHash = hash;
 }
 
 void ShareCoordinator::handlePresence(const QStringList &accounts) {
@@ -236,9 +255,21 @@ void ShareCoordinator::handleTransportConnected() {
 
 void ShareCoordinator::handleRejected(const QString &code) {
     if (code == QStringLiteral("counter_reuse")) {
+        if (m_lastSubmitCounter == 0) return;
+        if (m_session) m_session->clearPendingByCounter(m_mapId, m_lastSubmitCounter);
+        if (m_submitAttempts >= 2) {
+            m_lastSubmitCounter = 0;
+            m_lastSubmitHash.clear();
+            m_lastSubmitChanges.clear();
+            setShareStatus("Sync error (counter_reuse)");
+            return;
+        }
+        ++m_submitAttempts;
         ++m_deviceCounter;
+        m_pendingHash = m_lastSubmitHash;
+        m_pendingChanges = m_lastSubmitChanges;
         if (m_session) m_session->queueChange(m_deviceCounter, m_pendingHash, m_pendingChanges);
-        m_transport->submit(m_deviceCounter, m_pendingHash, m_pendingChanges);
+        submitPayload(m_deviceCounter, m_pendingHash, m_pendingChanges);
         return;
     }
     if (code == QStringLiteral("access_revoked")) {

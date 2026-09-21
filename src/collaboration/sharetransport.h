@@ -19,9 +19,11 @@ public:
     Q_INVOKABLE virtual void join(const QString &mapId);
     Q_INVOKABLE virtual void leave();
     Q_INVOKABLE virtual void submit(quint64 counter, const QString &hash, const QByteArray &changes);
+    Q_INVOKABLE void setDeviceId(const QString &id);
 
     virtual bool connected() const;
     QString errorCode() const;
+    QString deviceId() const;
 
     static QByteArray encodeSubmit(const QString &mapId, const QString &deviceId, quint64 counter,
                                    const QString &hash, const QByteArray &changes);

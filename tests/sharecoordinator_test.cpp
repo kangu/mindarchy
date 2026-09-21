@@ -214,6 +214,57 @@ private slots:
         h.restore();
     }
 
+    void ownCommitSkipsApplyClearsPending() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+        h.coordinator->shareCurrentMap();
+
+        QVERIFY(h.engine.setText(1, "own echo"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        QCOMPARE(h.transport->lastCounter, quint64(1));
+
+        h.transport->clientUuid = h.coordinator->deviceId();
+        h.transport->ownCommit(1);
+        QCOMPARE(h.coordinator->shareStatus(), QString("Live"));
+        const QJsonObject node = QJsonDocument::fromJson(h.engine.documentBytes())
+                                     .object().value("nodes").toArray().at(0).toObject();
+        QCOMPARE(node.value("text").toString(), QString("own echo"));
+
+        h.transport->online = false;
+        h.transport->emitJoined();
+        QCOMPARE(h.transport->submitCount, 1);
+        h.restore();
+    }
+
+    void counterReuseGivesUpAfterRepeatedRejections() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+        h.coordinator->shareCurrentMap();
+        QVERIFY(h.engine.setText(1, "first"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        QCOMPARE(h.transport->lastCounter, quint64(1));
+
+        h.transport->reject("counter_reuse");
+        QCOMPARE(h.transport->submitCount, 2);
+        QCOMPARE(h.transport->lastCounter, quint64(2));
+
+        h.transport->reject("counter_reuse");
+        QCOMPARE(h.transport->submitCount, 2);
+        QCOMPARE(h.coordinator->shareStatus(), QString("Sync error (counter_reuse)"));
+
+        h.transport->emitJoined();
+        QCOMPARE(h.transport->submitCount, 2);
+        h.restore();
+    }
+
     void outboxDrainsOnJoin() {
         Harness h;
         h.setup();

@@ -65,6 +65,7 @@ private:
     void handleRejected(const QString &code);
     void applyRemote(const QByteArray &state, quint64 seq, quint64 nextCounter);
     void drainOutbox();
+    void submitPayload(quint64 counter, const QString &hash, const QByteArray &changes);
     void adoptAttachedMap();
     void setShareStatus(const QString &status);
 
@@ -83,4 +84,8 @@ private:
     quint64 m_deviceCounter = 0;
     QString m_pendingHash;
     QByteArray m_pendingChanges;
+    quint64 m_lastSubmitCounter = 0;
+    QString m_lastSubmitHash;
+    QByteArray m_lastSubmitChanges;
+    int m_submitAttempts = 0;
 };

@@ -86,6 +86,12 @@ void ShareTransport::leave() {
     m_socket.abort();
 }
 
+void ShareTransport::setDeviceId(const QString &id) {
+    if (!id.isEmpty()) m_deviceId = id;
+}
+
+QString ShareTransport::deviceId() const { return m_deviceId; }
+
 void ShareTransport::submit(quint64 counter, const QString &hash, const QByteArray &changes) {
     if (!m_connected) return;
     const QJsonObject envelope{{"type", "submit"},

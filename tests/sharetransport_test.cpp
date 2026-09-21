@@ -85,6 +85,19 @@ private slots:
         QVERIFY(!changesObject.value("deviceId").toString().isEmpty());
         QCOMPARE(QByteArray::fromBase64(changesObject.value("changes").toString().toUtf8()), changes);
     }
+    void setDeviceIdOverridesSubmitDeviceId() {
+        StubLiveServer server;
+        ShareTransport transport;
+        transport.setDeviceId("coordinator-device");
+        transport.setBaseUrl(server.baseUrl());
+        transport.join("map-1");
+        QTRY_VERIFY(server.m_socket);
+        QCOMPARE(transport.deviceId(), QString("coordinator-device"));
+        transport.submit(1, "h", QByteArray("x"));
+        QTRY_COMPARE(server.m_messages.count(), 1);
+        const QJsonObject object = QJsonDocument::fromJson(server.m_messages.first().toUtf8()).object();
+        QCOMPARE(object.value("changes").toObject().value("deviceId").toString(), QString("coordinator-device"));
+    }
     void committedDecodesState() {
         StubLiveServer server;
         ShareTransport transport;
