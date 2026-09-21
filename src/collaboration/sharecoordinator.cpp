@@ -214,8 +214,10 @@ void ShareCoordinator::handleJoined(const QString &mapId, const QString &role) {
 void ShareCoordinator::drainOutbox() {
     if (!m_session) return;
     const auto pending = m_session->pendingForSubmit();
-    for (const auto &row : pending)
+    for (const auto &row : pending) {
+        m_submitAttempts = 1;
         submitPayload(row.counter, row.hash, row.changes);
+    }
 }
 
 void ShareCoordinator::submitPayload(quint64 counter, const QString &hash, const QByteArray &changes) {
