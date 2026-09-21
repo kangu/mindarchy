@@ -12,8 +12,8 @@ The current server supports:
 - Authenticated WebSocket connections.
 - Durable map snapshots, map heads, immutable batches, and restart hydration.
 
-The desktop Qt client is not yet wired to these production endpoints. Use the
-HTTP/WebSocket integration test or a small API client for the first VPS test.
+The desktop Qt client connects to these production endpoints through the
+sharing UI described in the "Desktop client sharing" section below.
 Invitation records and some room metadata still need durable persistence before
 this should be treated as a public production service.
 
@@ -332,6 +332,29 @@ sudo journalctl -u mindarchy-server --since today
 sudo docker logs mindarchy-couchdb --since 1h
 ```
 
+## Desktop client sharing
+
+The Qt desktop client shares maps over the production HTTP/WebSocket API.
+
+- Two presets are available in the sharing dialog: `share.mindarchy.xyz`
+  (production-style VPS deployment) and `http://localhost:8080` (local Go
+  server against the debug CouchDB container).
+- A custom server URL can be supplied by launching the app with
+  `--share-server <url>`; it overrides the previously selected server.
+- Login uses CouchDB dev-account credentials (for example the `alice` account
+  created through Fauxton in the local debug setup or the test accounts in
+  section 8). The client exchanges them for a CouchDB `_session` cookie and
+  reuses it for reads, submissions, and the authenticated WebSocket.
+- To share a map, log in, open the share dialog for the map, and send an
+  invitation. The invited account accepts the invitation and receives the role
+  granted by the owner or editor, then joins the map room.
+- While joined, the client automatically emits a presence heartbeat every 5
+  seconds (shorter than the server's 10-second peer TTL) so the roster keeps
+  showing the client to other participants. No manual action is needed.
+
+For a two-peer trial, run one instance per account, log in with different
+CouchDB accounts, and open the same map after accepting the invitation.
+
 ## Current Test-Run Limitations
 
 - Map metadata and initial snapshots persist to CouchDB.
@@ -339,6 +362,6 @@ sudo docker logs mindarchy-couchdb --since 1h
 - Invitation records are not yet durable across server restart.
 - WebSocket fanout is not yet a complete multi-client committed event stream.
 - Asset storage, snapshots/compaction, quotas, and recovery policies are incomplete.
-- The Qt desktop client is not yet connected to these endpoints.
+- The Qt desktop client connects but invitation durability is still pending.
 - Do not advertise this as a production public collaboration service until the
   remaining persistence, authorization, backup, and two-client tests pass.
