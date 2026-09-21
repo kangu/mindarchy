@@ -1,5 +1,7 @@
 #include "sharetransport.h"
 
+#include "sharesettings.h"
+
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -63,7 +65,7 @@ ShareTransport::ShareTransport(QObject *parent)
 }
 
 void ShareTransport::setBaseUrl(const QString &url) {
-    m_baseUrl = url;
+    m_baseUrl = normalizeShareServerUrl(url);
     if (m_baseUrl.startsWith(QStringLiteral("https://"))) {
         m_baseUrl.replace(0, 8, QStringLiteral("wss://"));
     } else if (m_baseUrl.startsWith(QStringLiteral("http://"))) {

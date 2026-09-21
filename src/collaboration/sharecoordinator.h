@@ -1,10 +1,11 @@
 #pragma once
 
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
-#include <QByteArray>
+#include <QVariantList>
 
 class Engine;
 class ShareClient;
@@ -22,6 +23,7 @@ class ShareCoordinator : public QObject {
     Q_PROPERTY(QString shareStatus READ shareStatus NOTIFY shareStatusChanged)
     Q_PROPERTY(QStringList presence READ presence NOTIFY presenceChanged)
     Q_PROPERTY(QString mapId READ mapId NOTIFY mapChanged)
+    Q_PROPERTY(QVariantList sharedMaps READ sharedMaps NOTIFY sharedMapsChanged)
 public:
     explicit ShareCoordinator(Engine *engine, QObject *parent = nullptr);
     ShareCoordinator(Engine *engine, ShareClient *client, ShareTransport *transport,
@@ -34,14 +36,17 @@ public:
     QString shareStatus() const;
     QStringList presence() const;
     QString mapId() const;
+    QVariantList sharedMaps() const;
 
     Q_INVOKABLE void chooseServer(const QString &url);
     Q_INVOKABLE void signIn(const QString &name, const QString &password);
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void shareCurrentMap();
     Q_INVOKABLE void inviteOnMap(const QString &account, const QString &role);
+    Q_INVOKABLE void acceptInvite(const QString &token);
     Q_INVOKABLE void joinSharedMap(const QString &mapId);
     Q_INVOKABLE void disconnectSharing();
+    Q_INVOKABLE void refreshSharedMaps();
 
     QString deviceId() const;
     bool attachMapId(const QString &mapId);
@@ -52,6 +57,7 @@ signals:
     void shareStatusChanged();
     void presenceChanged();
     void mapChanged();
+    void sharedMapsChanged();
 
 private:
     void ensureSession();
@@ -59,6 +65,7 @@ private:
     void handleSignedIn();
     void handleMapCreated(const QString &mapId);
     void handleInviteAccepted(const QString &mapId, const QString &role);
+    void handleMapsReady();
     void handleMapStateReady(const QString &mapId, const QByteArray &state, quint64 seq);
     void handleJoined(const QString &mapId, const QString &role);
     void handleCommitted(quint64 seq, const QString &deviceId, quint64 counter,

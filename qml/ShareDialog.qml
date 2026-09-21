@@ -30,6 +30,15 @@ Popup {
         border.width: 1
         radius: 8
     }
+    SharedMaps {
+        id: sharedMapsList
+        parent: dialog.Overlay.overlay !== null ? dialog.Overlay.overlay : dialog
+        model: dialog.shareAvailable ? share.sharedMaps : []
+        onMapRequested: function(mapId) {
+            share.joinSharedMap(mapId)
+            sharedMapsList.close()
+        }
+    }
     contentItem: ColumnLayout {
         spacing: 12
         Label { text: "Share map"; font.pixelSize: 18; color: "#e0e9ee" }
@@ -143,6 +152,63 @@ Popup {
                         share.inviteOnMap(inviteAccount.text.trim(), inviteRole.currentText)
                         inviteAccount.text = ""
                     }
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            enabled: dialog.shareAvailable && share.signedIn
+            opacity: enabled ? 1 : 0.4
+            Label { text: "Join a shared map"; font.pixelSize: 12; color: "#9bb0bb" }
+            TextField {
+                id: joinToken
+                objectName: "shareJoinToken"
+                placeholderText: "Invite token"
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Button {
+                    objectName: "shareJoin"
+                    text: "Join map"
+                    enabled: joinToken.text.trim().length > 0
+                    onClicked: {
+                        share.acceptInvite(joinToken.text.trim())
+                        joinToken.text = ""
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            enabled: dialog.shareAvailable && share.signedIn
+            opacity: enabled ? 1 : 0.4
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: "Shared with me: " + (dialog.shareAvailable ? share.sharedMaps.length : 0)
+                    color: "#9bb0bb"
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Button {
+                    objectName: "shareRefreshMaps"
+                    text: "Refresh"
+                    onClicked: share.refreshSharedMaps()
+                }
+            }
+            Button {
+                objectName: "shareOpenSharedMaps"
+                text: "Open shared maps"
+                onClicked: {
+                    share.refreshSharedMaps()
+                    sharedMapsList.open()
                 }
             }
         }

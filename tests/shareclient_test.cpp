@@ -119,6 +119,28 @@ private slots:
         QCOMPARE(acceptedSpy.at(0).at(0).toString(), QString("m-123"));
         QCOMPARE(acceptedSpy.at(0).at(1).toString(), QString("editor"));
     }
+    void bareHostBaseURLDefaultsToHttpOnLoopback() {
+        StubHttpServer server;
+        server.start();
+        server.m_validLogin = true;
+        ShareClient client;
+        client.setBaseUrl(QString("localhost:%1").arg(server.port()));
+        QCOMPARE(client.baseUrl(), QString("http://localhost:%1/").arg(server.port()));
+        QSignalSpy signedSpy(&client, &ShareClient::signedInChanged);
+        client.login("ada", "secret");
+        QTRY_COMPARE(client.signedIn(), true);
+        QVERIFY(server.m_requests.first().startsWith("POST /v1/auth/session"));
+    }
+
+    void setBaseUrlNormalizesSchemes() {
+        ShareClient client;
+        client.setBaseUrl("share.mindarchy.xyz");
+        QCOMPARE(client.baseUrl(), QString("https://share.mindarchy.xyz/"));
+        client.setBaseUrl("192.168.1.10:8080");
+        QCOMPARE(client.baseUrl(), QString("http://192.168.1.10:8080/"));
+        client.setBaseUrl("http://localhost:8080");
+        QCOMPARE(client.baseUrl(), QString("http://localhost:8080/"));
+    }
     void fetchMapState() {
         StubHttpServer server;
         server.start();

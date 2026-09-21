@@ -23,6 +23,7 @@ public:
         return QUrl(QString("ws://127.0.0.1:%1/v1/maps/%2/live").arg(m_server.serverPort()).arg(mapId));
     }
     QString baseUrl() const { return QString("ws://127.0.0.1:%1").arg(m_server.serverPort()); }
+    int port() const { return m_server.serverPort(); }
     QWebSocket *m_socket = nullptr;
     QStringList m_messages;
 private:
@@ -175,6 +176,15 @@ private slots:
             QCOMPARE(QJsonDocument::fromJson(server.m_messages.at(i).toUtf8()).object().value("type").toString(),
                      QString("presence"));
         }
+    }
+    void bareHostBaseUrlJoinsOverWs() {
+        StubLiveServer server;
+        ShareTransport transport;
+        transport.setBaseUrl(QString("localhost:%1").arg(server.port()));
+        transport.join("map-1");
+        QTRY_VERIFY(server.m_socket);
+        QCOMPARE(server.m_socket->requestUrl().scheme(), QString("ws"));
+        QCOMPARE(server.m_socket->requestUrl().host(), QString("localhost"));
     }
     void joinDifferentMapLeavesFirst() {
         StubLiveServer server;

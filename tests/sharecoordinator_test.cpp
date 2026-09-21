@@ -30,12 +30,24 @@ public:
         createdMapId = "m-" + QUuid::createUuid().toString(QUuid::WithoutBraces).mid(1, 8);
         emit mapCreated(createdMapId);
     }
+    void maps() override { emit mapsReady(); }
+    QVariantList mapSummaries() const override { return fakeMaps; }
+    void acceptInvite(const QString &token) override {
+        acceptedTokens.append(token);
+        emit inviteAccepted(acceptedMapId, acceptedRole);
+    }
+    void fetchMapState(const QString &mapId) override { fetchedMaps.append(mapId); }
     bool signedIn() const override { return fakeSignedIn; }
     QString accountName() const override { return fakeAccount; }
 
     bool fakeSignedIn = false;
     QString fakeAccount = "test-account";
     QString createdMapId;
+    QVariantList fakeMaps;
+    QString acceptedMapId = "m-shared";
+    QString acceptedRole = "editor";
+    QStringList acceptedTokens;
+    QStringList fetchedMaps;
 };
 
 class FakeTransport : public ShareTransport {
@@ -60,10 +72,10 @@ public:
     bool connected() const override { return online; }
 
     void peerCommit(quint64 seq, quint64 counter, const QByteArray &state) {
-        emit committed(seq, "peer-device", counter, "peer-hash", state, "peer-device");
+        emit committed(seq, "peer-device", counter, "peer-hash", state, "acct_peer");
     }
     void ownCommit(quint64 counter) {
-        emit committed(counter, clientUuid, counter, "own-hash", QByteArray(), clientUuid);
+        emit committed(counter, clientUuid, counter, "own-hash", QByteArray(), "acct_abc");
     }
     void reject(const QString &code) { emit rejected(code); }
     void emitJoined() { emit joined(lastJoined, "owner"); }
@@ -300,6 +312,46 @@ private slots:
 
         h.transport->emitJoined();
         QCOMPARE(h.transport->submitCount, 2);
+        h.restore();
+    }
+
+    void acceptInviteAttachesJoinsAndHydrates() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+
+        h.coordinator->acceptInvite("tok-9");
+        QCOMPARE(h.client->acceptedTokens, (QStringList{"tok-9"}));
+        QCOMPARE(h.coordinator->mapId(), QString("m-shared"));
+        QCOMPARE(h.transport->joins.last(), QString("m-shared"));
+        QCOMPARE(h.client->fetchedMaps, (QStringList{"m-shared"}));
+        QFile shareFile(h.engine.documentPath() + ".share");
+        QVERIFY(shareFile.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(shareFile.readAll()).object().value("mapId").toString(), QString("m-shared"));
+        h.restore();
+    }
+
+    void refreshSharedMapsPopulatesList() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+        QSignalSpy changedSpy(h.coordinator.data(), &ShareCoordinator::sharedMapsChanged);
+        QCOMPARE(h.coordinator->sharedMaps().size(), 0);
+
+        h.client->fakeMaps = QVariantList{QVariantMap{{"id", "m-1"}, {"owner", "bo"}, {"role", "editor"}},
+                                          QVariantMap{{"id", "m-2"}, {"owner", "cy"}, {"role", "viewer"}}};
+        h.coordinator->refreshSharedMaps();
+        QTRY_COMPARE(changedSpy.count(), 1);
+        const QVariantList maps = h.coordinator->sharedMaps();
+        QCOMPARE(maps.size(), 2);
+        QCOMPARE(maps.first().toMap().value("id").toString(), QString("m-1"));
+        QCOMPARE(maps.first().toMap().value("owner").toString(), QString("bo"));
+        QCOMPARE(maps.first().toMap().value("role").toString(), QString("editor"));
+        QCOMPARE(maps.last().toMap().value("role").toString(), QString("viewer"));
         h.restore();
     }
 

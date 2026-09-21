@@ -18,15 +18,18 @@ public:
     Q_INVOKABLE virtual void setBaseUrl(const QString &url);
     Q_INVOKABLE virtual void login(const QString &username, const QString &password);
     Q_INVOKABLE void account();
-    Q_INVOKABLE void maps();
+    Q_INVOKABLE virtual void maps();
     Q_INVOKABLE virtual void createMap(const QByteArray &snapshot);
     Q_INVOKABLE void invite(const QString &mapId, const QString &account, const QString &role);
-    Q_INVOKABLE void acceptInvite(const QString &token);
+    Q_INVOKABLE virtual void acceptInvite(const QString &token);
     Q_INVOKABLE virtual void fetchMapState(const QString &mapId);
     Q_INVOKABLE QString mapState(const QString &mapId) const;
 
+    virtual QVariantList mapSummaries() const;
+
     virtual bool signedIn() const;
     virtual QString accountName() const;
+    QString baseUrl() const { return m_baseUrl; }
     QNetworkCookieJar *cookieJar() const { return m_network->cookieJar(); }
 
 signals:
@@ -53,4 +56,5 @@ private:
     bool m_signedIn = false;
     QString m_accountName;
     QHash<QString, MapState> m_mapStates;
+    QVariantList m_mapSummaries;
 };

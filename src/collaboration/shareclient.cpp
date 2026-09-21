@@ -1,5 +1,6 @@
 #include "shareclient.h"
 
+#include "sharesettings.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -23,7 +24,7 @@ ShareClient::ShareClient(QObject *parent)
 }
 
 void ShareClient::setBaseUrl(const QString &url) {
-    m_baseUrl = url;
+    m_baseUrl = normalizeShareServerUrl(url);
     if (!m_baseUrl.endsWith('/')) m_baseUrl += '/';
 }
 
@@ -69,6 +70,7 @@ void ShareClient::maps() {
         reply->deleteLater();
         if (handleHttpError(reply, QStringLiteral("listing maps"))) return;
         const QJsonArray array = QJsonDocument::fromJson(reply->readAll()).array();
+        QVariantList summaries;
         for (const QJsonValue &value : array) {
             const QJsonObject object = value.toObject();
             const QString mapId = object.value("ID").toString();
@@ -76,9 +78,19 @@ void ShareClient::maps() {
             const QByteArray snapshot = QByteArray::fromBase64(object.value("Snapshot").toString().toUtf8());
             const quint64 seq = static_cast<quint64>(object.value("Seq").toInteger(0));
             m_mapStates.insert(mapId, {snapshot, seq});
+            QVariantMap summary{{"id", mapId},
+                                {"name", object.value("Name").toString()},
+                                {"owner", object.value("Owner").toString()},
+                                {"role", object.value("ACL").toObject().value(m_accountName).toString()}};
+            summaries.append(summary);
         }
+        m_mapSummaries = summaries;
         emit mapsReady();
     });
+}
+
+QVariantList ShareClient::mapSummaries() const {
+    return m_mapSummaries;
 }
 
 void ShareClient::createMap(const QByteArray &snapshot) {

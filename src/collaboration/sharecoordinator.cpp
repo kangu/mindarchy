@@ -61,6 +61,7 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
     connect(m_client, &ShareClient::mapCreated, this, &ShareCoordinator::handleMapCreated);
     connect(m_client, &ShareClient::inviteAccepted, this, &ShareCoordinator::handleInviteAccepted);
     connect(m_client, &ShareClient::mapStateReady, this, &ShareCoordinator::handleMapStateReady);
+    connect(m_client, &ShareClient::mapsReady, this, &ShareCoordinator::handleMapsReady);
     connect(m_client, &ShareClient::error, this, [this](const QString &message) {
         setShareStatus(message);
     });
@@ -93,6 +94,8 @@ QStringList ShareCoordinator::presence() const { return m_presence; }
 
 QString ShareCoordinator::mapId() const { return m_mapId; }
 
+QVariantList ShareCoordinator::sharedMaps() const { return m_client->mapSummaries(); }
+
 void ShareCoordinator::chooseServer(const QString &url) {
     m_settings->setServerUrl(url);
     m_client->setBaseUrl(url);
@@ -117,6 +120,14 @@ void ShareCoordinator::shareCurrentMap() {
 void ShareCoordinator::inviteOnMap(const QString &account, const QString &role) {
     if (m_mapId.isEmpty()) return;
     m_client->invite(m_mapId, account, role);
+}
+
+void ShareCoordinator::acceptInvite(const QString &token) {
+    m_client->acceptInvite(token);
+}
+
+void ShareCoordinator::refreshSharedMaps() {
+    m_client->maps();
 }
 
 void ShareCoordinator::joinSharedMap(const QString &mapId) {
@@ -209,6 +220,10 @@ void ShareCoordinator::handleInviteAccepted(const QString &mapId, const QString 
     m_client->fetchMapState(mapId);
 }
 
+void ShareCoordinator::handleMapsReady() {
+    emit sharedMapsChanged();
+}
+
 void ShareCoordinator::handleMapStateReady(const QString &mapId, const QByteArray &state, quint64 seq) {
     if (mapId != m_mapId) return;
     applyRemote(state, seq, m_deviceCounter + 1);
@@ -247,9 +262,9 @@ void ShareCoordinator::submitPayload(quint64 counter, const QString &hash, const
 
 void ShareCoordinator::handleCommitted(quint64 seq, const QString &deviceId, quint64 counter,
                                        const QString &hash, const QByteArray &state, const QString &sender) {
-    Q_UNUSED(deviceId);
     Q_UNUSED(hash);
-    if (sender == m_deviceId) {
+    Q_UNUSED(sender);
+    if (deviceId == m_deviceId) {
         if (m_session) m_session->clearPendingByCounter(m_mapId, counter);
         m_pendingHash.clear();
         m_pendingChanges.clear();
