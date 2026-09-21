@@ -140,7 +140,7 @@ func fakeOwnerSession(w http.ResponseWriter, request *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": "owner", "roles": []string{}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "userCtx": map[string]any{"name": "owner", "roles": []string{}}, "info": map[string]any{"authenticated": "owner"}})
 }
 
 func couchTestClient(t *testing.T, base string) *http.Client {

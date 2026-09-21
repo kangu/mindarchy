@@ -23,10 +23,30 @@ func NewCouchSession(base string) *CouchSession {
 	return &CouchSession{base: strings.TrimRight(base, "/"), client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-type sessionReply struct {
-	OK    bool     `json:"ok"`
+type sessionUserCtx struct {
 	Name  string   `json:"name"`
 	Roles []string `json:"roles"`
+}
+
+type sessionReply struct {
+	OK      bool           `json:"ok"`
+	Name    string         `json:"name"`
+	Roles   []string       `json:"roles"`
+	UserCtx sessionUserCtx `json:"userCtx"`
+}
+
+func (r sessionReply) resolvedName() string {
+	if r.Name != "" {
+		return r.Name
+	}
+	return r.UserCtx.Name
+}
+
+func (r sessionReply) resolvedRoles() []string {
+	if len(r.Roles) > 0 {
+		return r.Roles
+	}
+	return r.UserCtx.Roles
 }
 
 func (s *CouchSession) Login(ctx context.Context, username, password string) (Identity, string, error) {
@@ -48,7 +68,7 @@ func (s *CouchSession) Login(ctx context.Context, username, password string) (Id
 		return Identity{}, "", fmt.Errorf("couch session status %d", response.StatusCode)
 	}
 	var reply sessionReply
-	if err := json.NewDecoder(response.Body).Decode(&reply); err != nil || !reply.OK || reply.Name == "" {
+	if err := json.NewDecoder(response.Body).Decode(&reply); err != nil || !reply.OK || reply.resolvedName() == "" {
 		return Identity{}, "", fmt.Errorf("invalid couch session")
 	}
 	cookie := ""
@@ -82,10 +102,10 @@ func (s *CouchSession) Verify(ctx context.Context, request *http.Request) (Ident
 		return Identity{}, fmt.Errorf("session validation failed")
 	}
 	var reply sessionReply
-	if err := json.NewDecoder(response.Body).Decode(&reply); err != nil || !reply.OK || reply.Name == "" {
+	if err := json.NewDecoder(response.Body).Decode(&reply); err != nil || !reply.OK || reply.resolvedName() == "" {
 		return Identity{}, fmt.Errorf("invalid session")
 	}
-	return s.identity(reply.Name), nil
+	return s.identity(reply.resolvedName()), nil
 }
 
 func AccountIDForName(name string) protocol.AccountID {

@@ -53,7 +53,7 @@ func (f *fakeCouchSessions) handle(w http.ResponseWriter, request *http.Request)
 		return
 	}
 	name := strings.TrimPrefix(cookie.Value, "session-")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": name, "roles": []string{}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "userCtx": map[string]any{"name": name, "roles": []string{}}, "info": map[string]any{"authenticated": name}})
 }
 
 func newLiveHarness(t *testing.T, options ...httpapi.ServerOption) (*httptest.Server, *memCASStore, *fakeCouchSessions, *httpapi.ProductionServer) {

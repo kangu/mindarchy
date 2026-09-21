@@ -43,7 +43,7 @@ func TestAuthenticatedSharingAndWebSocketFlow(t *testing.T) {
 			http.Error(w, "unauthorized", 401)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": name, "roles": []string{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "userCtx": map[string]any{"name": name, "roles": []string{}}, "info": map[string]any{"authenticated": name}})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, request *http.Request) { production.ServeHTTP(w, request) })
 	server := httptest.NewServer(mux)
@@ -95,6 +95,49 @@ func TestAuthenticatedSharingAndWebSocketFlow(t *testing.T) {
 		t.Fatalf("commit = %v", committed)
 	}
 	_ = ownerID
+}
+
+func TestLoginVerifyRoundTripWithUserCtxShape(t *testing.T) {
+	accounts := map[string]string{}
+	var production http.Handler
+	mux := http.NewServeMux()
+	mux.HandleFunc("/_session", func(w http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost {
+			var input struct{ Name, Password string }
+			if json.NewDecoder(request.Body).Decode(&input) != nil || input.Password != "password" {
+				http.Error(w, "unauthorized", 401)
+				return
+			}
+			value := input.Name + "-session"
+			accounts[value] = input.Name
+			http.SetCookie(w, &http.Cookie{Name: "AuthSession", Value: value, Path: "/"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": input.Name, "roles": []string{}})
+			return
+		}
+		cookie, err := request.Cookie("AuthSession")
+		if err != nil {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
+		name, ok := accounts[cookie.Value]
+		if !ok {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "userCtx": map[string]any{"name": name, "roles": []string{}}, "info": map[string]any{"authenticated": name, "authentication_db": "_users"}})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, request *http.Request) { production.ServeHTTP(w, request) })
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	prod := httpapi.NewProductionServer(nil, nil, sharing.NewService(), auth.NewCouchSession(server.URL), nil)
+	t.Cleanup(prod.Close)
+	production = prod.Handler()
+
+	client := newTestClient(t, server.URL, "owner")
+	id := me(t, client, server.URL)
+	if id == "" {
+		t.Fatal("missing account id after login/verify round trip")
+	}
 }
 
 func newTestClient(t *testing.T, base, user string) *http.Client {
