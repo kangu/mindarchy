@@ -18,6 +18,13 @@ bool CollaborationSession::queueChange(quint64 counter, const QString &hash, con
     setStatus("Saved locally / Waiting to sync"); return true;
 }
 
+void CollaborationSession::clearPendingByCounter(const QString &mapId, quint64 counter) {
+    if (!m_store) return;
+    const auto rows = m_store->pending(mapId);
+    for (const auto &row : rows)
+        if (row.counter == counter) m_store->removePending(row.id);
+}
+
 void CollaborationSession::markSyncing() { setStatus("Syncing"); }
 void CollaborationSession::markAccessRemoved() { setStatus("Access removed"); }
 void CollaborationSession::setStatus(const QString &status) { if (m_status == status) return; m_status = status; emit statusChanged(); }

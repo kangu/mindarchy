@@ -14,13 +14,13 @@ class ShareTransport : public QObject {
 public:
     explicit ShareTransport(QObject *parent = nullptr);
 
-    Q_INVOKABLE void setBaseUrl(const QString &url);
+    Q_INVOKABLE virtual void setBaseUrl(const QString &url);
     Q_INVOKABLE void setSessionCookie(const QString &value);
-    Q_INVOKABLE void join(const QString &mapId);
-    Q_INVOKABLE void leave();
+    Q_INVOKABLE virtual void join(const QString &mapId);
+    Q_INVOKABLE virtual void leave();
     Q_INVOKABLE virtual void submit(quint64 counter, const QString &hash, const QByteArray &changes);
 
-    bool connected() const;
+    virtual bool connected() const;
     QString errorCode() const;
 
     static QByteArray encodeSubmit(const QString &mapId, const QString &deviceId, quint64 counter,

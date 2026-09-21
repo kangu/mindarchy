@@ -19,6 +19,8 @@ public:
     Q_INVOKABLE bool queueChange(quint64 counter, const QString &hash, const QByteArray &changes);
     Q_INVOKABLE void markSyncing();
     Q_INVOKABLE void markAccessRemoved();
+    QList<CollaborationPending> pendingForSubmit() const { return m_store ? m_store->pending(m_mapId) : QList<CollaborationPending>{}; }
+    Q_INVOKABLE void clearPendingByCounter(const QString &mapId, quint64 counter);
 signals:
     void statusChanged();
     void mapChanged();

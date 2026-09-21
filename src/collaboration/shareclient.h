@@ -14,18 +14,18 @@ class ShareClient : public QObject {
 public:
     explicit ShareClient(QObject *parent = nullptr);
 
-    Q_INVOKABLE void setBaseUrl(const QString &url);
-    Q_INVOKABLE void login(const QString &username, const QString &password);
+    Q_INVOKABLE virtual void setBaseUrl(const QString &url);
+    Q_INVOKABLE virtual void login(const QString &username, const QString &password);
     Q_INVOKABLE void account();
     Q_INVOKABLE void maps();
-    Q_INVOKABLE void createMap(const QByteArray &snapshot);
+    Q_INVOKABLE virtual void createMap(const QByteArray &snapshot);
     Q_INVOKABLE void invite(const QString &mapId, const QString &account, const QString &role);
     Q_INVOKABLE void acceptInvite(const QString &token);
-    Q_INVOKABLE void fetchMapState(const QString &mapId);
+    Q_INVOKABLE virtual void fetchMapState(const QString &mapId);
     Q_INVOKABLE QString mapState(const QString &mapId) const;
 
-    bool signedIn() const;
-    QString accountName() const;
+    virtual bool signedIn() const;
+    virtual QString accountName() const;
 
 signals:
     void signedInChanged();
