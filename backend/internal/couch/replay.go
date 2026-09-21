@@ -21,25 +21,22 @@ type Batch struct {
 	Changes    []byte             `json:"changes"`
 }
 
-// Replay reconstructs only the chain reachable from the authoritative head.
-// Orphan immutable documents are never applied.
-func Replay(ctx context.Context, store Store, mapID protocol.MapID) (protocol.Head, collab.Document, error) {
-	head, err := store.LoadHead(ctx, mapID)
+func ReplayBatched(ctx context.Context, store Store, mapID protocol.MapID) (protocol.Head, [][]byte, error) {
+	head, chain, err := batchChain(ctx, store, mapID)
 	if err != nil {
 		return protocol.Head{}, nil, err
 	}
-	var doc collab.Document
-	if head.SnapshotID != "" {
-		snapshot, err := store.GetImmutable(ctx, head.SnapshotID)
-		if err != nil {
-			return protocol.Head{}, nil, fmt.Errorf("load snapshot: %w", err)
-		}
-		doc, err = collab.Load(snapshot)
-		if err != nil {
-			return protocol.Head{}, nil, fmt.Errorf("decode snapshot: %w", err)
-		}
-	} else {
-		doc = collab.New()
+	changes := make([][]byte, 0, len(chain))
+	for _, batch := range chain {
+		changes = append(changes, batch.Changes)
+	}
+	return head, changes, nil
+}
+
+func batchChain(ctx context.Context, store Store, mapID protocol.MapID) (protocol.Head, []Batch, error) {
+	head, err := store.LoadHead(ctx, mapID)
+	if err != nil {
+		return protocol.Head{}, nil, err
 	}
 	chain := []Batch{}
 	seen := map[string]bool{}
@@ -62,9 +59,35 @@ func Replay(ctx context.Context, store Store, mapID protocol.MapID) (protocol.He
 		chain = append(chain, batch)
 		id = batch.Parent
 	}
-	for i := len(chain) - 1; i >= 0; i-- {
-		if err := doc.Apply(chain[i].Changes); err != nil {
-			return protocol.Head{}, nil, fmt.Errorf("apply batch %s: %w", chain[i].ID, err)
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return head, chain, nil
+}
+
+// Replay reconstructs only the chain reachable from the authoritative head.
+// Orphan immutable documents are never applied.
+func Replay(ctx context.Context, store Store, mapID protocol.MapID) (protocol.Head, collab.Document, error) {
+	head, chain, err := batchChain(ctx, store, mapID)
+	if err != nil {
+		return protocol.Head{}, nil, err
+	}
+	var doc collab.Document
+	if head.SnapshotID != "" {
+		snapshot, err := store.GetImmutable(ctx, head.SnapshotID)
+		if err != nil {
+			return protocol.Head{}, nil, fmt.Errorf("load snapshot: %w", err)
+		}
+		doc, err = collab.Load(snapshot)
+		if err != nil {
+			return protocol.Head{}, nil, fmt.Errorf("decode snapshot: %w", err)
+		}
+	} else {
+		doc = collab.New()
+	}
+	for _, batch := range chain {
+		if err := doc.Apply(batch.Changes); err != nil {
+			return protocol.Head{}, nil, fmt.Errorf("apply batch %s: %w", batch.ID, err)
 		}
 	}
 	return head, doc, nil

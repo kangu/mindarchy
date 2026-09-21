@@ -221,3 +221,8 @@ func (s *StoreClient) documentURL(id string) string {
 }
 
 func headID(id protocol.MapID) string { return "map:" + string(id) + ":head" }
+
+func (s *StoreClient) ReplayChain(ctx context.Context, mapID protocol.MapID) ([][]byte, error) {
+	_, changes, err := ReplayBatched(ctx, s, mapID)
+	return changes, err
+}

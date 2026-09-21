@@ -20,6 +20,7 @@ type Persistence interface {
 	GetImmutable(context.Context, string) ([]byte, error)
 	PutImmutable(context.Context, string, []byte) error
 	CompareAndSwapHead(context.Context, protocol.MapID, string, protocol.Head) (protocol.Head, error)
+	ReplayChain(context.Context, protocol.MapID) ([][]byte, error)
 }
 
 var ErrNotFound = errors.New("not_found")
@@ -30,6 +31,7 @@ type Map struct {
 	Owner    protocol.AccountID
 	ACL      map[protocol.AccountID]string
 	Snapshot []byte
+	head     protocol.Head
 }
 
 type invitation struct {
@@ -103,7 +105,7 @@ func (s *Service) List(account protocol.AccountID) []Map {
 }
 
 func (s *Service) Get(account protocol.AccountID, id protocol.MapID) (Map, error) {
-	if err := s.hydrate(id); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := s.hydrateWithChain(id); err != nil && !errors.Is(err, ErrNotFound) {
 		return Map{}, err
 	}
 	s.mu.RLock()
@@ -149,14 +151,67 @@ func (s *Service) hydrate(id protocol.MapID) error {
 	}
 	s.mu.Lock()
 	if _, exists := s.maps[id]; !exists {
-		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: snapshot}
+		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: snapshot, head: head}
 	}
 	s.mu.Unlock()
 	return nil
 }
 
+func (s *Service) hydrateWithChain(id protocol.MapID) error {
+	store := s.persistence
+	if store == nil {
+		return ErrNotFound
+	}
+	head, err := store.LoadHead(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	s.mu.RLock()
+	entry, exists := s.maps[id]
+	var known protocol.Head
+	if exists {
+		known = entry.head
+	}
+	s.mu.RUnlock()
+	if exists && known.Rev == head.Rev && known.Seq == head.Seq && known.BatchID == head.BatchID && known.SnapshotID == head.SnapshotID {
+		return nil
+	}
+	snapshot, err := store.GetImmutable(context.Background(), head.SnapshotID)
+	if err != nil {
+		return err
+	}
+	effective := snapshot
+	if batches, err := store.ReplayChain(context.Background(), id); err == nil && len(batches) > 0 {
+		if last := batches[len(batches)-1]; len(last) > 0 {
+			effective = last
+		}
+	}
+	owner := protocol.AccountID("")
+	for account, role := range head.ACL {
+		if role == "owner" {
+			owner = account
+			break
+		}
+	}
+	if owner == "" {
+		return ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.maps[id]; !exists {
+		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: effective, head: head}
+		return nil
+	}
+	entry = s.maps[id]
+	entry.Owner = owner
+	entry.ACL = head.ACL
+	entry.Snapshot = effective
+	entry.head = head
+	return nil
+}
+
 func (s *Service) Role(account protocol.AccountID, id protocol.MapID) (string, error) {
-	if err := s.hydrate(id); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := s.hydrateWithChain(id); err != nil && !errors.Is(err, ErrNotFound) {
 		return "", err
 	}
 	s.mu.RLock()
@@ -202,7 +257,6 @@ func (s *Service) Accept(account protocol.AccountID, token string) (Map, error) 
 	digest := sha256.Sum256([]byte(token))
 	key := hex.EncodeToString(digest[:])
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	invite, ok := s.invites[key]
 	if !ok {
 		if store, available := s.persistence.(Persistence); available {
@@ -212,34 +266,18 @@ func (s *Service) Accept(account protocol.AccountID, token string) (Map, error) 
 			}
 		}
 	}
+	s.mu.Unlock()
 	if !ok || time.Now().After(invite.Expires) || invite.Account != account {
 		return Map{}, ErrNotFound
 	}
+	if err := s.hydrateWithChain(invite.MapID); err != nil && !errors.Is(err, ErrNotFound) {
+		return Map{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entry, ok := s.maps[invite.MapID]
 	if !ok {
-		store, available := s.persistence.(Persistence)
-		if !available {
-			return Map{}, ErrNotFound
-		}
-		head, err := store.LoadHead(context.Background(), invite.MapID)
-		if err != nil {
-			return Map{}, err
-		}
-		snapshot, err := store.GetImmutable(context.Background(), head.SnapshotID)
-		if err != nil {
-			return Map{}, err
-		}
-		owner := protocol.AccountID("")
-		for candidate, candidateRole := range head.ACL {
-			if candidateRole == "owner" {
-				owner = candidate
-			}
-		}
-		if owner == "" {
-			return Map{}, ErrNotFound
-		}
-		entry = &Map{ID: invite.MapID, Owner: owner, ACL: head.ACL, Snapshot: snapshot}
-		s.maps[invite.MapID] = entry
+		return Map{}, ErrNotFound
 	}
 	if existing, exists := entry.ACL[account]; exists {
 		if existing == invite.Role {
