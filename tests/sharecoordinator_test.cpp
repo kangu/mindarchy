@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QNetworkCookie>
 #include <QScopedPointer>
 #include <QCryptographicHash>
 #include "../src/collaboration/sharecoordinator.h"
@@ -40,6 +41,7 @@ public:
 class FakeTransport : public ShareTransport {
 public:
     using ShareTransport::ShareTransport;
+    void setSessionCookie(const QString &value) override { sessionCookie = value; }
     void join(const QString &mapId) override {
         joins.append(mapId);
         lastJoined = mapId;
@@ -66,6 +68,7 @@ public:
     void emitJoined() { emit joined(lastJoined, "owner"); }
 
     bool online = false;
+    QString sessionCookie;
     int submitCount = 0;
     quint64 lastCounter = 0;
     QString lastHash;
@@ -141,6 +144,22 @@ private slots:
         h.coordinator->signIn("ada", "secret");
         QVERIFY(h.coordinator->signedIn());
         QCOMPARE(h.coordinator->accountName(), QString("test-account"));
+        h.restore();
+    }
+
+    void signInPropagatesAuthSessionCookieToTransport() {
+        Harness h;
+        h.setup();
+
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        QNetworkCookie cookie(QByteArrayLiteral("AuthSession"), "tok-ada");
+        cookie.setDomain("localhost");
+        cookie.setPath("/");
+        h.client->cookieJar()->insertCookie(cookie);
+        h.coordinator->signIn("ada", "secret");
+        QVERIFY(h.coordinator->signedIn());
+        QCOMPARE(h.transport->sessionCookie, QString("tok-ada"));
         h.restore();
     }
 

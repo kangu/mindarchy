@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkCookie>
 #include <QUuid>
 
 ShareCoordinator::ShareCoordinator(Engine *engine, QObject *parent)
@@ -52,6 +53,7 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         if (signedIn() && !m_mapId.isEmpty()) m_debounce.start();
     });
     connect(m_client, &ShareClient::signedInChanged, this, &ShareCoordinator::handleSignedIn);
+    wireCookie();
     connect(m_client, &ShareClient::loginFailed, this, [this] {
         setShareStatus("Sign in failed");
         emit signedInChanged();
@@ -163,6 +165,20 @@ void ShareCoordinator::ensureSession() {
     if (m_session || m_mapId.isEmpty()) return;
     m_session = new CollaborationSession(this);
     m_session->openOffline(m_client->accountName(), DocumentSession::defaultDirectory(), m_mapId, m_role);
+}
+
+void ShareCoordinator::wireCookie() {
+    connect(m_client, &ShareClient::signedInChanged, this, [this] {
+        const QUrl url(m_settings->serverUrl().startsWith("http") ? m_settings->serverUrl()
+                                                                  : QStringLiteral("https://") + m_settings->serverUrl());
+        const auto cookies = m_client->cookieJar()->cookiesForUrl(url);
+        for (const QNetworkCookie &cookie : cookies) {
+            if (cookie.name() != QByteArrayLiteral("AuthSession")) continue;
+            m_transport->setSessionCookie(QString::fromUtf8(cookie.value()));
+            return;
+        }
+        m_transport->setSessionCookie(QString());
+    });
 }
 
 void ShareCoordinator::handleSignedIn() {

@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QNetworkAccessManager>
+#include <QNetworkCookieJar>
 #include <QNetworkReply>
 
 class ShareClient : public QObject {
@@ -26,6 +27,7 @@ public:
 
     virtual bool signedIn() const;
     virtual QString accountName() const;
+    QNetworkCookieJar *cookieJar() const { return m_network->cookieJar(); }
 
 signals:
     void signedInChanged();

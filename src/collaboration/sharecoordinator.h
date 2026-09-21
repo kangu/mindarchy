@@ -53,6 +53,7 @@ signals:
 
 private:
     void ensureSession();
+    void wireCookie();
     void handleSignedIn();
     void handleMapCreated(const QString &mapId);
     void handleInviteAccepted(const QString &mapId, const QString &role);

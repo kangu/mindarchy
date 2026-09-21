@@ -15,7 +15,7 @@ public:
     explicit ShareTransport(QObject *parent = nullptr);
 
     Q_INVOKABLE virtual void setBaseUrl(const QString &url);
-    Q_INVOKABLE void setSessionCookie(const QString &value);
+    Q_INVOKABLE virtual void setSessionCookie(const QString &value);
     Q_INVOKABLE virtual void join(const QString &mapId);
     Q_INVOKABLE virtual void leave();
     Q_INVOKABLE virtual void submit(quint64 counter, const QString &hash, const QByteArray &changes);

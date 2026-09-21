@@ -95,7 +95,7 @@ target_link_libraries(canvas_test PRIVATE mindmap_canvas Qt6::Test)
 add_test(NAME canvas COMMAND canvas_test)
 set_tests_properties(engine canvas PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 qt_add_executable(ui_test tests/ui_test.cpp resources.qrc)
-target_link_libraries(ui_test PRIVATE mindmap_canvas Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+target_link_libraries(ui_test PRIVATE mindmap_canvas mindmap_collaboration Qt6::Qml Qt6::QuickControls2 Qt6::Test)
 add_test(NAME ui COMMAND ui_test)
 set_tests_properties(ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

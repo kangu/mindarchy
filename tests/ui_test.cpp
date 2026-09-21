@@ -15,12 +15,14 @@
 #include <QTemporaryDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTextDocument>
 #include "recentpreview.h"
 #include "viewportstate.h"
+#include "collaboration/sharecoordinator.h"
 #include <QTextCursor>
 #include <QtTest>
 
@@ -32,6 +34,7 @@ class UiTest : public QObject {
     QQuickWindow *window = nullptr;
     MindCanvas *canvas = nullptr;
     QQuickItem *editor = nullptr;
+    ShareCoordinator *shareCoordinator = nullptr;
     QQuickItem *findVisual(QQuickItem *item, const QString &name) {
         if (item->objectName() == name) return item;
         for (auto *child : item->childItems())
@@ -76,6 +79,8 @@ class UiTest : public QObject {
         auto *dialog=workspace->findChild<QObject *>("shareDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("visible").toBool());
         QVERIFY(workspace->property("modalInteraction").toBool());
+        QQmlExpression resolvesShare(qmlContext(workspace),workspace,QStringLiteral("typeof share !== 'undefined' && share !== null && share.signedIn === false"));
+        QVERIFY(resolvesShare.evaluate().toBool());
         auto *invite=dialog->findChild<QObject *>("shareInvite"); QVERIFY(invite);
         QVERIFY(!invite->property("enabled").toBool());
         QVERIFY(QMetaObject::invokeMethod(dialog,"close"));
@@ -707,6 +712,8 @@ class UiTest : public QObject {
         qml = new QQmlApplicationEngine(this);
         qml->addImageProvider("recent",new RecentPreviewProvider);
         qml->rootContext()->setContextProperty("engine", document);
+        shareCoordinator = new ShareCoordinator(document, this);
+        qml->rootContext()->setContextProperty("share", shareCoordinator);
         qml->load(QUrl("qrc:/qml/Main.qml"));
         QVERIFY2(!qml->rootObjects().isEmpty(), "The full application QML must load");
         window = qobject_cast<QQuickWindow *>(qml->rootObjects().first());
