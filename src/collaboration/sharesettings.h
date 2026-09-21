@@ -7,7 +7,7 @@
 class ShareSettings : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString serverUrl READ serverUrl WRITE setServerUrl NOTIFY serverUrlChanged)
-    Q_PROPERTY(QStringList presets CONSTANT)
+    Q_PROPERTY(QStringList presets READ presets CONSTANT)
 public:
     explicit ShareSettings(QObject *parent = nullptr);
     Q_INVOKABLE void setCustomUrl(const QString &url);
