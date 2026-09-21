@@ -212,9 +212,9 @@ func (s *ProductionServer) mapsHandler(w http.ResponseWriter, request *http.Requ
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, request.Body, 20<<20))
-	if err != nil {
-		http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+	body, err := io.ReadAll(http.MaxBytesReader(w, request.Body, 1<<20))
+	if err != nil || !json.Valid(body) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": protocol.ErrorInvalidMessage})
 		return
 	}
 	entry := s.sharing.Create(identity.Account, body)
@@ -285,6 +285,9 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Time{})
+	_ = controller.SetWriteDeadline(time.Time{})
 	peer := &livePeer{conn: conn}
 	s.liveMu.Lock()
 	if s.live[mapID] == nil {
