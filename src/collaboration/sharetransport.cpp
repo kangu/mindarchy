@@ -12,6 +12,7 @@ namespace {
 constexpr int kBackoffBaseMs = 1000;
 constexpr int kBackoffCapMs = 30000;
 constexpr int kPingIntervalMs = 15000;
+constexpr int kPresenceIntervalMs = 5000;
 
 QJsonObject changesObject(const QString &mapId, const QString &deviceId, quint64 counter,
                           const QString &hash, const QByteArray &changes) {
@@ -28,7 +29,8 @@ ShareTransport::ShareTransport(QObject *parent)
     : QObject(parent),
       m_deviceId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
       m_reconnectTimer(this),
-      m_pingTimer(this) {
+      m_pingTimer(this),
+      m_presenceTimer(this) {
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this] {
         if (!m_mapId.isEmpty() && !m_connected) openSocket(m_mapId);
@@ -37,12 +39,17 @@ ShareTransport::ShareTransport(QObject *parent)
     connect(&m_pingTimer, &QTimer::timeout, this, [this] {
         if (m_connected) m_socket.ping();
     });
+    m_presenceTimer.setInterval(kPresenceIntervalMs);
+    connect(&m_presenceTimer, &QTimer::timeout, this, [this] {
+        if (m_connected && !m_mapId.isEmpty()) sendPresence();
+    });
     connect(&m_socket, &QWebSocket::connected, this, &ShareTransport::handleConnected);
     connect(&m_socket, &QWebSocket::textMessageReceived, this, &ShareTransport::handleMessage);
     connect(&m_socket, &QWebSocket::disconnected, this, [this] {
         const bool wasConnected = m_connected;
         m_connected = false;
         m_pingTimer.stop();
+        m_presenceTimer.stop();
         emit connectedChanged();
         if (wasConnected && !m_mapId.isEmpty()) scheduleReconnect();
     });
@@ -83,6 +90,7 @@ void ShareTransport::leave() {
     m_reconnectTimer.stop();
     m_mapId.clear();
     m_accounts.clear();
+    m_presenceTimer.stop();
     m_socket.abort();
 }
 
@@ -101,6 +109,11 @@ void ShareTransport::submit(quint64 counter, const QString &hash, const QByteArr
 
 bool ShareTransport::connected() const {
     return m_connected;
+}
+
+void ShareTransport::sendPresence() {
+    const QJsonObject envelope{{"type", "presence"}};
+    m_socket.sendTextMessage(QString::fromUtf8(QJsonDocument(envelope).toJson(QJsonDocument::Compact)));
 }
 
 QString ShareTransport::errorCode() const {
@@ -135,6 +148,7 @@ void ShareTransport::handleConnected() {
     m_connected = true;
     m_errorCode.clear();
     m_pingTimer.start();
+    m_presenceTimer.start();
     emit connectedChanged();
 }
 

@@ -43,6 +43,7 @@ private:
     void handlePresence(const QJsonObject &object);
     void scheduleReconnect();
     void resetBackoff();
+    void sendPresence();
 
     QString m_baseUrl;
     QString m_sessionCookie;
@@ -53,6 +54,7 @@ private:
     QWebSocket m_socket;
     QTimer m_reconnectTimer;
     QTimer m_pingTimer;
+    QTimer m_presenceTimer;
     int m_backoffMs = 1000;
     QStringList m_accounts;
 };

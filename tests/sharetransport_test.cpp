@@ -142,6 +142,40 @@ private slots:
         QTRY_COMPARE(presenceSpy.count(), 2);
         QCOMPARE(presenceSpy.at(1).at(0).toStringList(), (QStringList{"ada", "bo", "cy"}));
     }
+    void presenceHeartbeatEveryFiveSeconds() {
+        StubLiveServer server;
+        ShareTransport transport;
+        transport.setBaseUrl(server.baseUrl());
+        transport.join("map-1");
+        QTRY_VERIFY(server.m_socket);
+        server.sendJson({{"type", "hello"}, {"mapId", "map-1"}, {"role", "editor"}});
+        server.m_messages.clear();
+        const qint64 start = QDateTime::currentMSecsSinceEpoch();
+        bool sawPresence = false;
+        while (QDateTime::currentMSecsSinceEpoch() - start < 6500) {
+            for (const QString &message : server.m_messages) {
+                if (QJsonDocument::fromJson(message.toUtf8()).object().value("type").toString() == QString("presence"))
+                    sawPresence = true;
+            }
+            if (sawPresence) break;
+            QTest::qWait(100);
+        }
+        QVERIFY(sawPresence);
+        qint64 sawAt = -1;
+        for (const QString &message : server.m_messages) {
+            if (QJsonDocument::fromJson(message.toUtf8()).object().value("type").toString() == QString("presence"))
+                sawAt = QDateTime::currentMSecsSinceEpoch();
+        }
+        const int leaveMarker = server.m_messages.count();
+        QVERIFY(sawAt > 0);
+        transport.leave();
+        QTest::qWait(5500);
+        QVERIFY(server.m_messages.count() <= leaveMarker + 1);
+        for (int i = leaveMarker + 1; i < server.m_messages.count(); ++i) {
+            QCOMPARE(QJsonDocument::fromJson(server.m_messages.at(i).toUtf8()).object().value("type").toString(),
+                     QString("presence"));
+        }
+    }
     void joinDifferentMapLeavesFirst() {
         StubLiveServer server;
         ShareTransport transport;
