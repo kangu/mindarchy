@@ -52,8 +52,8 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         if (m_bridge->applyingRemote()) return;
         if (signedIn() && !m_mapId.isEmpty()) m_debounce.start();
     });
-    connect(m_client, &ShareClient::signedInChanged, this, &ShareCoordinator::handleSignedIn);
     wireCookie();
+    connect(m_client, &ShareClient::signedInChanged, this, &ShareCoordinator::handleSignedIn);
     connect(m_client, &ShareClient::loginFailed, this, [this] {
         setShareStatus("Sign in failed");
         emit signedInChanged();

@@ -45,6 +45,7 @@ public:
     void join(const QString &mapId) override {
         joins.append(mapId);
         lastJoined = mapId;
+        cookieAtJoin = sessionCookie;
         online = true;
     }
     void leave() override { online = false; }
@@ -69,6 +70,7 @@ public:
 
     bool online = false;
     QString sessionCookie;
+    QString cookieAtJoin;
     int submitCount = 0;
     quint64 lastCounter = 0;
     QString lastHash;
@@ -174,6 +176,23 @@ private slots:
         QVERIFY(QFile::exists(h.engine.documentPath() + ".share"));
         QCOMPARE(h.coordinator->mapId(), h.client->createdMapId);
         QCOMPARE(h.transport->joins.last(), h.client->createdMapId);
+        h.restore();
+    }
+
+    void signInJoinsAttachedMapWithCookieAlreadySet() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        QVERIFY(h.coordinator->attachMapId("m-attached"));
+        QNetworkCookie cookie(QByteArrayLiteral("AuthSession"), "tok-attached");
+        cookie.setDomain("localhost");
+        cookie.setPath("/");
+        h.client->cookieJar()->insertCookie(cookie);
+        h.coordinator->signIn("ada", "secret");
+
+        QCOMPARE(h.transport->lastJoined, QString("m-attached"));
+        QCOMPARE(h.transport->cookieAtJoin, QString("tok-attached"));
         h.restore();
     }
 
