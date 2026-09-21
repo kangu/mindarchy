@@ -23,6 +23,15 @@ private slots:
         QCOMPARE(AppIdentity::windowSettings()->value("sharing/serverUrl").toString(), "http://192.168.1.10:8080");
         share.setServerUrl("http://localhost:8080");
     }
+    void commandLineOverrideIsProcessOnly() {
+        QSettings *settings = AppIdentity::windowSettings();
+        const QString backup = settings->value("sharing/serverUrl", "share.mindarchy.xyz").toString();
+        ShareSettings::applyCommandLineOverride("http://override.example:9999");
+        QCOMPARE(ShareSettings().serverUrl(), QString("http://override.example:9999"));
+        QCOMPARE(settings->value("sharing/serverUrl").toString(), backup);
+        ShareSettings::applyCommandLineOverride(QString());
+        QCOMPARE(ShareSettings().serverUrl(), backup);
+    }
 };
 QTEST_MAIN(ShareSettingsTest)
 #include "sharesettings_test.moc"

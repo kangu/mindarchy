@@ -11,6 +11,7 @@ class ShareSettings : public QObject {
 public:
     explicit ShareSettings(QObject *parent = nullptr);
     Q_INVOKABLE void setCustomUrl(const QString &url);
+    Q_INVOKABLE static void applyCommandLineOverride(const QString &url);
     QString serverUrl() const { return m_serverUrl; }
     void setServerUrl(const QString &url);
     QStringList presets() const { return {"share.mindarchy.xyz", "http://localhost:8080"}; }
@@ -21,3 +22,5 @@ private:
 };
 
 QString shareServerOverride(int &argc, char *argv[]);
+
+QString normalizeShareServerUrl(const QString &url);

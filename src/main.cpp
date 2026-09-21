@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
     parser.process(app);
     QString shareServer = parser.value("share-server");
     if (shareServer.isEmpty()) shareServer = shareServerOverride(argc, argv);
-    if (!shareServer.isEmpty()) ShareSettings().setServerUrl(shareServer);
+    ShareSettings::applyCommandLineOverride(shareServer);
     Engine document(nullptr, Engine::InitialContent::Blank);
     if(parser.isSet("render-preview")) {
         bool valid=false; int size=parser.value("preview-size").toInt(&valid);
