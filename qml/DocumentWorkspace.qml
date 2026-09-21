@@ -724,6 +724,14 @@ FocusScope {
                 }
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; anchors.topMargin: documentStrip.height; engine: window.controller; focus: true
+                    PresenceStrip {
+                        objectName: "presenceStrip"
+                        participants: share.presence
+                        visible: participants && participants.length > 0
+                        anchors.top: parent.top; anchors.right: parent.right
+                        anchors.margins: 12
+                        z: 11
+                    }
                     NodeImageTools { id: nodeImageTools; anchors.fill: parent; z: 9; canvas: parent; controller: window.controller; hostWindow: window.hostWindow }
                     onImageMenuRequested: function(id,x,y) { nodeImageTools.showMenu(id,x,y) }
                     onImagePreviewRequested: function(id) { nodeImageTools.preview(id) }

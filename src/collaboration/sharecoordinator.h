@@ -16,6 +16,7 @@ class CollaborationSession;
 class ShareCoordinator : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverChanged)
+    Q_PROPERTY(QStringList presets READ presets CONSTANT)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY signedInChanged)
     Q_PROPERTY(QString accountName READ accountName NOTIFY signedInChanged)
     Q_PROPERTY(QString shareStatus READ shareStatus NOTIFY shareStatusChanged)
@@ -27,6 +28,7 @@ public:
                      ShareSettings *settings, QObject *parent = nullptr);
 
     QString serverUrl() const;
+    QStringList presets() const;
     bool signedIn() const;
     QString accountName() const;
     QString shareStatus() const;

@@ -81,6 +81,8 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
 
 QString ShareCoordinator::serverUrl() const { return m_settings->serverUrl(); }
 
+QStringList ShareCoordinator::presets() const { return m_settings->presets(); }
+
 bool ShareCoordinator::signedIn() const { return m_client->signedIn(); }
 
 QString ShareCoordinator::accountName() const { return m_client->accountName(); }

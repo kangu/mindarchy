@@ -78,12 +78,33 @@ class UiTest : public QObject {
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint());
         auto *dialog=workspace->findChild<QObject *>("shareDialog"); QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("visible").toBool());
+        auto closeDialog=qScopeGuard([&]{ QVERIFY(QMetaObject::invokeMethod(dialog,"close")); });
         QVERIFY(workspace->property("modalInteraction").toBool());
         QQmlExpression resolvesShare(qmlContext(workspace),workspace,QStringLiteral("typeof share !== 'undefined' && share !== null && share.signedIn === false"));
         QVERIFY(resolvesShare.evaluate().toBool());
         auto *invite=dialog->findChild<QObject *>("shareInvite"); QVERIFY(invite);
         QVERIFY(!invite->property("enabled").toBool());
-        QVERIFY(QMetaObject::invokeMethod(dialog,"close"));
+        auto *account=dialog->findChild<QObject *>("shareAccount"); QVERIFY(account);
+        QVERIFY(!account->property("enabled").toBool());
+        auto *role=dialog->findChild<QObject *>("shareRole"); QVERIFY(role);
+        QVERIFY(!role->property("enabled").toBool());
+        auto *serverBox=dialog->findChild<QObject *>("shareServerBox"); QVERIFY(serverBox);
+        QCOMPARE(serverBox->property("count").toInt(),3);
+        const auto presets=serverBox->property("model").toList();
+        QCOMPARE(presets.value(0).toString(),QStringLiteral("share.mindarchy.xyz"));
+        QVERIFY(workspace->findChild<QObject *>("presenceStrip"));
+        QQmlExpression serverBinding(qmlContext(workspace),workspace,QStringLiteral("share.presets[0]"));
+        QCOMPARE(serverBinding.evaluate().toString(),QStringLiteral("share.mindarchy.xyz"));
+        auto *signInButton=dialog->findChild<QObject *>("shareSignIn"); QVERIFY(signInButton);
+        QVERIFY(!signInButton->property("enabled").toBool());
+        auto *signInAccount=dialog->findChild<QObject *>("shareSignInAccount"); QVERIFY(signInAccount);
+        auto *signInPassword=dialog->findChild<QObject *>("shareSignInPassword"); QVERIFY(signInPassword);
+        signInAccount->setProperty("text",QStringLiteral("ada"));
+        QVERIFY(!signInButton->property("enabled").toBool());
+        signInPassword->setProperty("text",QStringLiteral("secret"));
+        QTRY_VERIFY(signInButton->property("enabled").toBool());
+        signInPassword->setProperty("text",QStringLiteral(""));
+        QTRY_VERIFY(!signInButton->property("enabled").toBool());
     }
     void branchStylePickerTracksUndo() {
         auto *picker=window->findChild<QObject *>("branchStylePicker"); QVERIFY(picker);
