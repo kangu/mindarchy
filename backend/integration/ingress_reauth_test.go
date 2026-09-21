@@ -68,6 +68,7 @@ func newLiveHarness(t *testing.T, options ...httpapi.ServerOption) (*httptest.Se
 	server := httptest.NewServer(outer)
 	t.Cleanup(server.Close)
 	prod := httpapi.NewProductionServer(nil, nil, service, auth.NewCouchSession(server.URL), rooms.NewManager(store), options...)
+	t.Cleanup(prod.Close)
 	production = prod.Handler()
 	return server, store, sessions, prod
 }

@@ -48,7 +48,9 @@ func TestAuthenticatedSharingAndWebSocketFlow(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, request *http.Request) { production.ServeHTTP(w, request) })
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	production = httpapi.NewProductionServer(nil, nil, sharing.NewService(), auth.NewCouchSession(server.URL), nil).Handler()
+	prod := httpapi.NewProductionServer(nil, nil, sharing.NewService(), auth.NewCouchSession(server.URL), nil)
+	t.Cleanup(prod.Close)
+	production = prod.Handler()
 
 	owner := newTestClient(t, server.URL, "owner")
 	editor := newTestClient(t, server.URL, "editor")

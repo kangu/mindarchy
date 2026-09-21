@@ -30,10 +30,12 @@ func main() {
 		}
 	}
 	session := auth.NewCouchSession(settings.CouchURL)
+	api := httpapi.NewProductionServer(store.Ping, verifier, sharing.NewPersistentService(store), session, rooms.NewManager(store))
 	server := &http.Server{
-		Addr: settings.ListenAddr, Handler: httpapi.NewProductionServer(store.Ping, verifier, sharing.NewPersistentService(store), session, rooms.NewManager(store)).Handler(),
+		Addr: settings.ListenAddr, Handler: api.Handler(),
 		ReadTimeout: settings.ReadTimeout, WriteTimeout: settings.WriteTimeout, IdleTimeout: settings.IdleTimeout,
 	}
+	defer api.Close()
 	stop, stopSignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopSignal()
 	go func() {

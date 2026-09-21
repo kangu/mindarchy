@@ -41,7 +41,9 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	service := sharing.NewPersistentService(store)
-	production = httpapi.NewProductionServer(nil, nil, service, auth.NewCouchSession(server.URL), rooms.NewManager(store)).Handler()
+	first := httpapi.NewProductionServer(nil, nil, service, auth.NewCouchSession(server.URL), rooms.NewManager(store))
+	t.Cleanup(first.Close)
+	production = first.Handler()
 	client := couchTestClient(t, server.URL)
 	response := doJSON(t, client, http.MethodPost, server.URL+"/v1/maps", strings.NewReader(`{"portable":"snapshot"}`), http.StatusCreated)
 	var created struct {
@@ -54,7 +56,9 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 
 	// Replace the application service to simulate a process restart. The ACL and
 	// snapshot must be reconstructed from the CouchDB head, not process memory.
-	production = httpapi.NewProductionServer(nil, nil, sharing.NewPersistentService(store), auth.NewCouchSession(server.URL), rooms.NewManager(store)).Handler()
+	restarted := httpapi.NewProductionServer(nil, nil, sharing.NewPersistentService(store), auth.NewCouchSession(server.URL), rooms.NewManager(store))
+	t.Cleanup(restarted.Close)
+	production = restarted.Handler()
 	response = doJSON(t, client, http.MethodGet, server.URL+"/v1/maps/"+created.ID, nil, http.StatusOK)
 	response.Body.Close()
 

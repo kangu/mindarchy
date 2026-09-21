@@ -63,6 +63,12 @@ after `hello`:
 | `type` | string | `presence` |
 | `accounts` | string array | Sorted live account IDs in the room |
 
+A peer that was pruned from the roster is re-added (and re-broadcast) the
+next time it sends any message. Clients MUST emit `{"type":"presence"}`
+data messages at an interval shorter than the 10 second TTL to stay on the
+roster while idle; the server also refreshes presence on every message,
+including submits.
+
 Identity and role are re-verified on every received message; a failed check
 answers `rejected` with code `access_revoked` and closes the socket.
 

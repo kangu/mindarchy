@@ -32,6 +32,9 @@ type ProductionServer struct {
 	liveMu            sync.Mutex
 	live              map[protocol.MapID]map[*livePeer]struct{}
 	presence          map[protocol.MapID]map[protocol.AccountID]time.Time
+	janitorStop       chan struct{}
+	janitorDone       chan struct{}
+	closeOnce         sync.Once
 }
 
 type ServerOption func(*ProductionServer)
@@ -52,7 +55,7 @@ func (p *livePeer) write(ctx context.Context, value any) error {
 }
 
 func NewProductionServer(ready func(context.Context) error, verify *auth.Verifier, service *sharing.Service, session *auth.CouchSession, manager *rooms.Manager, options ...ServerOption) *ProductionServer {
-	server := &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager, live: map[protocol.MapID]map[*livePeer]struct{}{}, presence: map[protocol.MapID]map[protocol.AccountID]time.Time{}}
+	server := &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager, live: map[protocol.MapID]map[*livePeer]struct{}{}, presence: map[protocol.MapID]map[protocol.AccountID]time.Time{}, janitorStop: make(chan struct{}), janitorDone: make(chan struct{})}
 	for _, option := range options {
 		option(server)
 	}
@@ -84,10 +87,23 @@ func (s *ProductionServer) presenceTTL() time.Duration {
 	return presenceDefaultTTL
 }
 
+func (s *ProductionServer) Close() {
+	s.closeOnce.Do(func() {
+		close(s.janitorStop)
+		<-s.janitorDone
+	})
+}
+
 func (s *ProductionServer) presenceJanitor() {
+	defer close(s.janitorDone)
 	ticker := time.NewTicker(s.presenceInterval())
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
+		select {
+		case <-s.janitorStop:
+			return
+		case <-ticker.C:
+		}
 		type sweep struct {
 			mapID  protocol.MapID
 			peers  []*livePeer
@@ -140,10 +156,19 @@ func (s *ProductionServer) rosterLocked(mapID protocol.MapID) []string {
 
 func (s *ProductionServer) touchPresence(mapID protocol.MapID, account protocol.AccountID) {
 	s.liveMu.Lock()
-	defer s.liveMu.Unlock()
-	if _, exists := s.presence[mapID][account]; exists {
-		s.presence[mapID][account] = time.Now()
+	if s.presence[mapID] == nil {
+		s.presence[mapID] = map[protocol.AccountID]time.Time{}
 	}
+	_, existed := s.presence[mapID][account]
+	s.presence[mapID][account] = time.Now()
+	if existed {
+		s.liveMu.Unlock()
+		return
+	}
+	roster := s.rosterLocked(mapID)
+	peers := s.peersLocked(mapID)
+	s.liveMu.Unlock()
+	s.broadcastPeers(context.Background(), peers, map[string]any{"type": "presence", "accounts": roster})
 }
 
 func (s *ProductionServer) Handler() http.Handler {
@@ -362,8 +387,14 @@ func (s *ProductionServer) broadcast(ctx context.Context, mapID protocol.MapID, 
 		peers = append(peers, peer)
 	}
 	s.liveMu.Unlock()
+	s.broadcastPeers(ctx, peers, value)
+}
+
+func (s *ProductionServer) broadcastPeers(ctx context.Context, peers []*livePeer, value any) {
 	for _, peer := range peers {
-		_ = peer.write(ctx, value)
+		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_ = peer.write(writeCtx, value)
+		cancel()
 	}
 }
 

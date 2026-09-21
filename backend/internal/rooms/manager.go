@@ -16,7 +16,7 @@ import (
 var (
 	ErrAccessDenied    = errors.New("access_denied")
 	ErrInvalidMessage  = errors.New(protocol.ErrorInvalidMessage)
-	ErrInvalidSnapshot = errors.New(protocol.ErrorInvalidMessage)
+	ErrInvalidSnapshot = errors.New("invalid_snapshot")
 )
 
 type Manager struct {
