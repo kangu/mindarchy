@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,10 +43,11 @@ type invitation struct {
 }
 
 type Service struct {
-	mu          sync.RWMutex
-	maps        map[protocol.MapID]*Map
-	invites     map[string]invitation
-	persistence Persistence
+	mu              sync.RWMutex
+	maps            map[protocol.MapID]*Map
+	invites         map[string]invitation
+	persistence     Persistence
+	accountResolver func(string) protocol.AccountID
 }
 
 func NewService() *Service {
@@ -227,10 +229,27 @@ func (s *Service) Role(account protocol.AccountID, id protocol.MapID) (string, e
 	return role, nil
 }
 
+func (s *Service) SetAccountIDResolver(resolver func(string) protocol.AccountID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountResolver = resolver
+}
+
+func (s *Service) resolveAccountID(account protocol.AccountID) protocol.AccountID {
+	s.mu.RLock()
+	resolver := s.accountResolver
+	s.mu.RUnlock()
+	if resolver != nil && !strings.HasPrefix(string(account), "acct_") {
+		return resolver(string(account))
+	}
+	return account
+}
+
 func (s *Service) Invite(owner protocol.AccountID, id protocol.MapID, account protocol.AccountID, role string) (string, error) {
 	if role != "editor" && role != "viewer" {
 		return "", ErrForbidden
 	}
+	account = s.resolveAccountID(account)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.maps[id]

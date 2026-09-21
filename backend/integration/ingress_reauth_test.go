@@ -67,6 +67,7 @@ func newLiveHarness(t *testing.T, options ...httpapi.ServerOption) (*httptest.Se
 	outer.HandleFunc("/", func(w http.ResponseWriter, request *http.Request) { production.ServeHTTP(w, request) })
 	server := httptest.NewServer(outer)
 	t.Cleanup(server.Close)
+	service.SetAccountIDResolver(auth.AccountIDForName)
 	prod := httpapi.NewProductionServer(nil, nil, service, auth.NewCouchSession(server.URL), rooms.NewManager(store), options...)
 	t.Cleanup(prod.Close)
 	production = prod.Handler()

@@ -30,7 +30,9 @@ func main() {
 		}
 	}
 	session := auth.NewCouchSession(settings.CouchURL)
-	api := httpapi.NewProductionServer(store.Ping, verifier, sharing.NewPersistentService(store), session, rooms.NewManager(store))
+	shareService := sharing.NewPersistentService(store)
+	shareService.SetAccountIDResolver(auth.AccountIDForName)
+	api := httpapi.NewProductionServer(store.Ping, verifier, shareService, session, rooms.NewManager(store))
 	server := &http.Server{
 		Addr: settings.ListenAddr, Handler: api.Handler(),
 		ReadTimeout: settings.ReadTimeout, WriteTimeout: settings.WriteTimeout, IdleTimeout: settings.IdleTimeout,

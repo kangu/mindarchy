@@ -88,7 +88,11 @@ func (s *CouchSession) Verify(ctx context.Context, request *http.Request) (Ident
 	return s.identity(reply.Name), nil
 }
 
-func (s *CouchSession) identity(name string) Identity {
+func AccountIDForName(name string) protocol.AccountID {
 	digest := sha256.Sum256([]byte("couchdb\x00" + name))
-	return Identity{Account: protocol.AccountID("acct_" + hex.EncodeToString(digest[:])), Issuer: "couchdb", Subject: name}
+	return protocol.AccountID("acct_" + hex.EncodeToString(digest[:]))
+}
+
+func (s *CouchSession) identity(name string) Identity {
+	return Identity{Account: AccountIDForName(name), Issuer: "couchdb", Subject: name}
 }
