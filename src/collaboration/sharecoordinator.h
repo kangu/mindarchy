@@ -50,6 +50,9 @@ public:
 
     QString deviceId() const;
     bool attachMapId(const QString &mapId);
+    void handleMapStateReadyForTest(const QString &mapId, const QByteArray &state, quint64 seq) {
+        handleMapStateReady(mapId, state, seq);
+    }
 
 signals:
     void serverChanged();

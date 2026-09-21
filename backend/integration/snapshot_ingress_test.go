@@ -20,9 +20,8 @@ func TestCreateMapRejectsInvalidSnapshotJSON(t *testing.T) {
 func TestCreateMapRejectsOversizedSnapshot(t *testing.T) {
 	server, _, _, _ := newLiveHarness(t)
 	client := loginAs(t, server.URL, "owner")
-	oversized := bytes.Repeat([]byte("a"), 1<<20)
+	oversized := bytes.Repeat([]byte("a"), 1<<20+1)
 	oversized[0] = '{'
-	oversized[len(oversized)-1] = '}'
 	response := doJSON(t, client, http.MethodPost, server.URL+"/v1/maps", bytes.NewReader(oversized), http.StatusBadRequest)
 	defer response.Body.Close()
 	assertInvalidMessageBody(t, response)

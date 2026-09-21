@@ -99,6 +99,10 @@ private slots:
         client.maps();
         QTRY_COMPARE(readySpy.count(), 1);
         QCOMPARE(client.mapState("a1b2c3"), QString());
+        const QVariantList summaries = client.mapSummaries();
+        QCOMPARE(summaries.size(), 1);
+        QCOMPARE(summaries.first().toMap().value("id").toString(), QString("a1b2c3"));
+        QVERIFY(!summaries.first().toMap().value("name").toString().isEmpty());
         QSignalSpy createdSpy(&client, &ShareClient::mapCreated);
         client.createMap(QByteArray("{\"nodes\":[]}"));
         QTRY_COMPARE(createdSpy.count(), 1);

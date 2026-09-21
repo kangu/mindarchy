@@ -333,6 +333,50 @@ private slots:
         h.restore();
     }
 
+    void joinSharedMapAttachesJoinsAndHydrates() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+
+        h.coordinator->joinSharedMap("m-picked");
+        QCOMPARE(h.coordinator->mapId(), QString("m-picked"));
+        QCOMPARE(h.transport->joins.last(), QString("m-picked"));
+        QCOMPARE(h.client->fetchedMaps, (QStringList{"m-picked"}));
+        QFile shareFile(h.engine.documentPath() + ".share");
+        QVERIFY(shareFile.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(shareFile.readAll()).object().value("mapId").toString(), QString("m-picked"));
+        h.restore();
+    }
+
+    void joinedMapHydratesThenLocalEditsQueue() {
+        Harness h;
+        h.setup();
+        QVERIFY(h.loadDocument("doc.omm"));
+        h.coordinator->chooseServer("http://localhost:8080");
+        h.coordinator->signIn("ada", "secret");
+
+        h.coordinator->joinSharedMap("m-picked");
+        QCOMPARE(h.client->fetchedMaps, (QStringList{"m-picked"}));
+
+        Engine peerEngine;
+        QVERIFY(peerEngine.loadDocumentBytes(h.fixtureBytes(), {}));
+        peerEngine.setText(1, "server text");
+        h.coordinator->handleMapStateReadyForTest("m-picked", peerEngine.documentBytes(), 5);
+        const QJsonObject node = QJsonDocument::fromJson(h.engine.documentBytes())
+                                     .object().value("nodes").toArray().at(0).toObject();
+        QCOMPARE(node.value("text").toString(), QString("server text"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 0);
+
+        QVERIFY(h.engine.setText(1, "local after join"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        QCOMPARE(h.transport->lastCounter, quint64(1));
+        h.restore();
+    }
+
     void refreshSharedMapsPopulatesList() {
         Harness h;
         h.setup();

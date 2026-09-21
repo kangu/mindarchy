@@ -134,6 +134,7 @@ void ShareCoordinator::joinSharedMap(const QString &mapId) {
     attachMapId(mapId);
     m_transport->setBaseUrl(m_settings->serverUrl());
     m_transport->join(mapId);
+    m_client->fetchMapState(mapId);
 }
 
 void ShareCoordinator::disconnectSharing() {
@@ -200,6 +201,7 @@ void ShareCoordinator::handleSignedIn() {
     if (m_client->signedIn() && !m_mapId.isEmpty()) {
         m_transport->setBaseUrl(m_settings->serverUrl());
         m_transport->join(m_mapId);
+        m_client->fetchMapState(m_mapId);
     }
     emit signedInChanged();
 }

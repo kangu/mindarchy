@@ -78,8 +78,9 @@ void ShareClient::maps() {
             const QByteArray snapshot = QByteArray::fromBase64(object.value("Snapshot").toString().toUtf8());
             const quint64 seq = static_cast<quint64>(object.value("Seq").toInteger(0));
             m_mapStates.insert(mapId, {snapshot, seq});
+            const QString name = object.value("Name").toString();
             QVariantMap summary{{"id", mapId},
-                                {"name", object.value("Name").toString()},
+                                {"name", name.isEmpty() ? mapId : name},
                                 {"owner", object.value("Owner").toString()},
                                 {"role", object.value("ACL").toObject().value(m_accountName).toString()}};
             summaries.append(summary);
