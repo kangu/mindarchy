@@ -70,19 +70,50 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 	}
 	changes := []byte{0}
 	digest := sha256.Sum256(changes)
-	update := protocol.Submit{Version: 1, MapID: protocol.MapID(created.ID), DeviceID: protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), Counter: 1, Hash: fmt.Sprintf("%x", digest[:]), Changes: changes}
-	frame := map[string]any{"version": update.Version, "mapId": update.MapID, "deviceId": update.DeviceID, "counter": update.Counter, "hash": update.Hash, "changes": base64.StdEncoding.EncodeToString(update.Changes)}
+	mapID := protocol.MapID(created.ID)
+	frame := map[string]any{"version": 1, "mapId": mapID, "deviceId": protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), "counter": 1, "hash": fmt.Sprintf("%x", digest[:]), "changes": base64.StdEncoding.EncodeToString(changes)}
+	if err := wsjson.Write(context.Background(), conn, map[string]any{"type": "submit", "changes": frame}); err != nil {
+		t.Fatal(err)
+	}
+	var rejected map[string]any
+	for {
+		if err := wsjson.Read(context.Background(), conn, &rejected); err != nil {
+			t.Fatal(err)
+		}
+		if rejected["type"] != "presence" {
+			break
+		}
+	}
+	if rejected["type"] != "rejected" || rejected["code"] != "invalid_message" {
+		t.Fatalf("websocket response = %v", rejected)
+	}
+	head, err := store.LoadHead(context.Background(), protocol.MapID(created.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.Seq != 0 || head.BatchID != "" {
+		t.Fatalf("head advanced past invalid snapshot: %+v", head)
+	}
+
+	changes = []byte(`{"portable":"restart"}`)
+	digest = sha256.Sum256(changes)
+	frame = map[string]any{"version": 1, "mapId": mapID, "deviceId": protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), "counter": 1, "hash": fmt.Sprintf("%x", digest[:]), "changes": base64.StdEncoding.EncodeToString(changes)}
 	if err := wsjson.Write(context.Background(), conn, map[string]any{"type": "submit", "changes": frame}); err != nil {
 		t.Fatal(err)
 	}
 	var committed map[string]any
-	if err := wsjson.Read(context.Background(), conn, &committed); err != nil {
-		t.Fatal(err)
+	for {
+		if err := wsjson.Read(context.Background(), conn, &committed); err != nil {
+			t.Fatal(err)
+		}
+		if committed["type"] != "presence" {
+			break
+		}
 	}
 	if committed["type"] != "committed" {
 		t.Fatalf("websocket response = %v", committed)
 	}
-	head, err := store.LoadHead(context.Background(), protocol.MapID(created.ID))
+	head, err = store.LoadHead(context.Background(), protocol.MapID(created.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

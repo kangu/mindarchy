@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,14 +20,24 @@ import (
 	"mindarchy/backend/internal/sharing"
 )
 
+const presenceDefaultTTL = 10 * time.Second
+
 type ProductionServer struct {
-	ready   func(context.Context) error
-	verify  *auth.Verifier
-	sharing *sharing.Service
-	session *auth.CouchSession
-	rooms   *rooms.Manager
-	liveMu  sync.Mutex
-	live    map[protocol.MapID]map[*livePeer]struct{}
+	ready             func(context.Context) error
+	verify            *auth.Verifier
+	sharing           *sharing.Service
+	session           *auth.CouchSession
+	rooms             *rooms.Manager
+	presenceTTLConfig time.Duration
+	liveMu            sync.Mutex
+	live              map[protocol.MapID]map[*livePeer]struct{}
+	presence          map[protocol.MapID]map[protocol.AccountID]time.Time
+}
+
+type ServerOption func(*ProductionServer)
+
+func WithPresenceTTL(ttl time.Duration) ServerOption {
+	return func(server *ProductionServer) { server.presenceTTLConfig = ttl }
 }
 
 type livePeer struct {
@@ -38,8 +51,99 @@ func (p *livePeer) write(ctx context.Context, value any) error {
 	return wsjson.Write(ctx, p.conn, value)
 }
 
-func NewProductionServer(ready func(context.Context) error, verify *auth.Verifier, service *sharing.Service, session *auth.CouchSession, manager *rooms.Manager) *ProductionServer {
-	return &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager, live: map[protocol.MapID]map[*livePeer]struct{}{}}
+func NewProductionServer(ready func(context.Context) error, verify *auth.Verifier, service *sharing.Service, session *auth.CouchSession, manager *rooms.Manager, options ...ServerOption) *ProductionServer {
+	server := &ProductionServer{ready: ready, verify: verify, sharing: service, session: session, rooms: manager, live: map[protocol.MapID]map[*livePeer]struct{}{}, presence: map[protocol.MapID]map[protocol.AccountID]time.Time{}}
+	for _, option := range options {
+		option(server)
+	}
+	if server.rooms != nil && service != nil {
+		server.rooms.CheckTarget = func(_ context.Context, mapID protocol.MapID, account protocol.AccountID) error {
+			role, err := service.Role(account, mapID)
+			if err != nil || role == "viewer" {
+				return rooms.ErrAccessDenied
+			}
+			return nil
+		}
+	}
+	go server.presenceJanitor()
+	return server
+}
+
+func (s *ProductionServer) presenceInterval() time.Duration {
+	interval := s.presenceTTL() / 10
+	if interval < 50*time.Millisecond {
+		interval = 50 * time.Millisecond
+	}
+	return interval
+}
+
+func (s *ProductionServer) presenceTTL() time.Duration {
+	if s.presenceTTLConfig > 0 {
+		return s.presenceTTLConfig
+	}
+	return presenceDefaultTTL
+}
+
+func (s *ProductionServer) presenceJanitor() {
+	ticker := time.NewTicker(s.presenceInterval())
+	defer ticker.Stop()
+	for range ticker.C {
+		type sweep struct {
+			mapID  protocol.MapID
+			peers  []*livePeer
+			roster []string
+		}
+		var sweeps []sweep
+		s.liveMu.Lock()
+		for mapID, entries := range s.presence {
+			changed := false
+			for account, lastSeen := range entries {
+				if time.Since(lastSeen) > s.presenceTTL() {
+					delete(entries, account)
+					changed = true
+				}
+			}
+			if len(entries) == 0 {
+				delete(s.presence, mapID)
+			}
+			if changed && len(s.live[mapID]) > 0 {
+				sweeps = append(sweeps, sweep{mapID: mapID, peers: s.peersLocked(mapID), roster: s.rosterLocked(mapID)})
+			}
+		}
+		s.liveMu.Unlock()
+		for _, item := range sweeps {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			for _, peer := range item.peers {
+				_ = peer.write(ctx, map[string]any{"type": "presence", "accounts": item.roster})
+			}
+			cancel()
+		}
+	}
+}
+
+func (s *ProductionServer) peersLocked(mapID protocol.MapID) []*livePeer {
+	peers := make([]*livePeer, 0, len(s.live[mapID]))
+	for peer := range s.live[mapID] {
+		peers = append(peers, peer)
+	}
+	return peers
+}
+
+func (s *ProductionServer) rosterLocked(mapID protocol.MapID) []string {
+	accounts := make([]string, 0, len(s.presence[mapID]))
+	for account := range s.presence[mapID] {
+		accounts = append(accounts, string(account))
+	}
+	sort.Strings(accounts)
+	return accounts
+}
+
+func (s *ProductionServer) touchPresence(mapID protocol.MapID, account protocol.AccountID) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	if _, exists := s.presence[mapID][account]; exists {
+		s.presence[mapID][account] = time.Now()
+	}
 }
 
 func (s *ProductionServer) Handler() http.Handler {
@@ -162,10 +266,33 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		s.live[mapID] = map[*livePeer]struct{}{}
 	}
 	s.live[mapID][peer] = struct{}{}
+	if s.presence[mapID] == nil {
+		s.presence[mapID] = map[protocol.AccountID]time.Time{}
+	}
+	s.presence[mapID][identity.Account] = time.Now()
+	roster := s.rosterLocked(mapID)
+	peers := s.peersLocked(mapID)
 	s.liveMu.Unlock()
-	defer func() { s.liveMu.Lock(); delete(s.live[mapID], peer); s.liveMu.Unlock() }()
+	defer func() {
+		s.liveMu.Lock()
+		delete(s.live[mapID], peer)
+		if len(s.live[mapID]) == 0 {
+			delete(s.live, mapID)
+		}
+		s.liveMu.Unlock()
+	}()
 	_ = peer.write(request.Context(), map[string]any{"type": "hello", "mapId": mapID, "role": role})
+	ctx, cancel := context.WithTimeout(request.Context(), 5*time.Second)
+	for _, target := range peers {
+		_ = target.write(ctx, map[string]any{"type": "presence", "accounts": roster})
+	}
+	cancel()
 	for {
+		identity, ok := s.identity(request)
+		if !ok {
+			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
+			return
+		}
 		var message struct {
 			Type    string          `json:"type"`
 			Changes json.RawMessage `json:"changes"`
@@ -173,37 +300,59 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		if err := wsjson.Read(request.Context(), conn, &message); err != nil {
 			return
 		}
+		s.touchPresence(mapID, identity.Account)
 		switch message.Type {
 		case "presence":
-			s.broadcast(request.Context(), mapID, map[string]any{"type": "presence", "accountId": identity.Account})
 		case "submit":
-			if role == "viewer" {
-				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "access_revoked"})
-				continue
+			role, err := s.sharing.Role(identity.Account, mapID)
+			if err != nil || role == "viewer" {
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
+				return
 			}
 			if s.rooms == nil {
-				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "resync_required"})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorResync})
 				continue
 			}
 			update, err := protocol.DecodeSubmit(message.Changes)
 			if err != nil {
-				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "invalid_message"})
+				code := protocol.ErrorInvalidMessage
+				var protocolErr *protocol.ProtocolError
+				if errors.As(err, &protocolErr) {
+					code = protocolErr.Code
+				}
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": code})
 				continue
 			}
 			if update.MapID != mapID {
-				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "access_revoked"})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
 				continue
 			}
 			receipt, err := s.rooms.Submit(request.Context(), identity.Account, update)
 			if err != nil {
-				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": err.Error()})
+				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": submitRejectionCode(err)})
+				if errors.Is(err, rooms.ErrAccessDenied) {
+					return
+				}
 				continue
 			}
-			s.broadcast(request.Context(), mapID, map[string]any{"type": "committed", "receipt": receipt})
+			state := base64.StdEncoding.EncodeToString(update.Changes)
+			s.broadcast(request.Context(), mapID, map[string]any{"type": "committed", "receipt": receipt, "state": state, "sender": string(identity.Account)})
 		default:
-			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": "invalid_message"})
+			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorInvalidMessage})
 		}
 	}
+}
+
+func submitRejectionCode(err error) string {
+	switch {
+	case errors.Is(err, rooms.ErrAccessDenied):
+		return protocol.ErrorAccessRevoked
+	case errors.Is(err, rooms.ErrInvalidMessage), errors.Is(err, rooms.ErrInvalidSnapshot):
+		return protocol.ErrorInvalidMessage
+	case errors.Is(err, rooms.ErrCounterReuse):
+		return protocol.ErrorCounterReuse
+	}
+	return protocol.ErrorResync
 }
 
 func (s *ProductionServer) broadcast(ctx context.Context, mapID protocol.MapID, value any) {

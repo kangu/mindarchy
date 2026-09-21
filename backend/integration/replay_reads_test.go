@@ -107,7 +107,9 @@ func TestReplayCommittedBatchesOnShareReads(t *testing.T) {
 	}
 	changes := []byte(`{"nodes":["base","submitted"]}`)
 	digest := sha256.Sum256(changes)
-	receipt, err := rooms.NewManager(store).Submit(context.Background(), owner, protocol.Submit{Version: protocol.Version, MapID: created.ID, DeviceID: protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), Counter: 1, Hash: hex.EncodeToString(digest[:]), Changes: changes})
+	manager := rooms.NewManager(store)
+	manager.CheckTarget = func(context.Context, protocol.MapID, protocol.AccountID) error { return nil }
+	receipt, err := manager.Submit(context.Background(), owner, protocol.Submit{Version: protocol.Version, MapID: created.ID, DeviceID: protocol.DeviceID("1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65"), Counter: 1, Hash: hex.EncodeToString(digest[:]), Changes: changes})
 	if err != nil {
 		t.Fatal(err)
 	}

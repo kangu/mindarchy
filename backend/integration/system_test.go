@@ -88,10 +88,7 @@ func TestAuthenticatedSharingAndWebSocketFlow(t *testing.T) {
 	if err := wsjson.Write(context.Background(), conn, map[string]any{"type": "submit", "changes": "test"}); err != nil {
 		t.Fatal(err)
 	}
-	var committed map[string]any
-	if err := wsjson.Read(context.Background(), conn, &committed); err != nil {
-		t.Fatal(err)
-	}
+	var committed = readNonPresence(t, conn)
 	if committed["type"] != "rejected" {
 		t.Fatalf("commit = %v", committed)
 	}

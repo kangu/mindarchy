@@ -37,6 +37,35 @@ idempotent; reusing a counter with different bytes is a `counter_reuse` error.
 The JSON envelope is separate from causal sync messages. Receiving a sync
 message never acknowledges or persists an edit.
 
+## Live WebSocket messages
+
+On the production `/v1/maps/{mapId}/live` socket, the server sends `hello`
+followed by the current roster, then broadcasts to every peer in the room,
+including the sender.
+
+`committed` carries the receipt plus the committed change bytes so peers apply
+the state without an extra fetch:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `type` | string | `committed` |
+| `receipt` | object | Device ID, counter, hash and committed sequence |
+| `state` | base64 string | Committed change bytes (snapshot payload) |
+| `sender` | string | Authenticated account that submitted the change |
+
+`presence` carries the room roster. Any incoming message from a peer refreshes
+its presence TTL (10 seconds); a background sweep broadcasts the updated
+roster whenever membership changes, and the joining peer receives it right
+after `hello`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `type` | string | `presence` |
+| `accounts` | string array | Sorted live account IDs in the room |
+
+Identity and role are re-verified on every received message; a failed check
+answers `rejected` with code `access_revoked` and closes the socket.
+
 ## Two-peer network milestone
 
 The first executable milestone uses a loopback HTTP transport under

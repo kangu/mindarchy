@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -12,10 +13,17 @@ import (
 	"mindarchy/backend/internal/protocol"
 )
 
+var (
+	ErrAccessDenied    = errors.New("access_denied")
+	ErrInvalidMessage  = errors.New(protocol.ErrorInvalidMessage)
+	ErrInvalidSnapshot = errors.New(protocol.ErrorInvalidMessage)
+)
+
 type Manager struct {
-	store couch.Store
-	mu    sync.Mutex
-	rooms map[protocol.MapID]*roomState
+	store       couch.Store
+	CheckTarget func(ctx context.Context, mapID protocol.MapID, account protocol.AccountID) error
+	mu          sync.Mutex
+	rooms       map[protocol.MapID]*roomState
 }
 
 type roomState struct {
@@ -41,6 +49,19 @@ func (m *Manager) room(mapID protocol.MapID) *roomState {
 // Submit commits an immutable batch before advancing the authoritative head.
 // It serializes submissions per map and never acknowledges a speculative head.
 func (m *Manager) Submit(ctx context.Context, account protocol.AccountID, update protocol.Submit) (protocol.Receipt, error) {
+	if m.CheckTarget == nil {
+		return protocol.Receipt{}, ErrAccessDenied
+	}
+	if err := m.CheckTarget(ctx, update.MapID, account); err != nil {
+		return protocol.Receipt{}, ErrAccessDenied
+	}
+	if len(update.Changes) > protocol.MaxDecodedChanges || !json.Valid(update.Changes) {
+		return protocol.Receipt{}, ErrInvalidSnapshot
+	}
+	changesDigest := sha256.Sum256(update.Changes)
+	if hex.EncodeToString(changesDigest[:]) != update.Hash {
+		return protocol.Receipt{}, ErrInvalidMessage
+	}
 	state := m.room(update.MapID)
 	state.mu.Lock()
 	defer state.mu.Unlock()
