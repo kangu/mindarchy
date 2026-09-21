@@ -113,6 +113,11 @@ else()
 set_tests_properties(windowplacement PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+add_executable(windowplacementoffscreen_test tests/windowplacementoffscreen_test.cpp src/windowplacement.cpp)
+target_link_libraries(windowplacementoffscreen_test PRIVATE Qt6::Quick Qt6::Test)
+add_test(NAME windowplacementoffscreen COMMAND windowplacementoffscreen_test)
+set_tests_properties(windowplacementoffscreen PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(collaboration_store_test tests/collaboration_store_test.cpp)
 target_link_libraries(collaboration_store_test PRIVATE mindmap_collaboration Qt6::Test)
 add_test(NAME collaboration_store COMMAND collaboration_store_test)
@@ -192,7 +197,7 @@ add_test(NAME manualplacement COMMAND manualplacement_test)
 set_tests_properties(manualplacement PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # Tests are explicitly built by development/release checks, not every app build.
-set(fast_tests engine canvas preview manualplacement sharesettings shareclient sharetransport sharecoordinator collaboration_store collaboration_engine_bridge)
+set(fast_tests engine canvas preview manualplacement sharesettings shareclient sharetransport sharecoordinator collaboration_store collaboration_engine_bridge windowplacementoffscreen)
 set(slow_tests ui)
 if(WIN32)
     list(APPEND slow_tests windowsdialogs)
