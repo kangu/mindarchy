@@ -294,7 +294,7 @@ func (s *Service) Accept(account protocol.AccountID, token string) (Map, error) 
 		for candidate, candidateRole := range entry.ACL {
 			acl[candidate] = candidateRole
 		}
-		if _, err := store.CompareAndSwapHead(context.Background(), invite.MapID, head.Rev, protocol.Head{Rev: head.Rev, Seq: head.Seq + 1, BatchID: head.BatchID, SnapshotID: head.SnapshotID, SnapshotSeq: head.SnapshotSeq, ACL: acl}); err != nil {
+		if _, err := store.CompareAndSwapHead(context.Background(), invite.MapID, head.Rev, protocol.Head{Rev: head.Rev, Seq: head.Seq, BatchID: head.BatchID, SnapshotID: head.SnapshotID, SnapshotSeq: head.SnapshotSeq, ACL: acl}); err != nil {
 			return Map{}, err
 		}
 	}
