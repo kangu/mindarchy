@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QJsonObject>
 #include <QString>
 #include <QByteArray>
 #include <QStringList>
@@ -22,6 +23,9 @@ public:
     Q_INVOKABLE void setDeviceId(const QString &id);
 
     virtual bool connected() const;
+    int protocol() const { return m_protocol; }
+    virtual void submitEdit(const QByteArray &payload, const QString &hash);
+    static QByteArray encodeEdit(const QByteArray &payload, const QString &hash);
     QString errorCode() const;
     QString deviceId() const;
 
@@ -30,6 +34,7 @@ public:
 
 signals:
     void connectedChanged();
+    void liveMessage(QJsonObject message);
     void joined(QString mapId, QString role);
     void committed(quint64 seq, QString deviceId, quint64 counter, QString hash, QByteArray state, QString sender);
     void presence(QStringList accounts);
@@ -51,6 +56,7 @@ private:
     QString m_mapId;
     QString m_errorCode;
     bool m_connected = false;
+    int m_protocol = 0;
     QWebSocket m_socket;
     QTimer m_reconnectTimer;
     QTimer m_pingTimer;

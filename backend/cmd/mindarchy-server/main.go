@@ -22,6 +22,12 @@ func main() {
 		log.Fatal(err)
 	}
 	store := couch.NewStore(settings.CouchURL, settings.CouchDatabase, settings.CouchUser, settings.CouchPassword)
+	indexCtx, cancelIndex := context.WithTimeout(context.Background(), settings.WriteTimeout)
+	if err := store.EnsureIndexes(indexCtx); err != nil {
+		cancelIndex()
+		log.Fatal(err)
+	}
+	cancelIndex()
 	var verifier *auth.Verifier
 	if settings.OIDCIssuer != "" {
 		verifier, err = auth.NewVerifier(context.Background(), settings.OIDCIssuer, settings.OIDCAudience)

@@ -20,7 +20,7 @@ public:
         if (m_socket) m_socket->sendTextMessage(QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
     }
     QUrl urlFor(const QString &mapId) const {
-        return QUrl(QString("ws://127.0.0.1:%1/v1/maps/%2/live").arg(m_server.serverPort()).arg(mapId));
+        return QUrl(QString("ws://127.0.0.1:%1/v1/maps/%2/live?protocol=2").arg(m_server.serverPort()).arg(mapId));
     }
     QString baseUrl() const { return QString("ws://127.0.0.1:%1").arg(m_server.serverPort()); }
     int port() const { return m_server.serverPort(); }
@@ -33,6 +33,18 @@ private:
 class ShareTransportTest : public QObject {
     Q_OBJECT
 private slots:
+    void liveV2RoundTrip() {
+        StubLiveServer server; ShareTransport transport; transport.setBaseUrl(server.baseUrl());transport.join("map-1");
+        QTRY_VERIFY(server.m_socket);QSignalSpy live(&transport,&ShareTransport::liveMessage);
+        server.sendJson({{"type","hello"},{"protocol",2},{"mapId","map-1"},{"epoch","epoch"},{"revision",0}});
+        QTRY_COMPARE(live.count(),1);QCOMPARE(transport.protocol(),2);
+        QByteArray payload="{\"version\":2,\"id\":\"stable\",\"ops\":[]}";transport.submitEdit(payload,"hash");
+        QTRY_COMPARE(server.m_messages.size(),1);auto frame=QJsonDocument::fromJson(server.m_messages.first().toUtf8()).object();
+        QCOMPARE(frame["type"].toString(),QString("edit"));QCOMPARE(QByteArray::fromBase64(frame["operation"].toString().toLatin1()),payload);
+        transport.submit(1,"hash",payload);QTest::qWait(20);QCOMPARE(server.m_messages.size(),1);
+        server.sendJson({{"type","applied"},{"epoch","epoch"},{"revision",1}});QTRY_COMPARE(live.count(),2);
+        server.sendJson({{"type","durable"},{"epoch","epoch"},{"revision",1}});QTRY_COMPARE(live.count(),3);
+    }
     void encodeSubmitEnvelope() {
         const QByteArray changes = "hello";
         const QString hash = QString::fromLatin1(QCryptographicHash::hash(changes, QCryptographicHash::Sha256).toHex());
@@ -74,6 +86,7 @@ private slots:
         transport.join("map-1");
         QTRY_VERIFY(server.m_socket);
         server.sendJson({{"type", "hello"}, {"mapId", "map-1"}, {"role", "editor"}});
+        QTRY_COMPARE(transport.protocol(), 1);
         const QByteArray changes = "hello";
         transport.submit(3, "abc", changes);
         QTRY_COMPARE(server.m_messages.count(), 1);
@@ -93,6 +106,10 @@ private slots:
         transport.setBaseUrl(server.baseUrl());
         transport.join("map-1");
         QTRY_VERIFY(server.m_socket);
+        transport.submit(1, "h", QByteArray("x"));
+        QTest::qWait(20);QVERIFY(server.m_messages.isEmpty());
+        server.sendJson({{"type","hello"},{"mapId","map-1"}});
+        QTRY_COMPARE(transport.protocol(),1);
         QCOMPARE(transport.deviceId(), QString("coordinator-device"));
         transport.submit(1, "h", QByteArray("x"));
         QTRY_COMPARE(server.m_messages.count(), 1);

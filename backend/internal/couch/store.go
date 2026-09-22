@@ -21,7 +21,6 @@ var (
 )
 
 type Store interface {
-	ListMapIDs(context.Context) ([]protocol.MapID, error)
 	LoadHead(context.Context, protocol.MapID) (protocol.Head, error)
 	GetImmutable(context.Context, string) ([]byte, error)
 	PutImmutable(context.Context, string, []byte) error
@@ -34,40 +33,6 @@ type StoreClient struct {
 	client *http.Client
 	user   string
 	pass   string
-}
-
-func (s *StoreClient) ListMapIDs(ctx context.Context) ([]protocol.MapID, error) {
-	endpoint := s.base + "/" + url.PathEscape(s.db) + "/_all_docs?startkey=%22map:%22&endkey=%22map:%5Cuffff%22"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	if s.user != "" {
-		request.SetBasicAuth(s.user, s.pass)
-	}
-	response, err := s.client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("couch list status %d", response.StatusCode)
-	}
-	var result struct {
-		Rows []struct {
-			ID string `json:"id"`
-		} `json:"rows"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	ids := []protocol.MapID{}
-	for _, row := range result.Rows {
-		if strings.HasPrefix(row.ID, "map:") && strings.HasSuffix(row.ID, ":head") {
-			ids = append(ids, protocol.MapID(strings.TrimSuffix(strings.TrimPrefix(row.ID, "map:"), ":head")))
-		}
-	}
-	return ids, nil
 }
 
 func NewStore(baseURL, database, user, password string) *StoreClient {
@@ -94,10 +59,11 @@ func (s *StoreClient) Ping(ctx context.Context) error {
 }
 
 type document struct {
-	ID      string `json:"_id"`
-	Rev     string `json:"_rev,omitempty"`
-	Kind    string `json:"kind"`
-	Payload []byte `json:"payload"`
+	ID      string         `json:"_id"`
+	Rev     string         `json:"_rev,omitempty"`
+	Kind    string         `json:"kind"`
+	Payload []byte         `json:"payload"`
+	Head    *protocol.Head `json:"head,omitempty"`
 }
 
 func (s *StoreClient) LoadHead(ctx context.Context, mapID protocol.MapID) (protocol.Head, error) {
@@ -142,7 +108,7 @@ func (s *StoreClient) CompareAndSwapHead(ctx context.Context, mapID protocol.Map
 	if err != nil {
 		return protocol.Head{}, err
 	}
-	doc := document{ID: headID(mapID), Rev: expectedRev, Kind: "head", Payload: payload}
+	doc := document{ID: headID(mapID), Rev: expectedRev, Kind: "head", Payload: payload, Head: &next}
 	updated, err := s.putResponse(ctx, doc)
 	if err != nil {
 		return protocol.Head{}, err
@@ -225,4 +191,31 @@ func headID(id protocol.MapID) string { return "map:" + string(id) + ":head" }
 func (s *StoreClient) ReplayChain(ctx context.Context, mapID protocol.MapID) ([][]byte, error) {
 	_, changes, err := ReplayBatched(ctx, s, mapID)
 	return changes, err
+}
+
+// DeleteImmutable is idempotent so interrupted garbage collection can resume.
+func (s *StoreClient) DeleteImmutable(ctx context.Context, id string) error {
+	doc, err := s.get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, s.documentURL(id)+"?rev="+url.QueryEscape(doc.Rev), nil)
+	if err != nil {
+		return err
+	}
+	if s.user != "" {
+		request.SetBasicAuth(s.user, s.pass)
+	}
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted {
+		return nil
+	}
+	return fmt.Errorf("delete immutable: %d", response.StatusCode)
 }

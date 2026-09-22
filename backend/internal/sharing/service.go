@@ -12,19 +12,18 @@ import (
 	"sync"
 	"time"
 
+	"mindarchy/backend/internal/couch"
 	"mindarchy/backend/internal/protocol"
 )
 
 type Persistence interface {
-	ListMapIDs(context.Context) ([]protocol.MapID, error)
 	LoadHead(context.Context, protocol.MapID) (protocol.Head, error)
 	GetImmutable(context.Context, string) ([]byte, error)
 	PutImmutable(context.Context, string, []byte) error
 	CompareAndSwapHead(context.Context, protocol.MapID, string, protocol.Head) (protocol.Head, error)
-	ReplayChain(context.Context, protocol.MapID) ([][]byte, error)
 }
 
-var ErrNotFound = errors.New("not_found")
+var ErrNotFound = couch.ErrNotFound
 var ErrForbidden = errors.New("forbidden")
 
 type Map struct {
@@ -84,31 +83,15 @@ func (s *Service) PersistMap(entry Map) error {
 	for account, role := range entry.ACL {
 		acl[account] = role
 	}
-	_, err := store.CompareAndSwapHead(context.Background(), entry.ID, "", protocol.Head{SnapshotID: snapshotID, ACL: acl, Name: entry.Name})
+	_, err := store.CompareAndSwapHead(context.Background(), entry.ID, "", protocol.Head{SnapshotID: snapshotID, ACL: acl, Name: entry.Name, ReceiptsIndexed: true})
 	return err
 }
 
-func (s *Service) List(account protocol.AccountID) []Map {
-	if store, ok := s.persistence.(Persistence); ok {
-		if ids, err := store.ListMapIDs(context.Background()); err == nil {
-			for _, id := range ids {
-				_ = s.hydrate(id)
-			}
-		}
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := []Map{}
-	for _, entry := range s.maps {
-		if _, ok := entry.ACL[account]; ok {
-			result = append(result, clone(*entry))
-		}
-	}
-	return result
-}
-
 func (s *Service) Get(account protocol.AccountID, id protocol.MapID) (Map, error) {
-	if err := s.hydrateWithChain(id); err != nil && !errors.Is(err, ErrNotFound) {
+	if _, err := s.Role(account, id); err != nil {
+		return Map{}, err
+	}
+	if err := s.hydrateCurrent(id); s.persistence != nil && err != nil {
 		return Map{}, err
 	}
 	s.mu.RLock()
@@ -123,44 +106,7 @@ func (s *Service) Get(account protocol.AccountID, id protocol.MapID) (Map, error
 	return clone(*entry), nil
 }
 
-func (s *Service) hydrate(id protocol.MapID) error {
-	s.mu.RLock()
-	_, exists := s.maps[id]
-	s.mu.RUnlock()
-	if exists {
-		return nil
-	}
-	store, ok := s.persistence.(Persistence)
-	if !ok {
-		return ErrNotFound
-	}
-	head, err := store.LoadHead(context.Background(), id)
-	if err != nil {
-		return err
-	}
-	snapshot, err := store.GetImmutable(context.Background(), head.SnapshotID)
-	if err != nil {
-		return err
-	}
-	owner := protocol.AccountID("")
-	for account, role := range head.ACL {
-		if role == "owner" {
-			owner = account
-			break
-		}
-	}
-	if owner == "" {
-		return ErrNotFound
-	}
-	s.mu.Lock()
-	if _, exists := s.maps[id]; !exists {
-		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: snapshot, Name: nonEmpty(head.Name, string(id)), head: head}
-	}
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *Service) hydrateWithChain(id protocol.MapID) error {
+func (s *Service) hydrateCurrent(id protocol.MapID) error {
 	store := s.persistence
 	if store == nil {
 		return ErrNotFound
@@ -179,14 +125,26 @@ func (s *Service) hydrateWithChain(id protocol.MapID) error {
 	if exists && known.Rev == head.Rev && known.Seq == head.Seq && known.BatchID == head.BatchID && known.SnapshotID == head.SnapshotID {
 		return nil
 	}
-	snapshot, err := store.GetImmutable(context.Background(), head.SnapshotID)
-	if err != nil {
-		return err
-	}
-	effective := snapshot
-	if batches, err := store.ReplayChain(context.Background(), id); err == nil && len(batches) > 0 {
-		if last := batches[len(batches)-1]; len(last) > 0 {
-			effective = last
+	// The Qt protocol stores complete JSON documents in each batch. The
+	// authoritative head already identifies the latest committed state.
+	var effective []byte
+	if head.BatchID != "" {
+		payload, err := store.GetImmutable(context.Background(), head.BatchID)
+		if err != nil {
+			return fmt.Errorf("load current batch: %w", err)
+		}
+		var batch couch.Batch
+		if err := json.Unmarshal(payload, &batch); err != nil {
+			return err
+		}
+		if batch.ID != head.BatchID || batch.Seq != head.Seq || !json.Valid(batch.Changes) {
+			return fmt.Errorf("invalid current batch")
+		}
+		effective = batch.Changes
+	} else {
+		effective, err = store.GetImmutable(context.Background(), head.SnapshotID)
+		if err != nil {
+			return fmt.Errorf("load current snapshot: %w", err)
 		}
 	}
 	owner := protocol.AccountID("")
@@ -214,20 +172,23 @@ func (s *Service) hydrateWithChain(id protocol.MapID) error {
 }
 
 func (s *Service) Role(account protocol.AccountID, id protocol.MapID) (string, error) {
-	if err := s.hydrateWithChain(id); err != nil && !errors.Is(err, ErrNotFound) {
-		return "", err
+	if s.persistence != nil {
+		head, err := s.persistence.LoadHead(context.Background(), id)
+		if err != nil {
+			return "", err
+		}
+		if head.Deleted || head.ACL[account] == "" {
+			return "", ErrNotFound
+		}
+		return head.ACL[account], nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	entry, ok := s.maps[id]
-	if !ok {
+	if !ok || entry.ACL[account] == "" {
 		return "", ErrNotFound
 	}
-	role, ok := entry.ACL[account]
-	if !ok {
-		return "", ErrNotFound
-	}
-	return role, nil
+	return entry.ACL[account], nil
 }
 
 func (s *Service) SetAccountIDResolver(resolver func(string) protocol.AccountID) {
@@ -290,7 +251,7 @@ func (s *Service) Accept(account protocol.AccountID, token string) (Map, error) 
 	if !ok || time.Now().After(invite.Expires) || invite.Account != account {
 		return Map{}, ErrNotFound
 	}
-	if err := s.hydrateWithChain(invite.MapID); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := s.hydrateCurrent(invite.MapID); err != nil && !errors.Is(err, ErrNotFound) {
 		return Map{}, err
 	}
 	s.mu.Lock()
@@ -314,7 +275,8 @@ func (s *Service) Accept(account protocol.AccountID, token string) (Map, error) 
 		for candidate, candidateRole := range entry.ACL {
 			acl[candidate] = candidateRole
 		}
-		if _, err := store.CompareAndSwapHead(context.Background(), invite.MapID, head.Rev, protocol.Head{Rev: head.Rev, Seq: head.Seq, BatchID: head.BatchID, SnapshotID: head.SnapshotID, SnapshotSeq: head.SnapshotSeq, ACL: acl}); err != nil {
+		head.ACL = acl
+		if _, err := store.CompareAndSwapHead(context.Background(), invite.MapID, head.Rev, head); err != nil {
 			return Map{}, err
 		}
 	}

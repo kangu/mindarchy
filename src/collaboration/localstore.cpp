@@ -34,7 +34,7 @@ bool CollaborationLocalStore::open() {
 
 bool CollaborationLocalStore::saveAccepted(const QString &mapId, const QByteArray &state, quint64 sequence, quint64 nextCounter) {
     if (!open()) return false;
-    QSqlQuery query(m_database); query.prepare("INSERT INTO maps(map_id, accepted, sequence, next_counter) VALUES(?, ?, ?, ?) ON CONFLICT(map_id) DO UPDATE SET accepted=excluded.accepted, sequence=excluded.sequence, next_counter=excluded.next_counter");
+    QSqlQuery query(m_database); query.prepare("INSERT INTO maps(map_id, accepted, sequence, next_counter) VALUES(?, ?, ?, ?) ON CONFLICT(map_id) DO UPDATE SET accepted=excluded.accepted, sequence=excluded.sequence, next_counter=MAX(maps.next_counter, excluded.next_counter)");
     query.addBindValue(mapId); query.addBindValue(state); query.addBindValue(QVariant::fromValue<qulonglong>(sequence)); query.addBindValue(QVariant::fromValue<qulonglong>(nextCounter));
     if (!query.exec()) { fail(query.lastError().text()); return false; } return true;
 }
@@ -47,9 +47,31 @@ QByteArray CollaborationLocalStore::accepted(const QString &mapId, quint64 *sequ
 }
 
 bool CollaborationLocalStore::enqueue(const QString &mapId, quint64 counter, const QString &hash, const QByteArray &changes) {
-    if (!open()) return false;
-    QSqlQuery query(m_database); query.prepare("INSERT INTO pending(map_id, counter, hash, changes) VALUES(?, ?, ?, ?) ON CONFLICT(map_id, counter) DO NOTHING"); query.addBindValue(mapId); query.addBindValue(QVariant::fromValue<qulonglong>(counter)); query.addBindValue(hash); query.addBindValue(changes);
-    if (!query.exec()) { fail(query.lastError().text()); return false; } return true;
+    if (!open() || !m_database.transaction()) return false;
+    QSqlQuery existing(m_database);
+    existing.prepare("SELECT hash, changes FROM pending WHERE map_id=? AND counter=?");
+    existing.addBindValue(mapId);
+    existing.addBindValue(QVariant::fromValue<qulonglong>(counter));
+    if (!existing.exec()) { m_database.rollback(); return false; }
+    if (existing.next()) {
+        const bool identical = existing.value(0).toString() == hash && existing.value(1).toByteArray() == changes;
+        m_database.rollback();
+        if (!identical) fail("counter already allocated to another payload");
+        return identical;
+    }
+    QSqlQuery query(m_database);
+    query.prepare("INSERT INTO pending(map_id, counter, hash, changes) VALUES(?, ?, ?, ?)");
+    query.addBindValue(mapId);
+    query.addBindValue(QVariant::fromValue<qulonglong>(counter));
+    query.addBindValue(hash);
+    query.addBindValue(changes);
+    if (!query.exec()) { fail(query.lastError().text()); m_database.rollback(); return false; }
+    QSqlQuery allocation(m_database);
+    allocation.prepare("INSERT INTO maps(map_id, accepted, sequence, next_counter) VALUES(?, X'', 0, ?) ON CONFLICT(map_id) DO UPDATE SET next_counter=MAX(maps.next_counter, excluded.next_counter)");
+    allocation.addBindValue(mapId);
+    allocation.addBindValue(QVariant::fromValue<qulonglong>(counter + 1));
+    if (!allocation.exec()) { fail(allocation.lastError().text()); m_database.rollback(); return false; }
+    return m_database.commit();
 }
 
 QList<CollaborationPending> CollaborationLocalStore::pending(const QString &mapId) const {

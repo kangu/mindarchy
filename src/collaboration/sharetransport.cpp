@@ -103,7 +103,7 @@ void ShareTransport::setDeviceId(const QString &id) {
 QString ShareTransport::deviceId() const { return m_deviceId; }
 
 void ShareTransport::submit(quint64 counter, const QString &hash, const QByteArray &changes) {
-    if (!m_connected) return;
+    if (!m_connected || m_protocol != 1) return;
     const QJsonObject envelope{{"type", "submit"},
                                {"changes", changesObject(m_mapId, m_deviceId, counter, hash, changes)}};
     m_socket.sendTextMessage(QString::fromUtf8(QJsonDocument(envelope).toJson(QJsonDocument::Compact)));
@@ -133,10 +133,11 @@ QByteArray ShareTransport::encodeSubmit(const QString &mapId, const QString &dev
 }
 
 QUrl ShareTransport::liveUrl(const QString &mapId) const {
-    return QUrl(m_baseUrl + QStringLiteral("/v1/maps/%1/live").arg(mapId));
+    return QUrl(m_baseUrl + QStringLiteral("/v1/maps/%1/live?protocol=2").arg(mapId));
 }
 
 void ShareTransport::openSocket(const QString &mapId) {
+    m_protocol = 0;
     QNetworkRequest request{liveUrl(mapId)};
     if (!m_sessionCookie.isEmpty()) {
         const QNetworkCookie cookie(QByteArrayLiteral("AuthSession"), m_sessionCookie.toUtf8());
@@ -158,8 +159,12 @@ void ShareTransport::handleMessage(const QString &message) {
     const QJsonObject object = QJsonDocument::fromJson(message.toUtf8()).object();
     const QString type = object.value("type").toString();
     if (type == QStringLiteral("hello")) {
+        m_protocol = object.value("protocol").toInt(1);
+        if (m_protocol == 2) emit liveMessage(object);
         emit joined(object.value("mapId").toString(), object.value("role").toString());
-    } else if (type == QStringLiteral("committed")) {
+    } else if (m_protocol == 2 && (type == "applied" || type == "durable")) {
+        emit liveMessage(object);
+    } else if (type == QStringLiteral("committed") && m_protocol != 2) {
         const QJsonObject receipt = object.value("receipt").toObject();
         const QByteArray state = QByteArray::fromBase64(object.value("state").toString().toUtf8());
         emit committed(static_cast<quint64>(receipt.value("seq").toInteger(0)),
@@ -197,4 +202,11 @@ void ShareTransport::scheduleReconnect() {
 
 void ShareTransport::resetBackoff() {
     m_backoffMs = kBackoffBaseMs;
+}
+
+QByteArray ShareTransport::encodeEdit(const QByteArray &payload, const QString &hash) {
+ return QJsonDocument(QJsonObject{{"type","edit"},{"operation",QString::fromLatin1(payload.toBase64())},{"hash",hash}}).toJson(QJsonDocument::Compact);
+}
+void ShareTransport::submitEdit(const QByteArray &payload, const QString &hash) {
+ if(m_connected && m_protocol==2) m_socket.sendTextMessage(QString::fromUtf8(encodeEdit(payload,hash)));
 }

@@ -1,4 +1,6 @@
 #include "session.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 
 CollaborationSession::CollaborationSession(QObject *parent) : QObject(parent) {}
 
@@ -28,3 +30,11 @@ void CollaborationSession::clearPendingByCounter(const QString &mapId, quint64 c
 void CollaborationSession::markSyncing() { setStatus("Syncing"); }
 void CollaborationSession::markAccessRemoved() { setStatus("Access removed"); }
 void CollaborationSession::setStatus(const QString &status) { if (m_status == status) return; m_status = status; emit statusChanged(); }
+
+quint64 CollaborationSession::nextCounter() const {
+ quint64 next=1;if(m_store)m_store->accepted(m_mapId,nullptr,&next);
+ for(const auto &row:pendingForSubmit())next=qMax(next,row.counter+1);return next;
+}
+void CollaborationSession::clearOperation(const QString &id,const QString &hash) {
+ for(const auto &row:pendingForSubmit())if(row.hash==hash&&QJsonDocument::fromJson(row.changes).object()["id"].toString()==id)m_store->removePending(row.id);
+}

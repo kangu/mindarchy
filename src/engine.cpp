@@ -868,7 +868,7 @@ QByteArray Engine::documentBytes(QString destination) const {
             QJsonObject entries; for(auto it=n.calendar.entries.begin();it!=n.calendar.entries.end();++it) entries[it.key()]=it.value();
             calendar={{"view",n.calendar.view},{"anchor",n.calendar.anchor.toString(Qt::ISODate)},{"entries",entries}};
         }
-        QJsonObject record{{"kind",n.kind},{"calendar",calendar},{"id", id},
+        QJsonObject record{{"kind",n.kind},{"calendar",calendar},{"id", id},{"syncId",n.syncId},
                                  {"meeting",QJsonObject::fromVariantMap(n.meeting)},
                                  {"meetingSection",n.meetingSection},
                                  {"parent", n.parent},
@@ -988,6 +988,7 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
     if (array.isEmpty() || array.size() > MaxNodes)
         return fail("Document must contain 1 to 10,000 nodes.");
     QHash<int, MapNode> candidate;
+    QSet<QString> syncIds;
     QHash<int, TextMeasure> candidateMeasurements;
     int nextId = 1;
     qint64 imageBytes=0, imagePixels=0;
@@ -1007,6 +1008,9 @@ bool Engine::loadDocumentBytes(const QByteArray &bytes, const QString &path) {
         MapNode n;
         n.id = o["id"].toInt();
         n.parent = o["parent"].toInt();
+        n.syncId=o.value("syncId").toString(QString("legacy:%1").arg(n.id));
+        if ((o.contains("syncId") && !o["syncId"].isString()) || n.syncId.isEmpty() || n.syncId.size()>256 || syncIds.contains(n.syncId)) return fail("Invalid or duplicate sync identity.");
+        syncIds.insert(n.syncId);
         n.kind=o.contains("kind") ? o["kind"].toString() : QString("text");
         if(n.kind!="text" && n.kind!="date") return fail("Unsupported node kind.");
         if(n.kind=="date" || !o["calendar"].toObject().isEmpty()) {
@@ -1583,6 +1587,7 @@ bool Engine::pasteBranchData(const QByteArray &bytes) {
     for (auto value:envelope["document"].toObject()["nodes"].toArray()) {
         auto n=value.toObject(); const int old=n["id"].toInt(); if(old==1) continue;
         n["id"]=remap[old]; n["parent"]=remap.value(n["parent"].toInt(),m_selected);
+        n["syncId"]=QUuid::createUuid().toString(QUuid::WithoutBraces);
         QJsonArray kids; for(auto child:n["children"].toArray()) kids.append(remap[child.toInt()]); n["children"]=kids;
         // Offsets are relative to a different automatic layout in the source.
         // Start new branches at a clean destination placement, without overlap.
@@ -1808,4 +1813,44 @@ bool Engine::pasteImage(int id) {
     // setImage validates all budgets and creates one undo checkpoint. Paste uses
     // the source placement, whereas replacement from a file retains the target's.
     return setImage(id,image,false);
+}
+
+bool Engine::applyRemoteDocumentBytes(const QByteArray &bytes,
+                                     const std::function<QByteArray(const QByteArray &)> &rebaseHistory) {
+    Engine candidate(nullptr, InitialContent::Blank);
+    if (!candidate.loadDocumentBytes(bytes, m_documentPath)) return fail(candidate.error());
+    if (candidate.documentBytes() == documentBytes()) return true;
+    const auto preserveSelection = [](State &next, const State &previous) {
+        QHash<QString, int> ids;
+        for (const auto &node : next.nodes) ids.insert(node.syncId, node.id);
+        next.selection.clear();
+        for (int id : previous.selection) {
+            const int mapped = ids.value(previous.nodes.value(id).syncId, -1);
+            if (mapped > 0) next.selection.insert(mapped);
+        }
+        next.selected = ids.value(previous.nodes.value(previous.selected).syncId, 1);
+        if (next.selection.isEmpty()) next.selection.insert(next.selected);
+    };
+    const auto rebaseStack = [&](QVector<State> &stack) {
+        QVector<State> rebased;
+        for (const auto &old : stack) {
+            Engine snapshot(nullptr, InitialContent::Blank);
+            snapshot.restore(old);
+            const QByteArray updated = rebaseHistory(snapshot.documentBytes(m_documentPath));
+            if (updated.isEmpty() || !snapshot.loadDocumentBytes(updated, m_documentPath)) continue;
+            State next = snapshot.state();
+            preserveSelection(next, old);
+            rebased.append(next);
+        }
+        stack = rebased;
+    };
+    rebaseStack(m_undo);
+    rebaseStack(m_redo);
+    State next = candidate.state();
+    preserveSelection(next, state());
+    m_textCache.clear();
+    restore(next);
+    m_checkedRevision = ~quint64(0);
+    emit changed();
+    return true;
 }

@@ -33,6 +33,9 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 	createCouchDatabase(t, base, database, user, password)
 	defer deleteCouchDatabase(t, base, database, user, password)
 	store := couch.NewStore(base, database, user, password)
+	if err := store.EnsureIndexes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	var production http.Handler
 	mux := http.NewServeMux()
@@ -52,6 +55,13 @@ func TestRealCouchDBRestartAndDurableWebSocketSubmit(t *testing.T) {
 	decode(t, response, &created)
 	if created.ID == "" {
 		t.Fatal("map ID missing")
+	}
+
+	response = doJSON(t, client, http.MethodGet, server.URL+"/v1/maps?limit=1", nil, http.StatusOK)
+	var listed []couch.MapSummary
+	decode(t, response, &listed)
+	if len(listed) != 1 || string(listed[0].ID) != created.ID {
+		t.Fatalf("indexed list = %+v", listed)
 	}
 
 	// Replace the application service to simulate a process restart. The ACL and

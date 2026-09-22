@@ -1,10 +1,17 @@
 #include "collaboration/localstore.h"
+#include "collaboration/session.h"
 #include <QTemporaryDir>
 #include <QtTest>
 
 class CollaborationStoreTest : public QObject {
     Q_OBJECT
 private slots:
+    void operationPayloadSurvivesRestart() {
+        QTemporaryDir directory;const QByteArray payload="{\"version\":2,\"id\":\"stable-id\",\"ops\":[]}";
+        {CollaborationSession session;QVERIFY(session.openOffline("server-account",directory.path(),"map","owner"));QVERIFY(session.queueChange(42,"sha",payload));}
+        CollaborationSession session;QVERIFY(session.openOffline("server-account",directory.path(),"map","owner"));QCOMPARE(session.nextCounter(),quint64(43));QCOMPARE(session.pendingForSubmit().first().changes,payload);
+        session.clearOperation("stable-id","wrong");QCOMPARE(session.pendingForSubmit().size(),1);session.clearOperation("stable-id","sha");QVERIFY(session.pendingForSubmit().isEmpty());QCOMPARE(session.nextCounter(),quint64(43));
+    }
     void persistsAcceptedAndPendingState() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -22,7 +29,7 @@ private slots:
         quint64 sequence = 0, counter = 0;
         QCOMPARE(reopened.accepted("map-a", &sequence, &counter), QByteArray("accepted"));
         QCOMPARE(sequence, quint64(7));
-        QCOMPARE(counter, quint64(9));
+        QCOMPARE(counter, quint64(10));
         const auto pending = reopened.pending("map-a");
         QCOMPARE(pending.size(), 1);
         QVERIFY(reopened.removePending(pending.first().id));

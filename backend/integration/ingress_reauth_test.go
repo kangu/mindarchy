@@ -238,6 +238,9 @@ func TestSubmitAfterSocketExpiryRejected(t *testing.T) {
 	if committed["type"] != "committed" {
 		t.Fatalf("expected committed receipt, got %v", committed)
 	}
+	// Leave the connection idle before expiration: authorization performed
+	// before a blocking Read becomes stale while waiting for the next frame.
+	time.Sleep(50 * time.Millisecond)
 	sessions.expired.Store(true)
 	if err := wsjson.Write(context.Background(), conn, submitFrame(t, mapID, 2, []byte(`{"nodes":["second"]}`))); err != nil {
 		t.Fatal(err)

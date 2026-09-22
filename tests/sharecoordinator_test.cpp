@@ -12,6 +12,13 @@
 #include <QScopedPointer>
 #include <QCryptographicHash>
 #include "../src/collaboration/sharecoordinator.h"
+#include "../src/collaboration/liveoperations.h"
+#include "../src/collaboration/localstore.h"
+#include "../src/documentsession.h"
+#include <QDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QScopeGuard>
 #include "../src/collaboration/shareclient.h"
 #include "../src/collaboration/sharetransport.h"
 #include "../src/collaboration/sharesettings.h"
@@ -53,6 +60,8 @@ public:
 class FakeTransport : public ShareTransport {
 public:
     using ShareTransport::ShareTransport;
+    QList<QByteArray> edits;
+    void submitEdit(const QByteArray &payload,const QString &) override { edits.append(payload); }
     void setSessionCookie(const QString &value) override { sessionCookie = value; }
     void join(const QString &mapId) override {
         joins.append(mapId);
@@ -148,6 +157,122 @@ private:
     }
 
 private slots:
+    void failedOutboxWritePreservesVisibleEdits_data() {
+        QTest::addColumn<bool>("firstHello");
+        QTest::newRow("first hello") << true;
+        QTest::newRow("already live") << false;
+    }
+    void failedOutboxWritePreservesVisibleEdits() {
+        QFETCH(bool, firstHello);
+        Harness h; QVERIFY(h.setup()); QVERIFY(h.loadDocument("full-outbox.omm"));
+        h.coordinator->signIn("test-account", "password"); h.coordinator->shareCurrentMap();
+        const auto baseline=LiveOperations::normalize(h.engine.documentBytes());
+        QJsonObject hello{{"type","hello"},{"protocol",2},{"epoch","e"},{"revision",0},
+                          {"state",QString::fromLatin1(QJsonDocument(baseline).toJson(QJsonDocument::Compact).toBase64())}};
+        if(!firstHello) emit h.transport->liveMessage(hello);
+        const QString scope=sha256Hex((h.coordinator->serverUrl()+"\n"+h.client->accountName()).toUtf8());
+        const QString connection="full-outbox-"+QUuid::createUuid().toString(QUuid::WithoutBraces);
+        auto db=QSqlDatabase::addDatabase("QSQLITE",connection);
+        db.setDatabaseName(QDir(DocumentSession::defaultDirectory()).filePath(scope+"/collaboration.sqlite"));
+        QVERIFY(db.open());
+        auto cleanup=qScopeGuard([&]{QSqlQuery(db).exec("DROP TRIGGER IF EXISTS fail_test_outbox");db.close();db={};QSqlDatabase::removeDatabase(connection);h.restore();});
+        QVERIFY(QSqlQuery(db).exec("CREATE TRIGGER fail_test_outbox BEFORE INSERT ON pending BEGIN SELECT RAISE(ABORT, 'simulated disk full'); END"));
+        QVERIFY(h.engine.setText(1,"must survive disk failure"));
+        emit h.transport->liveMessage(hello);
+        h.transport->emitJoined();
+        QCOMPARE(h.engine.selectedText(),QString("must survive disk failure"));
+        QCOMPARE(h.coordinator->shareStatus(),QString("Could not save changes for synchronization"));
+        QVERIFY(h.transport->edits.isEmpty());
+        auto applied=hello;applied["type"]="applied";applied["revision"]=1;
+        emit h.transport->liveMessage(applied);applied["type"]="durable";emit h.transport->liveMessage(applied);
+        QCOMPARE(h.engine.selectedText(),QString("must survive disk failure"));
+        QCOMPARE(h.coordinator->shareStatus(),QString("Could not save changes for synchronization"));
+        QVERIFY(QSqlQuery(db).exec("DROP TRIGGER fail_test_outbox"));
+        auto remote=baseline;auto nodes=remote["nodes"].toObject();auto node=nodes["legacy:1"].toObject();
+        node["notes"]="peer edit after disk recovery";nodes["legacy:1"]=node;remote["nodes"]=nodes;
+        applied["type"]="applied";applied["revision"]=2;applied["accountId"]="peer";
+        applied["state"]=QString::fromLatin1(QJsonDocument(remote).toJson(QJsonDocument::Compact).toBase64());
+        emit h.transport->liveMessage(applied); // No second server hello.
+        QCOMPARE(h.engine.selectedText(),QString("must survive disk failure"));
+        QCOMPARE(h.engine.selectedNotes(),QString("peer edit after disk recovery"));
+        QCOMPARE(h.transport->edits.size(),1);
+        QCOMPARE(h.coordinator->shareStatus(),QString("Live · saving"));
+        const auto payload=QJsonDocument::fromJson(h.transport->edits.first()).object();
+        QVERIFY(LiveOperations::apply(remote,payload["ops"].toArray()));
+        applied["type"]="durable";applied["revision"]=3;
+        applied["state"]=QString::fromLatin1(QJsonDocument(remote).toJson(QJsonDocument::Compact).toBase64());
+        applied["receipts"]=QJsonArray{QJsonObject{{"id",payload["id"]},{"account","test-account"},{"hash",sha256Hex(h.transport->edits.first())}}};
+        emit h.transport->liveMessage(applied);
+        QCOMPARE(h.coordinator->shareStatus(),QString("Saved"));
+        QCOMPARE(h.engine.selectedText(),QString("must survive disk failure"));
+    }
+    void upgradeExportsLegacyOutboxForRecovery() {
+        Harness h;QVERIFY(h.setup());QVERIFY(h.loadDocument("upgrade.omm"));h.coordinator->signIn("test-account","password");h.coordinator->shareCurrentMap();
+        const auto document=h.engine.documentBytes();CollaborationLocalStore old("test-account",DocumentSession::defaultDirectory());QVERIFY(old.open());QVERIFY(old.enqueue(h.coordinator->mapId(),1,sha256Hex(document),document));
+        const auto baseline=LiveOperations::normalize(document);
+        emit h.transport->liveMessage(QJsonObject{{"type","hello"},{"protocol",2},{"epoch","e"},{"revision",0},{"state",QString::fromLatin1(QJsonDocument(baseline).toJson(QJsonDocument::Compact).toBase64())}});
+        QVERIFY(h.coordinator->shareStatus().startsWith("Older offline edits need recovery:"));QVERIFY(h.transport->edits.isEmpty());
+        const QString path=QDir(DocumentSession::defaultDirectory()).filePath("Recovered offline maps/offline-"+sha256Hex(document)+".omm");QFile recovered(path);QVERIFY(recovered.open(QIODevice::ReadOnly));QCOMPARE(recovered.readAll(),document);
+        QCOMPARE(old.pending(h.coordinator->mapId()).size(),1);old.removePending(old.pending(h.coordinator->mapId()).first().id);h.restore();
+    }
+    void firstHelloCapturesDebouncedEdit() {
+        Harness h; QVERIFY(h.setup()); QVERIFY(h.loadDocument("first-hello.omm"));
+        h.coordinator->signIn("test-account","password"); h.coordinator->shareCurrentMap();
+        const auto baseline=LiveOperations::normalize(h.engine.documentBytes());
+        QVERIFY(h.engine.setText(1,"typed before hello"));
+        h.coordinator->handleMapStateReadyForTest(h.coordinator->mapId(), LiveOperations::project(baseline), 0);
+        QCOMPARE(h.engine.selectedText(),QString("typed before hello"));
+        emit h.transport->liveMessage(QJsonObject{{"type","hello"},{"protocol",2},{"epoch","e"},{"revision",0},{"state",QString::fromLatin1(QJsonDocument(baseline).toJson(QJsonDocument::Compact).toBase64())}});
+        QCOMPARE(h.transport->edits.size(),1); QCOMPARE(h.engine.selectedText(),QString("typed before hello"));
+        const auto ops=QJsonDocument::fromJson(h.transport->edits.first()).object()["ops"].toArray();
+        QCOMPARE(ops.first().toObject()["path"].toArray(),QJsonArray({"nodes","legacy:1","text"})); h.restore();
+    }
+    void livePendingRebaseAndDurability() {
+        Harness h;QVERIFY(h.setup());QVERIFY(h.loadDocument("live.omm"));h.coordinator->signIn("test-account","password");h.coordinator->shareCurrentMap();
+        auto baseline=LiveOperations::normalize(h.engine.documentBytes());
+        auto message=[&](QString type,int revision,QJsonObject state){return QJsonObject{{"type",type},{"protocol",2},{"epoch","e"},{"revision",revision},{"state",QString::fromLatin1(QJsonDocument(state).toJson(QJsonDocument::Compact).toBase64())}};};
+        emit h.transport->liveMessage(message("hello",0,baseline));QVERIFY(h.engine.setText(1,"local"));QCOMPARE(h.transport->edits.size(),1);
+        auto payload=QJsonDocument::fromJson(h.transport->edits[0]).object();auto remote=baseline;auto nodes=remote["nodes"].toObject();auto root=nodes["legacy:1"].toObject();root["notes"]="remote";nodes["legacy:1"]=root;remote["nodes"]=nodes;
+        emit h.transport->liveMessage(message("applied",1,remote));QCOMPARE(h.engine.selectedText(),QString("local"));
+        QCOMPARE(LiveOperations::normalize(h.engine.documentBytes())["nodes"].toObject()["legacy:1"].toObject()["notes"].toString(),QString("remote"));
+        QVERIFY(LiveOperations::apply(remote,payload["ops"].toArray()));auto applied=message("applied",2,remote);applied["opId"]=payload["id"];applied["accountId"]="test-account";emit h.transport->liveMessage(applied);QCOMPARE(h.coordinator->shareStatus(),QString("Live · saving"));
+        auto hello=message("hello",2,remote);hello["appliedIds"]=QJsonArray{payload["id"]};emit h.transport->liveMessage(hello);h.transport->emitJoined();QCOMPARE(h.transport->edits.last(),h.transport->edits.first());
+        auto durable=message("durable",2,remote);durable["receipts"]=QJsonArray{QJsonObject{{"id",payload["id"]},{"account","test-account"},{"hash","wrong"}}};emit h.transport->liveMessage(durable);QCOMPARE(h.coordinator->shareStatus(),QString("Live · saving"));
+        durable["receipts"]=QJsonArray{QJsonObject{{"id",payload["id"]},{"account","test-account"},{"hash",sha256Hex(h.transport->edits.first())}}};emit h.transport->liveMessage(durable);QCOMPARE(h.coordinator->shareStatus(),QString("Saved"));
+        h.engine.undo();QCOMPARE(h.engine.selectedText(),QString(""));
+        QCOMPARE(LiveOperations::normalize(h.engine.documentBytes())["nodes"].toObject()["legacy:1"].toObject()["notes"].toString(),QString("remote"));h.restore();
+    }
+    void unchangedNotificationsDoNotCreateSyncBatches() {
+        Harness h; QVERIFY(h.setup()); QVERIFY(h.loadDocument("dedupe.omm"));
+        h.coordinator->signIn("test-account", "password");
+        h.coordinator->shareCurrentMap();
+        QVERIFY(h.engine.setText(1, "one edit"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        // Engine notifications may come from UI refreshes without changing bytes.
+        h.engine.changed();
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        QVERIFY(h.engine.setText(1, "another edit"));
+        h.pump(400);
+        QCOMPARE(h.transport->submitCount, 2);
+        h.restore();
+    }
+
+    void remoteUpdateDoesNotSuppressReturningToEarlierLocalState() {
+        Harness h; QVERIFY(h.setup()); QVERIFY(h.loadDocument("dedupe-remote.omm"));
+        h.coordinator->signIn("test-account", "password");
+        h.coordinator->shareCurrentMap();
+        QVERIFY(h.engine.setText(1, "A")); h.pump(400);
+        QCOMPARE(h.transport->submitCount, 1);
+        Engine peer; QVERIFY(peer.loadDocumentBytes(h.engine.documentBytes(), {}));
+        QVERIFY(peer.setText(1, "B"));
+        h.transport->peerCommit(2, 1, peer.documentBytes());
+        QVERIFY(h.engine.setText(1, "A")); h.pump(400);
+        QCOMPARE(h.transport->submitCount, 2);
+        h.restore();
+    }
+
     void automaticLoginProgressDoesNotBecomeAnOperationError() {
         Harness h; QVERIFY(h.setup());
         QSignalSpy failures(h.coordinator.data(), &ShareCoordinator::operationFailed);
@@ -394,7 +519,7 @@ private slots:
         QVERIFY(h.engine.setText(1, "local after join"));
         h.pump(400);
         QCOMPARE(h.transport->submitCount, 1);
-        QCOMPARE(h.transport->lastCounter, quint64(1));
+        QVERIFY(h.transport->lastCounter >= quint64(1)); // Allocation survives earlier sessions.
         h.restore();
     }
 

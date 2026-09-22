@@ -51,12 +51,23 @@ type Receipt struct {
 }
 
 type Head struct {
-	Rev         string               `json:"rev"`
-	Seq         uint64               `json:"seq"`
-	BatchID     string               `json:"batchId"`
-	SnapshotID  string               `json:"snapshotId"`
-	SnapshotSeq uint64               `json:"snapshotSeq"`
-	ACL         map[AccountID]string `json:"acl"`
-	Name        string               `json:"name,omitempty"`
-	Deleted     bool                 `json:"deleted"`
+	LiveProtocol    int                  `json:"liveProtocol,omitempty"`
+	GarbageID       string               `json:"garbageId,omitempty"`
+	ReceiptsIndexed bool                 `json:"receiptsIndexed,omitempty"`
+	Rev             string               `json:"rev"`
+	Seq             uint64               `json:"seq"`
+	BatchID         string               `json:"batchId"`
+	SnapshotID      string               `json:"snapshotId"`
+	SnapshotSeq     uint64               `json:"snapshotSeq"`
+	ACL             map[AccountID]string `json:"acl"`
+	Name            string               `json:"name,omitempty"`
+	Deleted         bool                 `json:"deleted"`
+}
+
+// OperationReceipt records the exact payload accepted in a durable v2 batch.
+type OperationReceipt struct {
+	ID      string    `json:"id"`
+	Account AccountID `json:"account"`
+	Hash    string    `json:"hash"`
+	Seq     uint64    `json:"seq"`
 }

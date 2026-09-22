@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', nargs='?', choices=['build', 'check', 'ui', 'native', 'full', 'live'], default='build',
-                        help='build: app only; check: quiet fast tests (11); ui: offscreen UI; native: opt-in window-management suites (opens real windows); full: release checks without native flicker (fast+offscreen only); live: visible UI replay')
+                        help='build: app only; check: quiet fast tests (12); ui: offscreen UI; native: opt-in window-management suites (opens real windows); full: release checks without native flicker (fast+offscreen only); live: visible UI replay')
     parser.add_argument('--build-dir', type=Path, default=ROOT / ('build-macos' if sys.platform == 'darwin' else 'build'))
     parser.add_argument('--qt', help='Qt installation prefix; needed only if CMake cannot find Qt')
     parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 2))

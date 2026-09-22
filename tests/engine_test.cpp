@@ -27,6 +27,29 @@ public slots:
 class EngineTest : public QObject {
     Q_OBJECT
   private slots:
+    void remoteApplyPreservesSelectionDirtyStateAndLocalUndo() {
+        Engine engine(nullptr, Engine::InitialContent::Blank); engine.addChild();
+        const int child=engine.selectedId(); const QString previous=engine.selectedText();
+        QVERIFY(engine.setText(child,"local edit"));
+        const auto remoteNotes=[](const QByteArray &bytes) {
+            auto doc=QJsonDocument::fromJson(bytes).object();auto nodes=doc["nodes"].toArray();
+            for(int i=0;i<nodes.size();++i){auto node=nodes[i].toObject();if(node["id"].toInt()==1){node["notes"]="peer note";nodes[i]=node;}}
+            doc["nodes"]=nodes;return QJsonDocument(doc).toJson();
+        };
+        QSignalSpy opening(&engine,&Engine::documentOpening);
+        QVERIFY(engine.applyRemoteDocumentBytes(remoteNotes(engine.documentBytes()),remoteNotes));
+        QCOMPARE(engine.selectedId(),child);QCOMPARE(engine.selectedText(),QString("local edit"));QVERIFY(engine.edited());QCOMPARE(opening.count(),0);
+        engine.undo();QCOMPARE(engine.selectedText(),previous);
+        engine.select(1);QCOMPARE(engine.selectedNotes(),QString("peer note"));
+    }
+    void stableSyncIdentityRoundTrip() {
+        Engine engine;auto doc=QJsonDocument::fromJson(engine.documentBytes()).object();auto nodes=doc["nodes"].toArray();auto root=nodes[0].toObject();
+        QVERIFY(!root["syncId"].toString().isEmpty());root.remove("syncId");nodes[0]=root;doc["nodes"]=nodes;
+        QVERIFY(engine.loadDocumentBytes(QJsonDocument(doc).toJson(),QString()));
+        auto restored=QJsonDocument::fromJson(engine.documentBytes()).object()["nodes"].toArray()[0].toObject();QCOMPARE(restored["syncId"].toString(),QString("legacy:1"));
+        QVERIFY(engine.loadDocumentBytes(engine.documentBytes(),QString()));QCOMPARE(QJsonDocument::fromJson(engine.documentBytes()).object()["nodes"].toArray()[0].toObject()["syncId"].toString(),QString("legacy:1"));
+    }
+
     void calendarWeekNumbersAcrossYearBoundary() {
         CalendarData data; data.view="month"; data.anchor=QDate(2021,1,15);
         QCOMPARE(Calendar::weekNumber(data,0),53);

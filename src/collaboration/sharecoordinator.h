@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QByteArray>
+#include <QJsonObject>
+#include <QSet>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -77,6 +79,18 @@ signals:
 
 private:
     void ensureSession();
+    bool captureLiveChanges();
+    bool m_captureFailed = false;
+    QJsonObject m_deferredHello;
+    void recoverLegacySnapshots();
+    QString liveStatus() const;
+    QString m_legacyRecoveryPath;
+    void handleLiveMessage(const QJsonObject &message);
+    bool m_live = false;
+    QString m_epoch;
+    quint64 m_revision = 0;
+    QJsonObject m_baseline, m_visible;
+    QSet<QString> m_applied;
     void wireCookie();
     void handleSignedIn();
     void handleMapCreated(const QString &mapId);
@@ -110,6 +124,7 @@ private:
     QString m_shareStatus = "Offline";
     quint64 m_deviceCounter = 0;
     QString m_pendingHash;
+    QString m_lastQueuedHash;
     QByteArray m_pendingChanges;
     quint64 m_lastSubmitCounter = 0;
     QString m_lastSubmitHash;

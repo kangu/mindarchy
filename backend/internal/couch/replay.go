@@ -10,15 +10,16 @@ import (
 )
 
 type Batch struct {
-	ID         string             `json:"id"`
-	Parent     string             `json:"parent"`
-	Seq        uint64             `json:"seq"`
-	Account    protocol.AccountID `json:"account"`
-	DeviceID   protocol.DeviceID  `json:"deviceId"`
-	Counter    uint64             `json:"counter"`
-	Hash       string             `json:"hash"`
-	ReceiptSeq uint64             `json:"receiptSeq"`
-	Changes    []byte             `json:"changes"`
+	Operations []protocol.OperationReceipt `json:"operations,omitempty"`
+	ID         string                      `json:"id"`
+	Parent     string                      `json:"parent"`
+	Seq        uint64                      `json:"seq"`
+	Account    protocol.AccountID          `json:"account"`
+	DeviceID   protocol.DeviceID           `json:"deviceId"`
+	Counter    uint64                      `json:"counter"`
+	Hash       string                      `json:"hash"`
+	ReceiptSeq uint64                      `json:"receiptSeq"`
+	Changes    []byte                      `json:"changes"`
 }
 
 func ReplayBatched(ctx context.Context, store Store, mapID protocol.MapID) (protocol.Head, [][]byte, error) {
@@ -55,6 +56,9 @@ func batchChain(ctx context.Context, store Store, mapID protocol.MapID) (protoco
 		}
 		if batch.ID != id || batch.Seq == 0 || len(batch.Changes) == 0 {
 			return protocol.Head{}, nil, fmt.Errorf("invalid batch %s", id)
+		}
+		if batch.Seq <= head.SnapshotSeq {
+			break
 		}
 		chain = append(chain, batch)
 		id = batch.Parent

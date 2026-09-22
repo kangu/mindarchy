@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mindarchy/backend/internal/couch"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +93,11 @@ func (s *ProductionServer) Close() {
 	s.closeOnce.Do(func() {
 		close(s.janitorStop)
 		<-s.janitorDone
+		if s.rooms != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.rooms.CloseLive(ctx)
+		}
 	})
 }
 
@@ -205,7 +212,38 @@ func (s *ProductionServer) mapsHandler(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	if request.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, s.sharing.List(identity.Account))
+		limit := 100
+		paginated := request.URL.Query().Has("limit")
+		if paginated {
+			var err error
+			limit, err = strconv.Atoi(request.URL.Query().Get("limit"))
+			if err != nil || limit < 1 || limit > 200 {
+				http.Error(w, "invalid limit", http.StatusBadRequest)
+				return
+			}
+		}
+		after := request.URL.Query().Get("after")
+		result := []couch.MapSummary{}
+		for {
+			page, next, err := s.sharing.ListPage(request.Context(), identity.Account, after, limit)
+			if err != nil {
+				http.Error(w, "map listing unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			result = append(result, page...)
+			if paginated || next == "" {
+				if next != "" {
+					w.Header().Set("X-Next-Cursor", next)
+				}
+				break
+			}
+			if next <= after {
+				http.Error(w, "invalid listing cursor", http.StatusServiceUnavailable)
+				return
+			}
+			after = next
+		}
+		writeJSON(w, http.StatusOK, result)
 		return
 	}
 	if request.Method != http.MethodPost {
@@ -281,6 +319,16 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 		http.NotFound(w, request)
 		return
 	}
+	if request.URL.Query().Get("protocol") == "2" {
+		s.liveV2Handler(w, request, mapID, identity)
+		return
+	}
+	if s.rooms != nil {
+		if version, err := s.rooms.LiveVersion(request.Context(), mapID); err != nil || version == 2 {
+			http.Error(w, "upgrade_required", http.StatusConflict)
+			return
+		}
+	}
 	conn, err := websocket.Accept(w, request, &websocket.AcceptOptions{OriginPatterns: []string{}})
 	if err != nil {
 		return
@@ -317,16 +365,16 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 	}
 	cancel()
 	for {
-		identity, ok := s.identity(request)
-		if !ok {
-			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
-			return
-		}
 		var message struct {
 			Type    string          `json:"type"`
 			Changes json.RawMessage `json:"changes"`
 		}
 		if err := wsjson.Read(request.Context(), conn, &message); err != nil {
+			return
+		}
+		identity, ok := s.identity(request)
+		if !ok {
+			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
 			return
 		}
 		s.touchPresence(mapID, identity.Account)
@@ -356,7 +404,7 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorAccessRevoked})
 				continue
 			}
-			receipt, err := s.rooms.Submit(request.Context(), identity.Account, update)
+			receipt, duplicate, err := s.rooms.SubmitWithStatus(request.Context(), identity.Account, update)
 			if err != nil {
 				_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": submitRejectionCode(err)})
 				if errors.Is(err, rooms.ErrAccessDenied) {
@@ -365,7 +413,12 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 				continue
 			}
 			state := base64.StdEncoding.EncodeToString(update.Changes)
-			s.broadcast(request.Context(), mapID, map[string]any{"type": "committed", "receipt": receipt, "state": state, "sender": string(identity.Account)})
+			event := map[string]any{"type": "committed", "receipt": receipt, "state": state, "sender": string(identity.Account)}
+			if duplicate {
+				_ = peer.write(request.Context(), event)
+			} else {
+				s.broadcast(request.Context(), mapID, event)
+			}
 		default:
 			_ = peer.write(request.Context(), map[string]string{"type": "rejected", "code": protocol.ErrorInvalidMessage})
 		}
@@ -373,6 +426,10 @@ func (s *ProductionServer) liveHandler(w http.ResponseWriter, request *http.Requ
 }
 
 func submitRejectionCode(err error) string {
+	var pe *protocol.ProtocolError
+	if errors.As(err, &pe) {
+		return pe.Code
+	}
 	switch {
 	case errors.Is(err, rooms.ErrAccessDenied):
 		return protocol.ErrorAccessRevoked

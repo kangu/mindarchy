@@ -18,6 +18,9 @@ public:
     Q_INVOKABLE bool saveLocal(const QByteArray &state, quint64 sequence, quint64 nextCounter);
     Q_INVOKABLE bool queueChange(quint64 counter, const QString &hash, const QByteArray &changes);
     Q_INVOKABLE void markSyncing();
+    quint64 nextCounter() const;
+    QByteArray accepted() const { return m_store ? m_store->accepted(m_mapId) : QByteArray(); }
+    void clearOperation(const QString &id, const QString &hash);
     Q_INVOKABLE void markAccessRemoved();
     QList<CollaborationPending> pendingForSubmit() const { return m_store ? m_store->pending(m_mapId) : QList<CollaborationPending>{}; }
     Q_INVOKABLE void clearPendingByCounter(const QString &mapId, quint64 counter);
