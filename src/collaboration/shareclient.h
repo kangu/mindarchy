@@ -7,6 +7,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
+#include <QTimer>
+#include "credentialstore.h"
 
 class ShareClient : public QObject {
     Q_OBJECT
@@ -14,10 +16,16 @@ class ShareClient : public QObject {
     Q_PROPERTY(QString accountName READ accountName NOTIFY signedInChanged)
 public:
     explicit ShareClient(QObject *parent = nullptr);
+    ~ShareClient() override;
+    void enableRememberedLogin(std::shared_ptr<ShareCredentialStore> store = systemShareCredentialStore());
+    bool restoreLogin();
+    bool rememberedLogin() const { return m_rememberedLogin; }
+    bool reconnecting() const { return m_loginInFlight; }
 
     Q_INVOKABLE virtual void setBaseUrl(const QString &url);
     Q_INVOKABLE virtual void login(const QString &username, const QString &password);
     Q_INVOKABLE void account();
+    void signOut();
     Q_INVOKABLE virtual void maps();
     Q_INVOKABLE virtual void createMap(const QByteArray &snapshot, const QString &name = {});
     Q_INVOKABLE void invite(const QString &mapId, const QString &account, const QString &role);
@@ -34,15 +42,26 @@ public:
 
 signals:
     void signedInChanged();
+    void sessionRenewed();
+    void reconnectingChanged();
+    void rememberedLoginChanged();
+    void sessionMessage(const QString &message);
     void loginFailed(QString code);
     void mapsReady();
     void mapStateReady(QString mapId, QByteArray state, quint64 seq);
     void mapCreated(QString mapId);
     void inviteAccepted(QString mapId, QString role);
     void inviteSent();
+    void invitationReady(const QString &code);
     void error(QString message);
 
 private:
+    void performLogin(const QString &username, const QString &password, bool automatic);
+    void clearLocalSession();
+    std::shared_ptr<ShareCredentialStore> m_credentialStore;
+    QTimer m_loginTimer;
+    bool m_loginInFlight = false;
+    bool m_rememberedLogin = false;
     struct MapState {
         QByteArray state;
         quint64 seq = 0;

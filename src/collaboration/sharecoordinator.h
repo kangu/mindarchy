@@ -16,6 +16,10 @@ class CollaborationSession;
 
 class ShareCoordinator : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool rememberedLogin READ rememberedLogin NOTIFY rememberedLoginChanged)
+    Q_PROPERTY(bool reconnecting READ reconnecting NOTIFY reconnectingChanged)
+    Q_PROPERTY(bool canInvite READ canInvite NOTIFY mapChanged)
+    Q_PROPERTY(QString invitationCode READ invitationCode NOTIFY invitationCodeChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverChanged)
     Q_PROPERTY(QStringList presets READ presets CONSTANT)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY signedInChanged)
@@ -29,6 +33,10 @@ public:
     ShareCoordinator(Engine *engine, ShareClient *client, ShareTransport *transport,
                      ShareSettings *settings, QObject *parent = nullptr);
 
+    bool rememberedLogin() const;
+    bool reconnecting() const;
+    bool canInvite() const { return m_role == "owner"; }
+    QString invitationCode() const { return m_invitationCode; }
     QString serverUrl() const;
     QStringList presets() const;
     bool signedIn() const;
@@ -55,6 +63,11 @@ public:
     }
 
 signals:
+    void rememberedLoginChanged();
+    void reconnectingChanged();
+    void invitationCodeChanged();
+    void operationSucceeded(const QString &action);
+    void operationFailed(const QString &message);
     void serverChanged();
     void signedInChanged();
     void shareStatusChanged();
@@ -90,6 +103,7 @@ private:
     CollaborationSession *m_session = nullptr;
     QStringList m_presence;
     QTimer m_debounce;
+    QString m_invitationCode;
     QString m_mapId;
     QString m_role;
     QString m_deviceId;

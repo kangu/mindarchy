@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QNetworkCookie>
 #include <QUuid>
+#include <QGuiApplication>
 
 ShareCoordinator::ShareCoordinator(Engine *engine, QObject *parent)
     : ShareCoordinator(engine, nullptr, nullptr, nullptr, parent) {}
@@ -53,17 +54,36 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         if (signedIn() && !m_mapId.isEmpty()) m_debounce.start();
     });
     wireCookie();
+    connect(m_client, &ShareClient::rememberedLoginChanged, this, &ShareCoordinator::rememberedLoginChanged);
+    connect(m_client, &ShareClient::reconnectingChanged, this, &ShareCoordinator::reconnectingChanged);
+    connect(m_client, &ShareClient::sessionMessage, this, [this](const QString &message) {
+        setShareStatus(message);
+        emit operationFailed(message);
+    });
+    connect(m_client, &ShareClient::sessionRenewed, this, [this] {
+        if (!m_mapId.isEmpty()) {
+            m_transport->leave();
+            m_transport->join(m_mapId);
+        } else setShareStatus("Online");
+    });
     connect(m_client, &ShareClient::signedInChanged, this, &ShareCoordinator::handleSignedIn);
     connect(m_client, &ShareClient::loginFailed, this, [this] {
         setShareStatus("Sign in failed");
+        emit operationFailed("Could not sign in. Check your account and password.");
         emit signedInChanged();
     });
+    connect(m_client, &ShareClient::invitationReady, this, [this](const QString &code) {
+        m_invitationCode = code;
+        emit invitationCodeChanged();
+    });
+    connect(m_client, &ShareClient::inviteSent, this, [this] { emit operationSucceeded("invite"); });
     connect(m_client, &ShareClient::mapCreated, this, &ShareCoordinator::handleMapCreated);
     connect(m_client, &ShareClient::inviteAccepted, this, &ShareCoordinator::handleInviteAccepted);
     connect(m_client, &ShareClient::mapStateReady, this, &ShareCoordinator::handleMapStateReady);
     connect(m_client, &ShareClient::mapsReady, this, &ShareCoordinator::handleMapsReady);
     connect(m_client, &ShareClient::error, this, [this](const QString &message) {
         setShareStatus(message);
+        emit operationFailed(message);
     });
     connect(m_transport, &ShareTransport::connectedChanged, this, &ShareCoordinator::handleTransportConnected);
     connect(m_transport, &ShareTransport::joined, this, &ShareCoordinator::handleJoined);
@@ -71,6 +91,12 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
     connect(m_transport, &ShareTransport::presence, this, &ShareCoordinator::handlePresence);
     connect(m_transport, &ShareTransport::rejected, this, &ShareCoordinator::handleRejected);
 
+    // Headless rendering/tests never access a user's credential vault.
+    if (!client && QGuiApplication::platformName() != "offscreen") {
+        m_client->enableRememberedLogin();
+        m_client->setBaseUrl(m_settings->serverUrl());
+        QTimer::singleShot(0, m_client, [client = m_client] { client->restoreLogin(); });
+    }
     adoptAttachedMap();
     setShareStatus(m_client->signedIn() ? "Signed in" : "Offline");
     if (!m_mapId.isEmpty() && m_client->signedIn()) {
@@ -83,6 +109,10 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
 QString ShareCoordinator::serverUrl() const { return m_settings->serverUrl(); }
 
 QStringList ShareCoordinator::presets() const { return m_settings->presets(); }
+
+bool ShareCoordinator::rememberedLogin() const { return m_client->rememberedLogin(); }
+
+bool ShareCoordinator::reconnecting() const { return m_client->reconnecting(); }
 
 bool ShareCoordinator::signedIn() const { return m_client->signedIn(); }
 
@@ -97,6 +127,7 @@ QString ShareCoordinator::mapId() const { return m_mapId; }
 QVariantList ShareCoordinator::sharedMaps() const { return m_client->mapSummaries(); }
 
 void ShareCoordinator::chooseServer(const QString &url) {
+    if (url != serverUrl()) { signOut(); disconnectSharing(); }
     m_settings->setServerUrl(url);
     m_client->setBaseUrl(url);
     m_transport->setBaseUrl(url);
@@ -109,7 +140,11 @@ void ShareCoordinator::signIn(const QString &name, const QString &password) {
 }
 
 void ShareCoordinator::signOut() {
+    m_debounce.stop();
     m_transport->leave();
+    m_client->signOut();
+    m_invitationCode.clear();
+    emit invitationCodeChanged();
     setShareStatus("Offline");
 }
 
@@ -138,6 +173,13 @@ void ShareCoordinator::joinSharedMap(const QString &mapId) {
 }
 
 void ShareCoordinator::disconnectSharing() {
+    m_debounce.stop();
+    if (m_session) { m_session->deleteLater(); m_session = nullptr; }
+    m_presence.clear();
+    emit presenceChanged();
+    setShareStatus(signedIn() ? "Signed in" : "Offline");
+    m_invitationCode.clear();
+    emit invitationCodeChanged();
     m_transport->leave();
     attachMapId(QString());
 }
@@ -182,7 +224,7 @@ void ShareCoordinator::ensureSession() {
 }
 
 void ShareCoordinator::wireCookie() {
-    connect(m_client, &ShareClient::signedInChanged, this, [this] {
+    const auto updateCookie = [this] {
         const QUrl url(m_settings->serverUrl().startsWith("http") ? m_settings->serverUrl()
                                                                   : QStringLiteral("https://") + m_settings->serverUrl());
         const auto cookies = m_client->cookieJar()->cookiesForUrl(url);
@@ -192,12 +234,26 @@ void ShareCoordinator::wireCookie() {
             return;
         }
         m_transport->setSessionCookie(QString());
-    });
+    };
+    connect(m_client, &ShareClient::signedInChanged, this, updateCookie);
+    connect(m_client, &ShareClient::sessionRenewed, this, updateCookie);
 }
 
 void ShareCoordinator::handleSignedIn() {
-    setShareStatus(m_client->signedIn() ? "Signed in" : "Offline");
-    ensureSession();
+    if (signedIn()) emit operationSucceeded("signin");
+    setShareStatus(m_client->signedIn() ? "Online" : "Offline");
+    if (!signedIn()) {
+        m_debounce.stop();
+        m_transport->leave();
+        if (m_session) { m_session->deleteLater(); m_session = nullptr; }
+        m_invitationCode.clear();
+        emit invitationCodeChanged();
+        m_presence.clear();
+        emit presenceChanged();
+    } else {
+        ensureSession();
+        m_client->maps();
+    }
     if (m_client->signedIn() && !m_mapId.isEmpty()) {
         m_transport->setBaseUrl(m_settings->serverUrl());
         m_transport->join(m_mapId);
@@ -207,6 +263,7 @@ void ShareCoordinator::handleSignedIn() {
 }
 
 void ShareCoordinator::handleMapCreated(const QString &mapId) {
+    emit operationSucceeded("share");
     m_role = "owner";
     attachMapId(mapId);
     ensureSession();
@@ -215,6 +272,7 @@ void ShareCoordinator::handleMapCreated(const QString &mapId) {
 }
 
 void ShareCoordinator::handleInviteAccepted(const QString &mapId, const QString &role) {
+    emit operationSucceeded("join");
     m_role = role;
     attachMapId(mapId);
     m_transport->setBaseUrl(m_settings->serverUrl());
@@ -239,8 +297,9 @@ void ShareCoordinator::applyRemote(const QByteArray &state, quint64 seq, quint64
 }
 
 void ShareCoordinator::handleJoined(const QString &mapId, const QString &role) {
-    Q_UNUSED(role);
     if (mapId != m_mapId && !m_mapId.isEmpty()) return;
+    m_role = role;
+    emit mapChanged();
     ensureSession();
     drainOutbox();
     setShareStatus("Live");

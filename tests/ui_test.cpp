@@ -80,6 +80,23 @@ class UiTest : public QObject {
         QTRY_VERIFY(dialog->property("visible").toBool());
         auto closeDialog=qScopeGuard([&]{ QVERIFY(QMetaObject::invokeMethod(dialog,"close")); });
         QVERIFY(workspace->property("modalInteraction").toBool());
+        QVERIFY(dialog->property("height").toReal() < window->height());
+        QVERIFY(!dialog->property("settingsExpanded").toBool());
+        auto *settingsToggle = dialog->findChild<QObject *>("shareSettingsToggle"); QVERIFY(settingsToggle);
+        QVERIFY(QMetaObject::invokeMethod(settingsToggle, "clicked"));
+        QVERIFY(dialog->property("settingsExpanded").toBool());
+        auto *draft = dialog->findChild<QObject *>("shareAccount"); QVERIFY(draft);
+        draft->setProperty("text", "acct_test");
+        dialog->setProperty("pending", "invite");
+        shareCoordinator->operationFailed("Cannot reach the sharing server. Try again.");
+        QCOMPARE(draft->property("text").toString(), QString("acct_test"));
+        QVERIFY(dialog->property("feedbackError").toBool());
+        QVERIFY(dialog->property("pending").toString().isEmpty());
+        dialog->setProperty("pending", "invite");
+        shareCoordinator->operationSucceeded("invite");
+        QVERIFY(draft->property("text").toString().isEmpty());
+        QVERIFY(!dialog->property("feedbackError").toBool());
+
         QQmlExpression resolvesShare(qmlContext(workspace),workspace,QStringLiteral("typeof share !== 'undefined' && share !== null && share.signedIn === false"));
         QVERIFY(resolvesShare.evaluate().toBool());
         auto *invite=dialog->findChild<QObject *>("shareInvite"); QVERIFY(invite);
@@ -105,6 +122,70 @@ class UiTest : public QObject {
         QTRY_VERIFY(signInButton->property("enabled").toBool());
         signInPassword->setProperty("text",QStringLiteral(""));
         QTRY_VERIFY(!signInButton->property("enabled").toBool());
+        dialog->setProperty("settingsExpanded", false);
+        dialog->setProperty("feedback", "");
+        const QString screenshot = qEnvironmentVariable("MINDARCHY_SHARE_SCREENSHOT");
+        if (!screenshot.isEmpty()) {
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(screenshot));
+        }
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+    void shareSignedInFlow() {
+        QQmlComponent mockComponent(qml);
+        mockComponent.setData(
+            "\n"
+            "            import QtQuick\n"
+            "            QtObject {\n"
+            "                property bool signedIn: true\n"
+            "                property bool canInvite: true\n                property bool reconnecting: false\n                property bool rememberedLogin: true\n"
+            "                property string accountName: \"acct_test\"\n"
+            "                property string shareStatus: \"Live\"\n"
+            "                property string mapId: \"map-test\"\n"
+            "                property string invitationCode: \"invite-test-code\"\n"
+            "                property string serverUrl: \"https://share.example\"\n"
+            "                property var presets: [\"https://share.example\"]\n"
+            "                property var sharedMaps: []\n"
+            "                signal operationSucceeded(string action)\n"
+            "                signal operationFailed(string message)\n"
+            "                function refreshSharedMaps() {}\n"
+            "                function signOut() { signedIn = false; rememberedLogin = false }\n"
+            "            }\n"
+            "        \n"
+        , QUrl());
+        QScopedPointer<QObject> mock(mockComponent.create()); QVERIFY(mock);
+        QQmlContext context(qml->rootContext());
+        context.setContextProperty("share", mock.data());
+        QQmlComponent component(qml, QUrl("qrc:/qml/ShareDialog.qml"));
+        QScopedPointer<QObject> popup(component.create(&context));
+        QVERIFY2(popup, qPrintable(component.errorString()));
+        popup->setProperty("parent", QVariant::fromValue(window->contentItem()));
+        QVERIFY(QMetaObject::invokeMethod(popup.data(), "open"));
+        QTest::qWait(150);
+        auto *invite = popup->findChild<QObject *>("shareInvite"); QVERIFY(invite);
+        auto *account = popup->findChild<QObject *>("shareAccount"); QVERIFY(account);
+        QVERIFY(account->property("visible").toBool());
+        QVERIFY(!invite->property("enabled").toBool());
+        account->setProperty("text", "acct_friend");
+        QVERIFY(invite->property("enabled").toBool());
+        auto *code = popup->findChild<QObject *>("shareInvitationCode"); QVERIFY(code);
+        QCOMPARE(code->property("text").toString(), QString("invite-test-code"));
+        QVERIFY(code->property("visible").toBool());
+        const QString screenshot = qEnvironmentVariable("MINDARCHY_SHARE_SIGNED_SCREENSHOT");
+        if (!screenshot.isEmpty()) QVERIFY(window->grabWindow().save(screenshot));
+        auto *tabs = popup->findChild<QObject *>("shareTabs"); QVERIFY(tabs);
+        tabs->setProperty("currentIndex", 1);
+        auto *join = popup->findChild<QObject *>("shareJoinToken"); QVERIFY(join);
+        QTRY_VERIFY(join->property("visible").toBool());
+        QVERIFY(!account->property("visible").toBool());
+        auto *signOut = popup->findChild<QObject *>("shareSignOut"); QVERIFY(signOut);
+        QVERIFY(signOut->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(signOut, "clicked"));
+        QVERIFY(!mock->property("signedIn").toBool());
+        QVERIFY(!mock->property("rememberedLogin").toBool());
+        QVERIFY(!signOut->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup.data(), "close"));
     }
     void branchStylePickerTracksUndo() {
         auto *picker=window->findChild<QObject *>("branchStylePicker"); QVERIFY(picker);

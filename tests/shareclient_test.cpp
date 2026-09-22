@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QtNetwork>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include "../src/collaboration/shareclient.h"
 
 class StubHttpServer : public QObject {
@@ -20,7 +21,8 @@ public:
                 int status = 200;
                 QByteArray body;
                 if (path.endsWith("/v1/auth/session")) {
-                    if (m_validLogin) body = "{\"accountId\":\"ada\"}";
+                    if (m_loginStatus != 200) status = m_loginStatus;
+                    else if (m_validLogin) body = "{\"accountId\":\"ada\"}";
                     else status = 401;
                 } else if (path.endsWith("/v1/me")) {
                     body = "{\"accountId\":\"ada\"}";
@@ -35,7 +37,7 @@ public:
                 } else if (path.contains("/v1/maps/")) {
                     body = "{\"ID\":\"m-123\",\"Owner\":\"ada\",\"Snapshot\":\"aGVsbG8=\"}";
                 }
-                const QByteArray statusText = status == 200 ? "200 OK" : "401 Unauthorized";
+                const QByteArray statusText = status == 200 ? "200 OK" : (status == 503 ? "503 Service Unavailable" : "401 Unauthorized");
                 const QByteArray setCookie = (path.endsWith("/v1/auth/session") && status == 200)
                     ? "Set-Cookie: AuthSession=tok-ada; Path=/; HttpOnly\r\n" : QByteArray();
                 socket->write("HTTP/1.1 " + statusText + "\r\nContent-Type: application/json\r\n" + setCookie
@@ -47,6 +49,7 @@ public:
     }
     void start() { m_server.listen(QHostAddress::LocalHost); }
     int port() const { return m_server.serverPort(); }
+    int m_loginStatus = 200;
     bool m_validLogin = false;
     QStringList m_requests;
 private:
@@ -54,9 +57,119 @@ private:
     QHash<QTcpSocket *, QByteArray> m_buffers;
 };
 
+class MemoryCredentialStore : public ShareCredentialStore {
+public:
+    QHash<QString, QByteArray> entries;
+    QByteArray read(const QString &server, QString *) override { return entries.value(server); }
+    bool write(const QString &server, const QByteArray &value, QString *) override { entries[server] = value; return true; }
+    bool remove(const QString &server, QString *) override { entries.remove(server); return true; }
+};
+
 class ShareClientTest : public QObject {
     Q_OBJECT
 private slots:
+    void deviceVaultSurvivesProcessRestart() {
+        if (!qEnvironmentVariableIsSet("MINDARCHY_TEST_DEVICE_VAULT")) QSKIP("Opt-in device vault test; normal checks never access the OS keychain");
+        auto vault = systemShareCredentialStore();
+        const QByteArray fixture = R"({"username":"mindarchy-test","password":"synthetic-test-only"})";
+        const QString inherited = qEnvironmentVariable("MINDARCHY_TEST_VAULT_CHILD_SERVER");
+        QString error;
+        if (!inherited.isEmpty()) {
+            QCOMPARE(vault->read(inherited, &error), fixture);
+            QVERIFY2(error.isEmpty(), qPrintable(error));
+            return;
+        }
+        const QString server = "https://vault-test-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".invalid/";
+        QVERIFY2(vault->write(server, fixture, &error), qPrintable(error));
+        auto cleanup = qScopeGuard([&] { QString ignored; vault->remove(server, &ignored); });
+        QProcess child;
+        auto environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("MINDARCHY_TEST_VAULT_CHILD_SERVER", server);
+        child.setProcessEnvironment(environment);
+        child.start(QCoreApplication::applicationFilePath(), {"deviceVaultSurvivesProcessRestart"});
+        QVERIFY(child.waitForStarted());
+        QTRY_COMPARE_WITH_TIMEOUT(child.state(), QProcess::NotRunning, 15000);
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(child.exitCode() == 0, child.readAllStandardOutput().constData());
+        QVERIFY2(vault->remove(server, &error), qPrintable(error));
+        QVERIFY(vault->read(server, &error).isEmpty());
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+    }
+    void rememberedLoginSurvivesClientRestart() {
+        StubHttpServer server;
+        server.start();
+        server.m_validLogin = true;
+        const QString url = QString("http://127.0.0.1:%1").arg(server.port());
+        auto vault = std::make_shared<MemoryCredentialStore>();
+        {
+            ShareClient first;
+            first.enableRememberedLogin(vault);
+            first.setBaseUrl(url);
+            first.login("ada", "secret");
+            QTRY_VERIFY(first.signedIn());
+        }
+        ShareClient restarted;
+        restarted.enableRememberedLogin(vault);
+        restarted.setBaseUrl(url);
+        QVERIFY(restarted.restoreLogin());
+        QTRY_VERIFY(restarted.signedIn());
+        restarted.account();
+        QTRY_VERIFY(server.m_requests.last().startsWith("GET /v1/me"));
+        QTRY_VERIFY(restarted.signedIn());
+        QVERIFY(server.m_requests.last().contains("AuthSession="));
+    }
+    void signingOutForgetsLoginAcrossTabsAndRestarts() {
+        StubHttpServer server;
+        server.start(); server.m_validLogin = true;
+        auto vault = std::make_shared<MemoryCredentialStore>();
+        const QString url = QString("http://127.0.0.1:%1").arg(server.port());
+        ShareClient first, second;
+        for (auto *client : {&first, &second}) { client->enableRememberedLogin(vault); client->setBaseUrl(url); }
+        first.login("ada", "secret");
+        QTRY_VERIFY(first.signedIn());
+        QTRY_VERIFY(second.signedIn());
+        first.signOut();
+        QVERIFY(!first.signedIn()); QVERIFY(!second.signedIn());
+        QVERIFY(vault->entries.isEmpty());
+        ShareClient restarted;
+        restarted.enableRememberedLogin(vault); restarted.setBaseUrl(url);
+        QVERIFY(!restarted.restoreLogin());
+    }
+    void savedLoginIsScopedToServerAndRejectsInvalidCredentials() {
+        StubHttpServer server;
+        server.start(); server.m_validLogin = true;
+        auto vault = std::make_shared<MemoryCredentialStore>();
+        const QString url = QString("http://127.0.0.1:%1").arg(server.port());
+        ShareClient client;
+        client.enableRememberedLogin(vault); client.setBaseUrl(url); client.login("ada", "secret");
+        QTRY_VERIFY(client.signedIn());
+        client.setBaseUrl("http://different.example");
+        QVERIFY(!client.signedIn()); QVERIFY(!client.restoreLogin());
+        client.setBaseUrl(url);
+        server.m_validLogin = false;
+        QVERIFY(client.restoreLogin());
+        QTRY_VERIFY(!client.reconnecting());
+        QVERIFY(!client.signedIn()); QVERIFY(vault->entries.isEmpty());
+    }
+    void temporaryServerFailureKeepsRememberedLogin() {
+        StubHttpServer server;
+        server.start(); server.m_validLogin = true;
+        auto vault = std::make_shared<MemoryCredentialStore>();
+        const QString url = QString("http://127.0.0.1:%1").arg(server.port());
+        ShareClient client;
+        client.enableRememberedLogin(vault); client.setBaseUrl(url); client.login("ada", "secret");
+        QTRY_VERIFY(client.signedIn());
+        server.m_loginStatus = 503;
+        QVERIFY(client.restoreLogin());
+        QTRY_VERIFY(!client.reconnecting());
+        QVERIFY(!vault->entries.isEmpty());
+        QVERIFY(client.rememberedLogin());
+        server.m_loginStatus = 200;
+        QSignalSpy renewed(&client, &ShareClient::sessionRenewed);
+        QVERIFY(client.restoreLogin());
+        QTRY_COMPARE(renewed.count(), 1);
+        client.signOut();
+    }
     void loginStoresCookieAndAccount() {
         StubHttpServer server;
         server.start();
@@ -76,6 +189,28 @@ private slots:
         QVERIFY(meRequest.contains("Cookie:"));
         QVERIFY(meRequest.contains("AuthSession="));
         QVERIFY(server.m_requests.first().contains("POST /v1/auth/session"));
+    }
+    void signOutClearsLocalSession() {
+        StubHttpServer server;
+        server.start();
+        server.m_validLogin = true;
+        ShareClient client;
+        const QUrl url(QString("http://127.0.0.1:%1").arg(server.port()));
+        client.setBaseUrl(url.toString());
+        client.login("ada", "secret");
+        QTRY_VERIFY(client.signedIn());
+        QVERIFY(!client.cookieJar()->cookiesForUrl(url).isEmpty());
+        client.maps();
+        QTRY_VERIFY(!client.mapSummaries().isEmpty());
+        client.signOut();
+        QVERIFY(!client.signedIn());
+        QVERIFY(client.accountName().isEmpty());
+        QVERIFY(client.mapSummaries().isEmpty());
+        QVERIFY(client.cookieJar()->cookiesForUrl(url).isEmpty());
+        client.login("ada", "secret");
+        client.signOut();
+        QTest::qWait(100);
+        QVERIFY(!client.signedIn());
     }
     void loginRejectsBadCredentials() {
         StubHttpServer server;
@@ -115,9 +250,12 @@ private slots:
         server.start();
         ShareClient client;
         client.setBaseUrl(QString("http://127.0.0.1:%1").arg(server.port()));
+        QSignalSpy codeSpy(&client, &ShareClient::invitationReady);
         QSignalSpy sentSpy(&client, &ShareClient::inviteSent);
         client.invite("m-123", "bo", "editor");
         QTRY_COMPARE(sentSpy.count(), 1);
+        QCOMPARE(codeSpy.count(), 1);
+        QCOMPARE(codeSpy.first().first().toString(), QString("tok-9"));
         QSignalSpy acceptedSpy(&client, &ShareClient::inviteAccepted);
         client.acceptInvite("tok-9");
         QTRY_COMPARE(acceptedSpy.count(), 1);
