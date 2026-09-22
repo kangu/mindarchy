@@ -39,8 +39,19 @@ Popup {
             sharedMapsList.close()
         }
     }
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: Flickable {
+        id: shareFlick
+        clip: true
+        contentHeight: shareColumn.implicitHeight
+        interactive: contentHeight > height
+        implicitHeight: Math.min(shareColumn.implicitHeight, typeof Overlay !== "undefined" && Overlay.overlay ? (Overlay.overlay.height - 120) : shareColumn.implicitHeight)
+        ScrollBar.vertical: ScrollBar {
+            interactive: false
+        }
+        ColumnLayout {
+            id: shareColumn
+            width: shareFlick.width
+            spacing: 8
         Label { text: "Share map"; font.pixelSize: 18; color: "#e0e9ee" }
         Label {
             objectName: "shareStatusLabel"
@@ -247,6 +258,7 @@ Popup {
                 text: "Close"
                 onClicked: dialog.close()
             }
+        }
         }
     }
 }
