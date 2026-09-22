@@ -217,7 +217,8 @@ func (s *ProductionServer) mapsHandler(w http.ResponseWriter, request *http.Requ
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": protocol.ErrorInvalidMessage})
 		return
 	}
-	entry := s.sharing.Create(identity.Account, body)
+	snapshot, name := createEnvelope(body)
+	entry := s.sharing.Create(identity.Account, snapshot, name)
 	if err := s.sharing.PersistMap(entry); err != nil {
 		http.Error(w, "map persistence failed", http.StatusServiceUnavailable)
 		return
@@ -458,4 +459,18 @@ func (s *ProductionServer) readyHandler(w http.ResponseWriter, request *http.Req
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func createEnvelope(body []byte) ([]byte, string) {
+	var encoded struct {
+		Snapshot string `json:"snapshot"`
+		Name     string `json:"name"`
+	}
+	if json.Unmarshal(body, &encoded) == nil && encoded.Snapshot != "" {
+		snapshot, err := base64.StdEncoding.DecodeString(encoded.Snapshot)
+		if err == nil && len(snapshot) > 0 {
+			return snapshot, encoded.Name
+		}
+	}
+	return body, ""
 }

@@ -26,7 +26,7 @@ public:
         fakeAccount = "test-account";
         emit signedInChanged();
     }
-    void createMap(const QByteArray &) override {
+    void createMap(const QByteArray &, const QString &) override {
         createdMapId = "m-" + QUuid::createUuid().toString(QUuid::WithoutBraces).mid(1, 8);
         emit mapCreated(createdMapId);
     }

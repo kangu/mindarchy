@@ -104,10 +104,11 @@ private slots:
         QCOMPARE(summaries.first().toMap().value("id").toString(), QString("a1b2c3"));
         QVERIFY(!summaries.first().toMap().value("name").toString().isEmpty());
         QSignalSpy createdSpy(&client, &ShareClient::mapCreated);
-        client.createMap(QByteArray("{\"nodes\":[]}"));
+        client.createMap(QByteArray("{\"nodes\":[]}"), QStringLiteral("Demo map"));
         QTRY_COMPARE(createdSpy.count(), 1);
         QCOMPARE(createdSpy.at(0).at(0).toString(), QString("m-123"));
         QVERIFY(server.m_requests.last().startsWith("POST /v1/maps"));
+        QVERIFY(server.m_requests.last().contains("Demo map"));
     }
     void inviteAndAccept() {
         StubHttpServer server;

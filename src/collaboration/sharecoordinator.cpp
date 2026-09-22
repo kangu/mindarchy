@@ -114,7 +114,7 @@ void ShareCoordinator::signOut() {
 }
 
 void ShareCoordinator::shareCurrentMap() {
-    m_client->createMap(m_engine->documentBytes());
+    m_client->createMap(m_engine->documentBytes(), m_engine->documentName());
 }
 
 void ShareCoordinator::inviteOnMap(const QString &account, const QString &role) {

@@ -101,7 +101,7 @@ func TestReplayCommittedBatchesOnShareReads(t *testing.T) {
 	store := newMemCASStore()
 	service := sharing.NewPersistentService(store)
 	owner := protocol.AccountID("account-owner")
-	created := service.Create(owner, []byte(`{"nodes":["base"]}`))
+	created := service.Create(owner, []byte(`{"nodes":["base"]}`), "base map")
 	if err := service.PersistMap(created); err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +121,9 @@ func TestReplayCommittedBatchesOnShareReads(t *testing.T) {
 	got, err := fresh.Get(owner, created.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.Name != "base map" {
+		t.Fatalf("fresh service name = %q, want %q", got.Name, "base map")
 	}
 	if string(got.Snapshot) != string(changes) {
 		t.Fatalf("fresh service snapshot = %s, want %s", got.Snapshot, changes)

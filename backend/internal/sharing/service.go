@@ -32,6 +32,7 @@ type Map struct {
 	Owner    protocol.AccountID
 	ACL      map[protocol.AccountID]string
 	Snapshot []byte
+	Name     string `json:"Name"`
 	head     protocol.Head
 }
 
@@ -60,9 +61,9 @@ func NewPersistentService(store Persistence) *Service {
 	return service
 }
 
-func (s *Service) Create(owner protocol.AccountID, snapshot []byte) Map {
+func (s *Service) Create(owner protocol.AccountID, snapshot []byte, name string) Map {
 	id := protocol.MapID(randomID())
-	entry := &Map{ID: id, Owner: owner, ACL: map[protocol.AccountID]string{owner: "owner"}, Snapshot: append([]byte(nil), snapshot...)}
+	entry := &Map{ID: id, Owner: owner, ACL: map[protocol.AccountID]string{owner: "owner"}, Snapshot: append([]byte(nil), snapshot...), Name: name}
 	s.mu.Lock()
 	s.maps[id] = entry
 	s.mu.Unlock()
@@ -83,7 +84,7 @@ func (s *Service) PersistMap(entry Map) error {
 	for account, role := range entry.ACL {
 		acl[account] = role
 	}
-	_, err := store.CompareAndSwapHead(context.Background(), entry.ID, "", protocol.Head{SnapshotID: snapshotID, ACL: acl})
+	_, err := store.CompareAndSwapHead(context.Background(), entry.ID, "", protocol.Head{SnapshotID: snapshotID, ACL: acl, Name: entry.Name})
 	return err
 }
 
@@ -153,7 +154,7 @@ func (s *Service) hydrate(id protocol.MapID) error {
 	}
 	s.mu.Lock()
 	if _, exists := s.maps[id]; !exists {
-		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: snapshot, head: head}
+		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: snapshot, Name: nonEmpty(head.Name, string(id)), head: head}
 	}
 	s.mu.Unlock()
 	return nil
@@ -201,7 +202,7 @@ func (s *Service) hydrateWithChain(id protocol.MapID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.maps[id]; !exists {
-		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: effective, head: head}
+		s.maps[id] = &Map{ID: id, Owner: owner, ACL: head.ACL, Snapshot: effective, Name: nonEmpty(head.Name, string(id)), head: head}
 		return nil
 	}
 	entry = s.maps[id]
@@ -338,4 +339,11 @@ func randomID() string {
 	bytes[6] = bytes[6]&0x0f | 0x40
 	bytes[8] = bytes[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16])
+}
+
+func nonEmpty(preferred, fallback string) string {
+	if preferred != "" {
+		return preferred
+	}
+	return fallback
 }

@@ -19,7 +19,7 @@ public:
     Q_INVOKABLE virtual void login(const QString &username, const QString &password);
     Q_INVOKABLE void account();
     Q_INVOKABLE virtual void maps();
-    Q_INVOKABLE virtual void createMap(const QByteArray &snapshot);
+    Q_INVOKABLE virtual void createMap(const QByteArray &snapshot, const QString &name = {});
     Q_INVOKABLE void invite(const QString &mapId, const QString &account, const QString &role);
     Q_INVOKABLE virtual void acceptInvite(const QString &token);
     Q_INVOKABLE virtual void fetchMapState(const QString &mapId);

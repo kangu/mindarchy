@@ -94,10 +94,12 @@ QVariantList ShareClient::mapSummaries() const {
     return m_mapSummaries;
 }
 
-void ShareClient::createMap(const QByteArray &snapshot) {
+void ShareClient::createMap(const QByteArray &snapshot, const QString &name) {
+    const QString encoded = QString::fromLatin1(snapshot.toBase64());
+    const QJsonObject envelope{{"name", name}, {"snapshot", encoded}};
     QNetworkRequest request = makeRequest(QStringLiteral("v1/maps"));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
-    QNetworkReply *reply = m_network->post(request, snapshot);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply = m_network->post(request, QJsonDocument(envelope).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply, snapshot] {
         reply->deleteLater();
         if (handleHttpError(reply, QStringLiteral("creating map"))) return;

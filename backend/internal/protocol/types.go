@@ -57,5 +57,6 @@ type Head struct {
 	SnapshotID  string               `json:"snapshotId"`
 	SnapshotSeq uint64               `json:"snapshotSeq"`
 	ACL         map[AccountID]string `json:"acl"`
+	Name        string               `json:"name,omitempty"`
 	Deleted     bool                 `json:"deleted"`
 }

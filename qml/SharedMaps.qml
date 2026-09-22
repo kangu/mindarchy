@@ -16,7 +16,7 @@ Popup {
             model: maps.model
             delegate: Button {
                 width: maps.width - 24
-                text: modelData.title || modelData.id || "Untitled map"
+                text: modelData.name || modelData.id || "Untitled map"
                 onClicked: maps.mapRequested(modelData.id)
             }
         }
