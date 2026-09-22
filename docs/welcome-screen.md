@@ -1,6 +1,6 @@
 # Welcome screen
 
-Normal launches display a full-window homepage with the last six saved maps opened or saved by Mindarchy. Three columns and two rows are used on desktop-sized windows; the grid adapts to two columns below 960 px and one below 620 px. Empty slots create a new map.
+Normal launches display a full-window homepage with up to six maps from Mindarchy’s recent-file history, sorted by file modification time (newest first). Sorting happens before the six-card limit; unavailable files follow available maps, and equal timestamps retain history order. The list refreshes when the homepage opens or the window becomes active. Three columns and two rows are used on desktop-sized windows; the grid adapts to two columns below 960 px and one below 620 px. Empty slots create a new map.
 
 Each card renders a snapshot of the saved map using the same renderer as exports. Rendering runs asynchronously through Qt's image provider. The cache key includes file modification time and size. The map's background fills the preview, preserving the complete map rather than cropping branches. No thumbnail files or map contents are uploaded.
 

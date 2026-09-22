@@ -1709,9 +1709,24 @@ void Engine::cycleApplicationWindow(int direction) {
 
 QVariantList Engine::recentDocuments() const { return RecentDocuments(m_recentDirectory).list(); }
 QVariantList Engine::recentMaps() const {
+    struct RecentMap { QVariantMap item; QFileInfo file; QDateTime modified; };
+    QList<RecentMap> maps;
+    for (const auto &entry : recentDocuments()) {
+        const auto item = entry.toMap();
+        const QFileInfo file(item["path"].toString());
+        maps.append({item, file, file.lastModified()});
+    }
+    // Sort the entire history before choosing the six welcome cards. Keep
+    // history order for equal timestamps and place unavailable files last.
+    std::stable_sort(maps.begin(), maps.end(), [](const RecentMap &a, const RecentMap &b) {
+        const bool availableA = a.item["available"].toBool();
+        const bool availableB = b.item["available"].toBool();
+        if (availableA != availableB) return availableA;
+        return availableA && a.modified > b.modified;
+    });
     QVariantList result;
-    for(const auto &entry:recentDocuments().mid(0,6)) {
-        auto item=entry.toMap(); const QFileInfo file(item["path"].toString());
+    for(const auto &entry:maps.mid(0,6)) {
+        auto item=entry.item; const auto &file=entry.file;
         const auto encoded=file.absoluteFilePath().toUtf8().toBase64(QByteArray::Base64UrlEncoding|QByteArray::OmitTrailingEquals);
         item.insert("thumbnail",QString("image://recent/%1/%2-%3").arg(QString::fromLatin1(encoded)).arg(file.lastModified().toMSecsSinceEpoch()).arg(file.size()));
         item.insert("modified",file.lastModified().toString("d MMM yyyy")); result.append(item);

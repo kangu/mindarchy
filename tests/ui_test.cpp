@@ -488,14 +488,22 @@ class UiTest : public QObject {
         QVERIFY(QMetaObject::invokeMethod(choice,"clicked"));
         QTRY_VERIFY(dialog->property("needsWeek").toBool());
         dialog->setProperty("month",document->templateCalendar("2026-09-01"));
-        QTest::qWait(250);
         auto *week=findVisual(content,"templateWeek_2026-09-07"); QVERIFY(week);
         QVERIFY(QMetaObject::invokeMethod(week,"clicked"));
         QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
         auto *otherWeek=findVisual(content,"templateWeek_2026-09-21"); QVERIFY(otherWeek);
-        // Popup size changes animate: synchronize the scene before using its hit coordinates.
-        QSignalSpy framePresented(window,&QQuickWindow::frameSwapped);
-        window->requestUpdate(); QVERIFY(framePresented.wait(1000));
+        // Expansion has nested height animations. A rendered frame alone can
+        // still leave this row outside a clipping ancestor (and close the popup
+        // as an outside click). Wait for the actual calendar geometry instead.
+        const auto calendarExpanded = [&] {
+            if (dialog->property("width").toReal() != 360.0) return false;
+            for (auto *item = otherWeek; item; item = item->parentItem()) {
+                if (!item->isVisible() || item->width() <= 0 || item->height() <= 0) return false;
+                if (item->clip() && item->childrenRect().bottom() > item->height() + 0.01) return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(calendarExpanded(), 3000);
         // Click Wednesday, well away from the week-number column.
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
             otherWeek->mapToScene(QPointF(otherWeek->width()*3.5/8,otherWeek->height()/2)).toPoint());
@@ -1386,15 +1394,15 @@ class UiTest : public QObject {
             Engine map; map.setRecentDirectory(directory.path());
             QVERIFY(map.save(directory.filePath(QString("Keyboard %1.omm").arg(i))));
         }
-        QVERIFY(QFile::remove(directory.filePath("Keyboard 4.omm"))); // second card unavailable
+        QVERIFY(QFile::remove(directory.filePath("Keyboard 4.omm"))); // unavailable card sorts last
         window->resize(1380,900); window->setProperty("welcomeVisible",true);
         auto focused=[this](const QString &name) { return window->activeFocusItem() && window->activeFocusItem()->objectName()==name; };
         QTRY_VERIFY(focused("welcomeCard0"));
-        QTest::keyClick(window,Qt::Key_Right); QVERIFY(focused("welcomeCard2"));
-        QTest::keyClick(window,Qt::Key_Down); QVERIFY(focused("welcomeCard5"));
-        QTest::keyClick(window,Qt::Key_Up); QVERIFY(focused("welcomeCard2"));
+        QTest::keyClick(window,Qt::Key_Right); QVERIFY(focused("welcomeCard1"));
+        QTest::keyClick(window,Qt::Key_Down); QVERIFY(focused("welcomeCard4"));
+        QTest::keyClick(window,Qt::Key_Up); QVERIFY(focused("welcomeCard1"));
         QTest::keyClick(window,Qt::Key_Home); QVERIFY(focused("welcomeCard0"));
-        QTest::keyClick(window,Qt::Key_End); QVERIFY(focused("welcomeCard5"));
+        QTest::keyClick(window,Qt::Key_End); QVERIFY(focused("welcomeCard4"));
         QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeNewMap"));
         QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeOpenMap"));
         QTest::keyClick(window,Qt::Key_Return);
@@ -1407,7 +1415,7 @@ class UiTest : public QObject {
         QTest::keyClick(window,Qt::Key_Backtab,Qt::ShiftModifier); QVERIFY(focused("welcomeOpenMap"));
         QTest::keyClick(window,Qt::Key_Escape); QVERIFY(focused("welcomeNewMap"));
         window->resize(600,640); QTest::keyClick(window,Qt::Key_End);
-        QTRY_VERIFY(focused("welcomeCard5"));
+        QTRY_VERIFY(focused("welcomeCard4"));
         auto *last=window->activeFocusItem();
         QTRY_VERIFY(last->mapToScene(QPointF(0,last->height())).y()<=window->height());
         QTest::keyClick(window,Qt::Key_Home); QTRY_VERIFY(focused("welcomeCard0"));

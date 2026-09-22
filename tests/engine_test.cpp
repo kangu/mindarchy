@@ -192,6 +192,35 @@ class EngineTest : public QObject {
         QVERIFY(order.moveBranches({3,4},1,2)); QCOMPARE(order.nodes()[1].children,QVector<int>({3,4,2,5}));
         order.undo(); QCOMPARE(order.nodes()[1].children,QVector<int>({2,3,4,5}));
     }
+    void welcomeMapsSortByModificationTimeBeforeLimiting() {
+        QTemporaryDir dir;
+        Engine e(nullptr,Engine::InitialContent::Blank); e.setRecentDirectory(dir.path());
+        QStringList paths;
+        const auto base = QDateTime::fromString("2026-09-20T10:00:00Z", Qt::ISODate);
+        for (int i=0;i<8;++i) {
+            const QString path=dir.filePath(QString("map-%1.omm").arg(i));
+            QVERIFY(e.save(path)); paths.append(QFileInfo(path).canonicalFilePath());
+            QFile file(path); QVERIFY(file.open(QIODevice::ReadWrite));
+            QVERIFY(file.setFileTime(base.addSecs((8-i)*60), QFileDevice::FileModificationTime));
+        }
+        // Opening an older map changes history order, but not its modified time.
+        QVERIFY(e.open(paths.last()));
+        auto maps=e.recentMaps(); QCOMPARE(maps.size(),6);
+        for(int i=0;i<6;++i) QCOMPARE(maps[i].toMap()["path"].toString(), paths[i]);
+        // A modification outside the application must be picked up on refresh.
+        QFile updated(paths[7]); QVERIFY(updated.open(QIODevice::ReadWrite));
+        QVERIFY(updated.setFileTime(base.addSecs(1000), QFileDevice::FileModificationTime)); updated.close();
+        QCOMPARE(e.recentMaps().first().toMap()["path"].toString(),paths[7]);
+        // Missing maps follow available maps, retaining history order for ties.
+        for(int i=2;i<8;++i) QVERIFY(QFile::remove(paths[i]));
+        maps=e.recentMaps(); QCOMPARE(maps[0].toMap()["path"].toString(),paths[0]);
+        QCOMPARE(maps[1].toMap()["path"].toString(),paths[1]);
+        QVERIFY(!maps[2].toMap()["available"].toBool());
+        QCOMPARE(maps[2].toMap()["path"].toString(),paths[7]);
+        QFile tied(paths[1]); QVERIFY(tied.open(QIODevice::ReadWrite));
+        QVERIFY(tied.setFileTime(base.addSecs(480), QFileDevice::FileModificationTime)); tied.close();
+        QCOMPARE(e.recentMaps().first().toMap()["path"].toString(),paths[1]);
+    }
     void welcomeRecentsAndUnfinishedRecovery() {
         QTemporaryDir dir;
         Engine e(nullptr,Engine::InitialContent::Blank); e.setRecentDirectory(dir.path());
@@ -204,7 +233,7 @@ class EngineTest : public QObject {
         QVERIFY(e.setText(1,"Unfinished idea")); QVERIFY(e.saveRecovery(recovery,{}));
         QCOMPARE(DocumentSession::unfinishedPaths(dir.path()),QStringList{recovery});
         QVERIFY(QFile::remove(maps.first().toMap()["path"].toString()));
-        QVERIFY(!e.recentMaps().first().toMap()["available"].toBool());
+        for (const auto &map : e.recentMaps()) QVERIFY(map.toMap()["available"].toBool());
     }
     void recentDocumentsPersistWithoutReplacingWork() {
         QTemporaryDir dir; Engine writer(nullptr,Engine::InitialContent::Blank);
