@@ -57,8 +57,9 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
     connect(m_client, &ShareClient::rememberedLoginChanged, this, &ShareCoordinator::rememberedLoginChanged);
     connect(m_client, &ShareClient::reconnectingChanged, this, &ShareCoordinator::reconnectingChanged);
     connect(m_client, &ShareClient::sessionMessage, this, [this](const QString &message) {
+        // Background authentication has no pending dialog action. Keep its
+        // progress in the live status, which successful sign-in replaces.
         setShareStatus(message);
-        emit operationFailed(message);
     });
     connect(m_client, &ShareClient::sessionRenewed, this, [this] {
         if (!m_mapId.isEmpty()) {

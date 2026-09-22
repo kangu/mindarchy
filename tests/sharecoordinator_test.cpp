@@ -148,6 +148,27 @@ private:
     }
 
 private slots:
+    void automaticLoginProgressDoesNotBecomeAnOperationError() {
+        Harness h; QVERIFY(h.setup());
+        QSignalSpy failures(h.coordinator.data(), &ShareCoordinator::operationFailed);
+        h.client->sessionMessage("Connecting to your sharing server…");
+        QCOMPARE(h.coordinator->shareStatus(), QString("Connecting to your sharing server…"));
+        QCOMPARE(failures.count(), 0);
+        // Restore completes without any manual pending sign-in in the dialog.
+        h.client->fakeSignedIn = true;
+        h.client->signedInChanged();
+        QVERIFY(h.coordinator->signedIn());
+        QCOMPARE(h.coordinator->shareStatus(), QString("Online"));
+        QCOMPARE(failures.count(), 0);
+        h.client->sessionMessage("Offline · will reconnect automatically");
+        QCOMPARE(failures.count(), 0);
+        h.client->sessionRenewed();
+        QCOMPARE(h.coordinator->shareStatus(), QString("Online"));
+        // Real user-action failures still reach the feedback panel.
+        h.client->error("Invitation could not be created");
+        QCOMPARE(failures.count(), 1);
+        h.restore();
+    }
     void signInMarksCoordinatorSignedIn() {
         Harness h;
         h.setup();
