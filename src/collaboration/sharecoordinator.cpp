@@ -66,6 +66,40 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         if (m_bridge->applyingRemote()) return;
         if (signedIn() && !m_mapId.isEmpty()) { if(m_live) captureLiveChanges(); else m_debounce.start(); }
     });
+    connect(m_engine, &Engine::documentOpening, this, [this] {
+        if (m_bridge->applyingRemote()) return;
+        // Switching local documents leaves the room, but must not delete the
+        // previous document's saved sharing attachment.
+        m_debounce.stop();
+        m_transport->leave();
+        if (m_session) { delete m_session; m_session = nullptr; }
+        m_mapId.clear(); m_role.clear(); m_invitationCode.clear(); m_presence.clear();
+        m_live = false; m_epoch.clear(); m_revision = 0;
+        m_baseline = {}; m_visible = {}; m_applied.clear(); m_deferredHello = {};
+        m_captureFailed = false; m_legacyRecoveryPath.clear(); m_lastQueuedHash.clear();
+        m_pendingChanges.clear(); m_pendingHash.clear();
+        m_lastSubmitChanges.clear(); m_lastSubmitHash.clear();
+        m_lastSubmitCounter = 0; m_submitAttempts = 0;
+        emit mapChanged(); emit invitationCodeChanged(); emit presenceChanged();
+        setShareStatus(signedIn() ? "Online" : "Offline");
+    });
+    connect(m_engine, &Engine::documentOpened, this, [this] {
+        if (m_bridge->applyingRemote()) return;
+        adoptAttachedMap();
+        if (m_mapId.isEmpty()) return;
+        if (signedIn()) {
+            ensureSession();
+            m_transport->setBaseUrl(serverUrl());
+            m_transport->join(m_mapId);
+            m_client->fetchMapState(m_mapId);
+        } else {
+            setShareStatus("Shared · offline");
+        }
+    });
+    connect(m_engine, &Engine::documentSaved, this, [this] {
+        if (!m_mapId.isEmpty() && !attachMapId(m_mapId))
+            emit operationFailed("The map was saved, but its sharing link could not be saved beside it. You can reopen the shared map from Shared with me.");
+    });
     wireCookie();
     connect(m_client, &ShareClient::rememberedLoginChanged, this, &ShareCoordinator::rememberedLoginChanged);
     connect(m_client, &ShareClient::reconnectingChanged, this, &ShareCoordinator::reconnectingChanged);
@@ -118,6 +152,7 @@ ShareCoordinator::ShareCoordinator(Engine *engine, ShareClient *client, ShareTra
         m_transport->setBaseUrl(m_settings->serverUrl());
         ensureSession();
         m_transport->join(m_mapId);
+        m_client->fetchMapState(m_mapId);
     }
 }
 
@@ -165,6 +200,7 @@ void ShareCoordinator::signOut() {
 }
 
 void ShareCoordinator::shareCurrentMap() {
+    if (!m_mapId.isEmpty()) { emit operationSucceeded("share"); return; }
     m_client->createMap(m_engine->documentBytes(), m_engine->documentName());
 }
 
@@ -209,6 +245,11 @@ bool ShareCoordinator::attachMapId(const QString &mapId) {
         m_captureFailed = false; m_deferredHello = {}; m_legacyRecoveryPath.clear(); m_lastQueuedHash.clear(); m_live=false; m_epoch.clear(); m_visible={}; m_baseline={}; m_applied.clear();
         if(m_session){delete m_session;m_session=nullptr;}
     }
+    // The server attachment is valid even when a local sidecar cannot be saved.
+    // Publish it first so invitations and the outbox are not gated on file permissions.
+    m_mapId = mapId;
+    emit mapChanged();
+    if (m_engine->documentPath().isEmpty()) return true;
     const QString path = m_engine->documentPath() + QStringLiteral(".share");
     if (mapId.isEmpty()) {
         const bool removed = QFile::remove(path);
@@ -216,7 +257,7 @@ bool ShareCoordinator::attachMapId(const QString &mapId) {
         emit mapChanged();
         return removed;
     }
-    QFile file(path);
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) return false;
     const QByteArray payload = QJsonDocument(QJsonObject{{"serverUrl", m_settings->serverUrl()},
                                                          {"mapId", mapId},
@@ -224,16 +265,25 @@ bool ShareCoordinator::attachMapId(const QString &mapId) {
                                                          {"account", m_client->accountName()}})
                                    .toJson(QJsonDocument::Compact);
     if (file.write(payload) != payload.size()) return false;
-    m_mapId = mapId;
-    emit mapChanged();
-    return true;
+    return file.commit();
 }
 
 void ShareCoordinator::adoptAttachedMap() {
+    if (m_engine->documentPath().isEmpty()) return;
     const QString path = m_engine->documentPath() + QStringLiteral(".share");
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return;
     const QJsonObject object = QJsonDocument::fromJson(file.readAll()).object();
+    if (object.value("mapId").toString().isEmpty()) return;
+    const QString savedServer = object.value("serverUrl").toString();
+    if (!savedServer.isEmpty() && savedServer != serverUrl()) {
+        // Select the saved server without erasing credentials for the old one.
+        m_settings->setServerUrl(savedServer);
+        m_client->setBaseUrl(savedServer);
+        m_transport->setBaseUrl(savedServer);
+        emit serverChanged();
+        QTimer::singleShot(0, m_client, [client = m_client] { client->restoreLogin(); });
+    }
     m_mapId = object.value("mapId").toString();
     m_role = object.value("role").toString();
     emit mapChanged();
@@ -294,12 +344,18 @@ void ShareCoordinator::handleSignedIn() {
 }
 
 void ShareCoordinator::handleMapCreated(const QString &mapId) {
-    emit operationSucceeded("share");
+    if (mapId.isEmpty()) {
+        emit operationFailed("The server did not return a shared map ID. Please try again.");
+        return;
+    }
     m_role = "owner";
-    attachMapId(mapId);
+    const bool persisted = attachMapId(mapId);
     ensureSession();
     m_transport->setBaseUrl(m_settings->serverUrl());
     m_transport->join(mapId);
+    emit operationSucceeded("share");
+    if (!persisted)
+        emit operationFailed("Your map is shared and you can invite people. Its local sharing link could not be saved; reopen it from Shared with me if needed.");
 }
 
 void ShareCoordinator::handleInviteAccepted(const QString &mapId, const QString &role) {

@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QProcess>
 #include <QtTest>
+#include <QScopeGuard>
 #import <AppKit/AppKit.h>
 
 class MacApplicationTest : public QObject {
@@ -207,11 +208,23 @@ private slots:
             };
             QTRY_COMPARE(nativeWindowCount(),3);
             const auto firstId=first->property("macDocumentWindowId").toLongLong();
+            NSWindow *nativeFirst = reinterpret_cast<NSView *>(first->winId()).window;
+            __block BOOL minimizeFinished = NO;
+            id observer = [NSNotificationCenter.defaultCenter
+                addObserverForName:NSWindowDidMiniaturizeNotification object:nativeFirst queue:nil
+                usingBlock:^(NSNotification *) { minimizeFinished = YES; }];
+            auto removeObserver = qScopeGuard([observer] {
+                [NSNotificationCenter.defaultCenter removeObserver:observer];
+            });
+            first->showMinimized();
+            // A fixed delay can send the menu action during AppKit's animation,
+            // when it may be ignored. Wait for native completion, then use the
+            // current menu item (AppKit updates the menu when minimizing).
+            QTRY_VERIFY_WITH_TIMEOUT(minimizeFinished, 5000);
+            QVERIFY(nativeFirst.isMiniaturized);
             NSMenuItem *firstItem=[NSApp.windowsMenu itemWithTitle:@"Saved map"];
             QVERIFY(firstItem);
-            first->showMinimized();
-            QTest::qWait(400); // Let AppKit finish its minimize animation before selecting.
-            [NSApp sendAction:firstItem.action to:firstItem.target from:firstItem];
+            QVERIFY([NSApp sendAction:firstItem.action to:firstItem.target from:firstItem]);
             QTRY_COMPARE(app.activeWindow(),first); QTRY_VERIFY(first->windowState()!=Qt::WindowMinimized);
             // A normal close forgets only that document and leaves the app running.
             QMetaObject::invokeMethod(third,"requestClose",Q_ARG(QVariant,true),Q_ARG(QVariant,false));

@@ -1819,6 +1819,44 @@ bool Engine::applyRemoteDocumentBytes(const QByteArray &bytes,
                                      const std::function<QByteArray(const QByteArray &)> &rebaseHistory) {
     Engine candidate(nullptr, InitialContent::Blank);
     if (!candidate.loadDocumentBytes(bytes, m_documentPath)) return fail(candidate.error());
+    // Wire projections renumber nodes. Keep local IDs stable for the canvas editor,
+    // focus, animations and any pending interaction that still references an ID.
+    QHash<QString, int> localIds;
+    const QString rootIdentity = candidate.m_nodes.value(1).syncId;
+    localIds.insert(rootIdentity, 1);
+    int nextLocalId = m_nextId;
+    for (const auto &node : m_nodes) {
+        if (node.id != 1 && node.syncId != rootIdentity)
+            localIds.insert(node.syncId, node.id);
+        nextLocalId = std::max(nextLocalId, node.id + 1);
+    }
+    const auto preserveLocalIds = [&](State &incoming) {
+        QHash<int, int> remap;
+        for (const auto &node : incoming.nodes) {
+            if (!localIds.contains(node.syncId)) localIds.insert(node.syncId, nextLocalId++);
+            remap.insert(node.id, localIds.value(node.syncId));
+        }
+        QHash<int, MapNode> nodes;
+        for (auto node : incoming.nodes) {
+            node.id = remap.value(node.id);
+            if (node.parent >= 0) node.parent = remap.value(node.parent);
+            for (int &child : node.children) child = remap.value(child);
+            nodes.insert(node.id, node);
+        }
+        for (auto &edge : incoming.connections) {
+            edge.first = remap.value(edge.first);
+            edge.second = remap.value(edge.second);
+        }
+        incoming.selected = remap.value(incoming.selected, 1);
+        QSet<int> selection;
+        for (int id : incoming.selection) selection.insert(remap.value(id, 1));
+        incoming.selection = selection;
+        incoming.nodes = nodes;
+        incoming.nextId = nextLocalId;
+    };
+    State projected = candidate.state();
+    preserveLocalIds(projected);
+    candidate.restore(projected);
     if (candidate.documentBytes() == documentBytes()) return true;
     const auto preserveSelection = [](State &next, const State &previous) {
         QHash<QString, int> ids;
@@ -1839,6 +1877,7 @@ bool Engine::applyRemoteDocumentBytes(const QByteArray &bytes,
             const QByteArray updated = rebaseHistory(snapshot.documentBytes(m_documentPath));
             if (updated.isEmpty() || !snapshot.loadDocumentBytes(updated, m_documentPath)) continue;
             State next = snapshot.state();
+            preserveLocalIds(next);
             preserveSelection(next, old);
             rebased.append(next);
         }
@@ -1847,6 +1886,7 @@ bool Engine::applyRemoteDocumentBytes(const QByteArray &bytes,
     rebaseStack(m_undo);
     rebaseStack(m_redo);
     State next = candidate.state();
+    next.nextId = nextLocalId;
     preserveSelection(next, state());
     m_textCache.clear();
     restore(next);

@@ -12,10 +12,48 @@
 #include <QMouseEvent>
 #include <QPointingDevice>
 #include <QtTest>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <cmath>
 class CanvasTest : public QObject {
     Q_OBJECT
   private slots:
+    void remoteRenumberingKeepsNewNodeEditor() {
+        for (bool peerChange : {false, true}) {
+            Engine e(nullptr, Engine::InitialContent::Blank);
+            e.addChild(); const int first = e.selectedId(); e.setText(first, "First child");
+            e.select(1);
+            MindCanvas canvas; canvas.setSize({1000,700}); canvas.setEngine(&e);
+            e.addChild(); const int added = e.selectedId();
+            const auto identity = e.nodes().value(added).syncId;
+            QCOMPARE(canvas.editingId(), added);
+            auto doc = QJsonDocument::fromJson(e.documentBytes()).object();
+            auto nodes = doc["nodes"].toArray();
+            auto remap = [=](int id) { return id == first ? added : id == added ? first : id; };
+            for (int i=0; i<nodes.size(); ++i) {
+                auto node=nodes[i].toObject(); node["id"]=remap(node["id"].toInt());
+                node["parent"]=remap(node["parent"].toInt());
+                QJsonArray children; for (auto child:node["children"].toArray()) children.append(remap(child.toInt()));
+                node["children"]=children; nodes[i]=node;
+            }
+            // Include an actual peer change so this also exercises state replacement,
+            // not just the no-op acknowledgement path.
+            for (int i=0; i<nodes.size(); ++i) {
+                auto node=nodes[i].toObject();
+                if (peerChange && node["id"].toInt()==1) { node["notes"]="Peer notes"; nodes[i]=node; }
+            }
+            doc["nodes"]=nodes;
+            QVERIFY(e.applyRemoteDocumentBytes(QJsonDocument(doc).toJson(), [](const QByteArray &b) { return b; }));
+            QCOMPARE(e.selectedId(), added);
+            QCOMPARE(canvas.editingId(), added);
+            QCOMPARE(e.nodes().value(canvas.editingId()).syncId, identity);
+            QVERIFY(e.setText(canvas.editingId(), "Typing on new node"));
+            QCOMPARE(e.nodes().value(first).text, QString("First child"));
+            QCOMPARE(e.selectedText(), QString("Typing on new node"));
+        }
+    }
+
     void deleteImageKeepsNodeAndChildren() {
         for(const auto key:{Qt::Key_Delete,Qt::Key_Backspace}) {
             Engine e; e.loadFixture(15); e.select(2);

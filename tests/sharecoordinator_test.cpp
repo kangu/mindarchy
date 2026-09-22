@@ -323,6 +323,69 @@ private slots:
         h.restore();
     }
 
+    void reopenedMapRestoresSharingBeforeAndAfterLogin() {
+        Harness first; QVERIFY(first.setup()); QVERIFY(first.loadDocument("persisted.omm"));
+        QVERIFY(first.engine.save(first.engine.documentPath()));
+        first.coordinator->signIn("ada", "secret"); first.coordinator->shareCurrentMap();
+        const auto mapId = first.coordinator->mapId();
+        const auto path = first.engine.documentPath();
+        for (bool loginFirst : {false, true}) {
+            Harness reopened; QVERIFY(reopened.setup());
+            reopened.coordinator->chooseServer("http://127.0.0.1:19999");
+            if (loginFirst) reopened.coordinator->signIn("ada", "secret");
+            QVERIFY(reopened.engine.open(path));
+            QCOMPARE(reopened.coordinator->mapId(), mapId);
+            QCOMPARE(reopened.coordinator->serverUrl(), first.coordinator->serverUrl());
+            if (!loginFirst) reopened.coordinator->signIn("ada", "secret");
+            QCOMPARE(reopened.transport->lastJoined, mapId);
+            QVERIFY(reopened.transport->online);
+            QCOMPARE(reopened.client->fetchedMaps.last(), mapId);
+            const auto privatePath = reopened.dir.filePath("private.omm");
+            QFile file(privatePath); QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(Harness::fixtureBytes()); file.close();
+            QVERIFY(reopened.engine.open(privatePath));
+            QVERIFY(reopened.coordinator->mapId().isEmpty());
+            QVERIFY(!reopened.transport->online);
+            QVERIFY(QFile::exists(path + ".share"));
+            QVERIFY(reopened.engine.open(path));
+            QCOMPARE(reopened.transport->lastJoined, mapId);
+            QVERIFY(reopened.transport->online);
+            reopened.restore();
+        }
+        first.restore();
+    }
+
+    void sharingSurvivesUnwritableSidecar() {
+        Harness h; QVERIFY(h.setup()); QVERIFY(h.loadDocument("blocked.omm"));
+        QVERIFY(QDir().mkdir(h.engine.documentPath() + ".share"));
+        h.coordinator->signIn("ada", "secret");
+        QSignalSpy warnings(h.coordinator.data(), &ShareCoordinator::operationFailed);
+        h.coordinator->shareCurrentMap();
+        QCOMPARE(h.coordinator->mapId(), h.client->createdMapId);
+        QVERIFY(h.coordinator->canInvite());
+        QCOMPARE(h.transport->joins.last(), h.client->createdMapId);
+        QVERIFY(!warnings.isEmpty());
+        const auto original = h.client->createdMapId;
+        h.coordinator->shareCurrentMap();
+        QCOMPARE(h.client->createdMapId, original);
+        h.restore();
+    }
+
+    void unsavedMapSharesWithoutWorkingDirectorySidecar() {
+        Harness h; QVERIFY(h.setup());
+        const auto cwd = QDir::currentPath();
+        auto restore = qScopeGuard([&] { QDir::setCurrent(cwd); });
+        QVERIFY(QDir::setCurrent(h.dir.path()));
+        h.coordinator->signIn("ada", "secret");
+        h.coordinator->shareCurrentMap();
+        QVERIFY(!h.coordinator->mapId().isEmpty());
+        QVERIFY(h.coordinator->canInvite());
+        QVERIFY(!QFile::exists(".share"));
+        QVERIFY(h.engine.save(h.dir.filePath("saved.omm")));
+        QVERIFY(QFile::exists(h.engine.documentPath() + ".share"));
+        h.restore();
+    }
+
     void shareCurrentMapAttachesAndJoins() {
         Harness h;
         h.setup();
