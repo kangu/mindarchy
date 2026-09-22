@@ -15,12 +15,14 @@
 #include <QTemporaryDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTextDocument>
 #include "recentpreview.h"
 #include "viewportstate.h"
+#include "collaboration/sharecoordinator.h"
 #include <QTextCursor>
 #include <QtTest>
 
@@ -32,6 +34,7 @@ class UiTest : public QObject {
     QQuickWindow *window = nullptr;
     MindCanvas *canvas = nullptr;
     QQuickItem *editor = nullptr;
+    ShareCoordinator *shareCoordinator = nullptr;
     QQuickItem *findVisual(QQuickItem *item, const QString &name) {
         if (item->objectName() == name) return item;
         for (auto *child : item->childItems())
@@ -68,6 +71,122 @@ class UiTest : public QObject {
         stage("Editing: " + text);
     }
   private slots:
+    void shareLivesInDocumentToolbar() {
+        auto *workspace=window->findChild<QQuickItem *>("documentWorkspace"); QVERIFY(workspace);
+        auto *button=workspace->findChild<QQuickItem *>("shareButton"); QVERIFY(button);
+        QVERIFY(button->isVisible());
+        QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint());
+        auto *dialog=workspace->findChild<QObject *>("shareDialog"); QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        auto closeDialog=qScopeGuard([&]{ QVERIFY(QMetaObject::invokeMethod(dialog,"close")); });
+        QVERIFY(workspace->property("modalInteraction").toBool());
+        QVERIFY(dialog->property("height").toReal() < window->height());
+        QVERIFY(!dialog->property("settingsExpanded").toBool());
+        auto *settingsToggle = dialog->findChild<QObject *>("shareSettingsToggle"); QVERIFY(settingsToggle);
+        QVERIFY(QMetaObject::invokeMethod(settingsToggle, "clicked"));
+        QVERIFY(dialog->property("settingsExpanded").toBool());
+        auto *draft = dialog->findChild<QObject *>("shareAccount"); QVERIFY(draft);
+        draft->setProperty("text", "acct_test");
+        dialog->setProperty("pending", "invite");
+        shareCoordinator->operationFailed("Cannot reach the sharing server. Try again.");
+        QCOMPARE(draft->property("text").toString(), QString("acct_test"));
+        QVERIFY(dialog->property("feedbackError").toBool());
+        QVERIFY(dialog->property("pending").toString().isEmpty());
+        dialog->setProperty("pending", "invite");
+        shareCoordinator->operationSucceeded("invite");
+        QVERIFY(draft->property("text").toString().isEmpty());
+        QVERIFY(!dialog->property("feedbackError").toBool());
+
+        QQmlExpression resolvesShare(qmlContext(workspace),workspace,QStringLiteral("typeof share !== 'undefined' && share !== null && share.signedIn === false"));
+        QVERIFY(resolvesShare.evaluate().toBool());
+        auto *invite=dialog->findChild<QObject *>("shareInvite"); QVERIFY(invite);
+        QVERIFY(!invite->property("enabled").toBool());
+        auto *account=dialog->findChild<QObject *>("shareAccount"); QVERIFY(account);
+        QVERIFY(!account->property("enabled").toBool());
+        auto *role=dialog->findChild<QObject *>("shareRole"); QVERIFY(role);
+        QVERIFY(!role->property("enabled").toBool());
+        auto *serverBox=dialog->findChild<QObject *>("shareServerBox"); QVERIFY(serverBox);
+        QCOMPARE(serverBox->property("count").toInt(),3);
+        const auto presets=serverBox->property("model").toList();
+        QCOMPARE(presets.value(0).toString(),QStringLiteral("share.mindarchy.xyz"));
+        QVERIFY(workspace->findChild<QObject *>("presenceStrip"));
+        QQmlExpression serverBinding(qmlContext(workspace),workspace,QStringLiteral("share.presets[0]"));
+        QCOMPARE(serverBinding.evaluate().toString(),QStringLiteral("share.mindarchy.xyz"));
+        auto *signInButton=dialog->findChild<QObject *>("shareSignIn"); QVERIFY(signInButton);
+        QVERIFY(!signInButton->property("enabled").toBool());
+        auto *signInAccount=dialog->findChild<QObject *>("shareSignInAccount"); QVERIFY(signInAccount);
+        auto *signInPassword=dialog->findChild<QObject *>("shareSignInPassword"); QVERIFY(signInPassword);
+        signInAccount->setProperty("text",QStringLiteral("ada"));
+        QVERIFY(!signInButton->property("enabled").toBool());
+        signInPassword->setProperty("text",QStringLiteral("secret"));
+        QTRY_VERIFY(signInButton->property("enabled").toBool());
+        signInPassword->setProperty("text",QStringLiteral(""));
+        QTRY_VERIFY(!signInButton->property("enabled").toBool());
+        dialog->setProperty("settingsExpanded", false);
+        dialog->setProperty("feedback", "");
+        const QString screenshot = qEnvironmentVariable("MINDARCHY_SHARE_SCREENSHOT");
+        if (!screenshot.isEmpty()) {
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(screenshot));
+        }
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+    void shareSignedInFlow() {
+        QQmlComponent mockComponent(qml);
+        mockComponent.setData(
+            "\n"
+            "            import QtQuick\n"
+            "            QtObject {\n"
+            "                property bool signedIn: true\n"
+            "                property bool canInvite: true\n                property bool reconnecting: false\n                property bool rememberedLogin: true\n"
+            "                property string accountName: \"acct_test\"\n"
+            "                property string shareStatus: \"Live\"\n"
+            "                property string mapId: \"map-test\"\n"
+            "                property string invitationCode: \"invite-test-code\"\n"
+            "                property string serverUrl: \"https://share.example\"\n"
+            "                property var presets: [\"https://share.example\"]\n"
+            "                property var sharedMaps: []\n"
+            "                signal operationSucceeded(string action)\n"
+            "                signal operationFailed(string message)\n"
+            "                function refreshSharedMaps() {}\n"
+            "                function signOut() { signedIn = false; rememberedLogin = false }\n"
+            "            }\n"
+            "        \n"
+        , QUrl());
+        QScopedPointer<QObject> mock(mockComponent.create()); QVERIFY(mock);
+        QQmlContext context(qml->rootContext());
+        context.setContextProperty("share", mock.data());
+        QQmlComponent component(qml, QUrl("qrc:/qml/ShareDialog.qml"));
+        QScopedPointer<QObject> popup(component.create(&context));
+        QVERIFY2(popup, qPrintable(component.errorString()));
+        popup->setProperty("parent", QVariant::fromValue(window->contentItem()));
+        QVERIFY(QMetaObject::invokeMethod(popup.data(), "open"));
+        QTest::qWait(150);
+        auto *invite = popup->findChild<QObject *>("shareInvite"); QVERIFY(invite);
+        auto *account = popup->findChild<QObject *>("shareAccount"); QVERIFY(account);
+        QVERIFY(account->property("visible").toBool());
+        QVERIFY(!invite->property("enabled").toBool());
+        account->setProperty("text", "acct_friend");
+        QVERIFY(invite->property("enabled").toBool());
+        auto *code = popup->findChild<QObject *>("shareInvitationCode"); QVERIFY(code);
+        QCOMPARE(code->property("text").toString(), QString("invite-test-code"));
+        QVERIFY(code->property("visible").toBool());
+        const QString screenshot = qEnvironmentVariable("MINDARCHY_SHARE_SIGNED_SCREENSHOT");
+        if (!screenshot.isEmpty()) QVERIFY(window->grabWindow().save(screenshot));
+        auto *tabs = popup->findChild<QObject *>("shareTabs"); QVERIFY(tabs);
+        tabs->setProperty("currentIndex", 1);
+        auto *join = popup->findChild<QObject *>("shareJoinToken"); QVERIFY(join);
+        QTRY_VERIFY(join->property("visible").toBool());
+        QVERIFY(!account->property("visible").toBool());
+        auto *signOut = popup->findChild<QObject *>("shareSignOut"); QVERIFY(signOut);
+        QVERIFY(signOut->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(signOut, "clicked"));
+        QVERIFY(!mock->property("signedIn").toBool());
+        QVERIFY(!mock->property("rememberedLogin").toBool());
+        QVERIFY(!signOut->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup.data(), "close"));
+    }
     void branchStylePickerTracksUndo() {
         auto *picker=window->findChild<QObject *>("branchStylePicker"); QVERIFY(picker);
         QCOMPARE(picker->property("count").toInt(),7);
@@ -369,14 +488,22 @@ class UiTest : public QObject {
         QVERIFY(QMetaObject::invokeMethod(choice,"clicked"));
         QTRY_VERIFY(dialog->property("needsWeek").toBool());
         dialog->setProperty("month",document->templateCalendar("2026-09-01"));
-        QTest::qWait(250);
         auto *week=findVisual(content,"templateWeek_2026-09-07"); QVERIFY(week);
         QVERIFY(QMetaObject::invokeMethod(week,"clicked"));
         QCOMPARE(dialog->property("selectedMonday").toString(),QString("2026-09-07"));
         auto *otherWeek=findVisual(content,"templateWeek_2026-09-21"); QVERIFY(otherWeek);
-        // Popup size changes animate: synchronize the scene before using its hit coordinates.
-        QSignalSpy framePresented(window,&QQuickWindow::frameSwapped);
-        window->requestUpdate(); QVERIFY(framePresented.wait(1000));
+        // Expansion has nested height animations. A rendered frame alone can
+        // still leave this row outside a clipping ancestor (and close the popup
+        // as an outside click). Wait for the actual calendar geometry instead.
+        const auto calendarExpanded = [&] {
+            if (dialog->property("width").toReal() != 360.0) return false;
+            for (auto *item = otherWeek; item; item = item->parentItem()) {
+                if (!item->isVisible() || item->width() <= 0 || item->height() <= 0) return false;
+                if (item->clip() && item->childrenRect().bottom() > item->height() + 0.01) return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(calendarExpanded(), 3000);
         // Click Wednesday, well away from the week-number column.
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,
             otherWeek->mapToScene(QPointF(otherWeek->width()*3.5/8,otherWeek->height()/2)).toPoint());
@@ -695,6 +822,8 @@ class UiTest : public QObject {
         qml = new QQmlApplicationEngine(this);
         qml->addImageProvider("recent",new RecentPreviewProvider);
         qml->rootContext()->setContextProperty("engine", document);
+        shareCoordinator = new ShareCoordinator(document, this);
+        qml->rootContext()->setContextProperty("share", shareCoordinator);
         qml->load(QUrl("qrc:/qml/Main.qml"));
         QVERIFY2(!qml->rootObjects().isEmpty(), "The full application QML must load");
         window = qobject_cast<QQuickWindow *>(qml->rootObjects().first());
@@ -1265,15 +1394,15 @@ class UiTest : public QObject {
             Engine map; map.setRecentDirectory(directory.path());
             QVERIFY(map.save(directory.filePath(QString("Keyboard %1.omm").arg(i))));
         }
-        QVERIFY(QFile::remove(directory.filePath("Keyboard 4.omm"))); // second card unavailable
+        QVERIFY(QFile::remove(directory.filePath("Keyboard 4.omm"))); // unavailable card sorts last
         window->resize(1380,900); window->setProperty("welcomeVisible",true);
         auto focused=[this](const QString &name) { return window->activeFocusItem() && window->activeFocusItem()->objectName()==name; };
         QTRY_VERIFY(focused("welcomeCard0"));
-        QTest::keyClick(window,Qt::Key_Right); QVERIFY(focused("welcomeCard2"));
-        QTest::keyClick(window,Qt::Key_Down); QVERIFY(focused("welcomeCard5"));
-        QTest::keyClick(window,Qt::Key_Up); QVERIFY(focused("welcomeCard2"));
+        QTest::keyClick(window,Qt::Key_Right); QVERIFY(focused("welcomeCard1"));
+        QTest::keyClick(window,Qt::Key_Down); QVERIFY(focused("welcomeCard4"));
+        QTest::keyClick(window,Qt::Key_Up); QVERIFY(focused("welcomeCard1"));
         QTest::keyClick(window,Qt::Key_Home); QVERIFY(focused("welcomeCard0"));
-        QTest::keyClick(window,Qt::Key_End); QVERIFY(focused("welcomeCard5"));
+        QTest::keyClick(window,Qt::Key_End); QVERIFY(focused("welcomeCard4"));
         QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeNewMap"));
         QTest::keyClick(window,Qt::Key_Tab); QVERIFY(focused("welcomeOpenMap"));
         QTest::keyClick(window,Qt::Key_Return);
@@ -1286,7 +1415,7 @@ class UiTest : public QObject {
         QTest::keyClick(window,Qt::Key_Backtab,Qt::ShiftModifier); QVERIFY(focused("welcomeOpenMap"));
         QTest::keyClick(window,Qt::Key_Escape); QVERIFY(focused("welcomeNewMap"));
         window->resize(600,640); QTest::keyClick(window,Qt::Key_End);
-        QTRY_VERIFY(focused("welcomeCard5"));
+        QTRY_VERIFY(focused("welcomeCard4"));
         auto *last=window->activeFocusItem();
         QTRY_VERIFY(last->mapToScene(QPointF(0,last->height())).y()<=window->height());
         QTest::keyClick(window,Qt::Key_Home); QTRY_VERIFY(focused("welcomeCard0"));

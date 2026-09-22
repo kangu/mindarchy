@@ -18,9 +18,10 @@ Other avoidable work was present:
 ```sh
 python3 scripts/dev.py build
 python3 scripts/dev.py check
+python3 scripts/dev.py native
 ```
 
-`build` builds the app and its required dependencies only. `check` builds and runs engine, canvas, preview and manual-placement tests, offscreen and in parallel. Both reuse the existing CMake build tree. Neither launches or restarts the application.
+`build` builds the app and its required dependencies only. `check` builds and runs the fast offscreen suites, in parallel. `native` runs the opt-in native window-management suites (opens real windows). All reuse the existing CMake build tree. None of these launches or restarts the application.
 
 Measured warm runs on this Mac after the changes:
 
@@ -41,7 +42,7 @@ Use `--qt /path/to/Qt` on initial setup, `--build-dir path` to choose a tree, an
 - Engine, layout, rendering or serialization changes: fast checks.
 - A specific QML interaction change: build `ui_test` and run the relevant QtTest function with `QT_QPA_PLATFORM=offscreen`. Example on macOS: `QT_QPA_PLATFORM=offscreen build-macos/ui_test pastedFontSizesFollowNodeDepth`.
 - Broad QML changes: `python3 scripts/dev.py ui` (offscreen).
-- Release validation or requested native-window diagnosis: `python3 scripts/dev.py full`. Native tests can disrupt the desktop.
+- Release validation or requested native-window diagnosis: `python3 scripts/dev.py full` (fast+offscreen, no flicker); `python3 scripts/dev.py native` for the window-management suites (opens real windows).
 - Requested visual replay only: `python3 scripts/dev.py live` or `scripts/live-tests.sh`.
 
 Do not run the full suite after every edit. Native tests have a shared CTest desktop lock so they cannot race each other if someone enables parallel execution. They still need a real desktop to exercise OS behavior.
@@ -58,10 +59,11 @@ ctest --test-dir build -L '^fast$' --parallel 4 --output-on-failure
 
 # Full release validation; build all test binaries first.
 cmake --build build --target mindarchy mindarchy-tests --parallel
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -LE '^native$' --output-on-failure
+ctest --test-dir build -L '^native$' --output-on-failure
 ```
 
-The macOS release script explicitly builds every test and runs full CTest before packaging. Windows does the same by default; its pre-existing `SkipTests` override remains available. Omarchy's makepkg/qmake packaging path does not currently run CTest: run `dev.py full` on the Linux release host as a separate release gate. GitHub publishing uploads existing artifacts and does not certify their tests.
+The macOS release script explicitly builds every test and runs CTest in two phases: the fast+offscreen tier (`-LE '^native$'`) then the opt-in native tier (`-L '^native$'`) before packaging. Windows does the same by default; its pre-existing `SkipTests` override skips both legs. Omarchy's makepkg/qmake packaging path does not currently run CTest: run `dev.py full` (plus `dev.py native`) on the Linux release host as a separate release gate. GitHub publishing uploads existing artifacts and does not certify their tests.
 
 Separate platform/architecture release trees remain appropriate. Installer staging and clean makepkg builds favor reproducible packages rather than incremental development speed.
 

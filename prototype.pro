@@ -1,14 +1,15 @@
-QT += core gui qml quick quickcontrols2 network
+QT += core gui qml quick quickcontrols2 network sql websockets
 CONFIG += c++20
 TARGET = mindarchy
-SOURCES += src/main.cpp src/macapplication.cpp src/windowplacement.cpp src/drawing.cpp src/preview.cpp src/engine.cpp src/theme.cpp src/canvas.cpp src/canvasimages.cpp src/shelltheme.cpp
-HEADERS += src/macapplication.h src/tabshortcuts.h src/windowplacement.h src/documentsession.h src/documentrecovery.h src/viewportstate.h src/shelltheme.h src/engine.h src/theme.h src/canvas.h
+INCLUDEPATH += src src/collaboration
+SOURCES += src/collaboration/liveoperations.cpp src/collaboration/credentialstore.cpp src/main.cpp src/macapplication.cpp src/windowplacement.cpp src/drawing.cpp src/preview.cpp src/engine.cpp src/theme.cpp src/canvas.cpp src/canvasimages.cpp src/shelltheme.cpp src/collaboration/localstore.cpp src/collaboration/session.cpp src/collaboration/enginebridge.cpp src/collaboration/sharesettings.cpp src/collaboration/shareclient.cpp src/collaboration/sharetransport.cpp src/collaboration/sharecoordinator.cpp
+HEADERS += src/collaboration/liveoperations.h src/collaboration/credentialstore.h src/macapplication.h src/tabshortcuts.h src/windowplacement.h src/documentsession.h src/documentrecovery.h src/viewportstate.h src/shelltheme.h src/engine.h src/theme.h src/canvas.h src/collaboration/localstore.h src/collaboration/session.h src/collaboration/enginebridge.h src/collaboration/sharesettings.h src/collaboration/shareclient.h src/collaboration/sharetransport.h src/collaboration/sharecoordinator.h
 RESOURCES += resources.qrc
 
 macx {
     QT += network
     OBJECTIVE_SOURCES += src/macwindow.mm src/macplacement.mm
-    LIBS += -framework AppKit -framework UniformTypeIdentifiers
+    LIBS += -framework Security -framework CoreFoundation -framework AppKit -framework UniformTypeIdentifiers
     ICON = assets/icons/mindarchy.icns
     QMAKE_MACOSX_BUNDLE_GUI_IDENTIFIER = org.mindarchy.app
 }
@@ -31,7 +32,7 @@ unix:!macx {
 win32 {
     SOURCES += src/windowsdialogs.cpp
     HEADERS += src/windowsdialogs.h
-    LIBS += -lcomctl32 -lole32 -lshell32
+    LIBS += -ladvapi32 -lcomctl32 -lole32 -lshell32
 }
 
 RESOURCES += fonts.qrc

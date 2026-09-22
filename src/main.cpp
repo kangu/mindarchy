@@ -16,6 +16,8 @@
 #include "documentsession.h"
 #include "documentrecovery.h"
 #include "windowplacement.h"
+#include "collaboration/sharesettings.h"
+#include "collaboration/sharecoordinator.h"
 #include <QCommandLineParser>
 #include <QElapsedTimer>
 #include <QFile>
@@ -104,11 +106,15 @@ int main(int argc, char **argv) {
     parser.addOption({"quit-after", "Exit after milliseconds (test runs)", "ms"});
     parser.addOption({"theme", "Start with a theme ID and show Themes", "id"});
     parser.addOption({"document", "Open an .omm or legacy JSON document", "path"});
+    parser.addOption({"share-server", "Server URL override for sharing", "url"});
     parser.addPositionalArgument("file", "Document to open (.omm or legacy .json)", "[file...]");
     parser.addOption({"render-preview", "Render a document without opening a window", "path"});
     parser.addOption({"preview-output", "PNG output for --render-preview", "path"});
     parser.addOption({"preview-size", "Maximum preview dimension (32–4096 pixels)", "pixels", "1600"});
     parser.process(app);
+    QString shareServer = parser.value("share-server");
+    if (shareServer.isEmpty()) shareServer = shareServerOverride(argc, argv);
+    ShareSettings::applyCommandLineOverride(shareServer);
     Engine document(nullptr, Engine::InitialContent::Blank);
     if(parser.isSet("render-preview")) {
         bool valid=false; int size=parser.value("preview-size").toInt(&valid);
@@ -230,6 +236,8 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine qml;
     qml.addImageProvider("recent",new RecentPreviewProvider);
     qml.rootContext()->setContextProperty("engine", &document);
+    ShareCoordinator shareCoordinator(&document);
+    qml.rootContext()->setContextProperty("share", &shareCoordinator);
     qml.rootContext()->setContextProperty("deferWindowShow", true);
     qml.rootContext()->setContextProperty("nativeCloseAvailable", QGuiApplication::platformName() == "cocoa" || QGuiApplication::platformName() == "windows");
     QObject::connect(

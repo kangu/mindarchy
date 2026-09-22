@@ -6,6 +6,7 @@
 #include "windowplacement.h"
 #include "recentdocuments.h"
 #include "recentpreview.h"
+#include "sharecoordinator.h"
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QLocalSocket>
@@ -55,6 +56,7 @@ public:
     QQmlContext context;
     QQuickWindow *window=nullptr;
     QSettings viewportSettings{"Mindarchy","Mindarchy"};
+    ShareCoordinator *share=nullptr;
     std::unique_ptr<ViewportState> viewport;
     std::unique_ptr<DocumentRecovery> recovery;
     WindowPlacement *placement=nullptr;
@@ -94,6 +96,8 @@ public:
         context.setContextProperty("deferWindowShow",true);
         context.setContextProperty("sharedWindowManaged",true);
         context.setContextProperty("nativeCloseAvailable",QGuiApplication::platformName()=="cocoa" || QGuiApplication::platformName()=="windows");
+        share=new ShareCoordinator(&engine,this);
+        context.setContextProperty("share",share);
         window=application->m_openTarget ? application->m_openTarget.data() : application->createHost(&engine);
         if(!window) return false;
         QQmlComponent component(&application->m_qml,QUrl("qrc:/qml/DocumentWorkspace.qml"));
@@ -531,6 +535,8 @@ QQuickWindow *MacApplication::createHost(Engine *engine) {
     QQmlComponent component(&m_qml,QUrl("qrc:/qml/Main.qml"));
     auto *host=qobject_cast<QQuickWindow *>(component.create(context));
     if(!host) { m_error=component.errorString(); delete context; return nullptr; }
+    auto *share=new ShareCoordinator(engine,host);
+    context->setContextProperty("share",share);
     context->setParent(host);
     connect(host,&QWindow::activeChanged,this,[this,host] { if(host->isActive() && host->isVisible()) m_active=host; });
     connect(host,SIGNAL(tabMoveRequested(double,int)),this,SLOT(moveTab(double,int)));

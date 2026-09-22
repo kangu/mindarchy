@@ -1,0 +1,15 @@
+{
+  "validSubmit": {
+    "version": 1,
+    "mapId": "a6e7db7b-81a6-43e2-a1cf-25421f4f81e1",
+    "deviceId": "1dbf30b8-fad5-4ef1-a8fa-fc8a7ba8eb65",
+    "counter": 1,
+    "hash": "sha256(changes)",
+    "changes": "base64(CRDT changes)"
+  },
+  "limits": {
+    "maxDecodedChanges": 1048576,
+    "maxQueuedSubmissionsPerRoom": 256,
+    "maxParticipantsPerRoom": 32
+  }
+}

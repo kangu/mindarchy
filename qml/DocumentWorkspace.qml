@@ -31,7 +31,7 @@ FocusScope {
     readonly property bool canMergeWindows: hostWindow.canMergeWindows
     readonly property bool outlineVisible: hostWindow.outlineVisible && width >= 545
     readonly property bool inspectorVisible: hostWindow.inspectorVisible && width >= 595 + (hostWindow.outlineVisible ? 225 : 0)
-    readonly property bool modalInteraction: closeDialog.visible || dateDialog.visible || nodeTemplateDialog.visible || openDialog.visible || saveDialog.visible || imageDialog.visible || quitPending
+    readonly property bool modalInteraction: shareDialog.visible || closeDialog.visible || dateDialog.visible || nodeTemplateDialog.visible || openDialog.visible || saveDialog.visible || imageDialog.visible || quitPending
     readonly property bool modalTabBlocked: modalInteraction
     function commitForTabSwitch() { return !modalInteraction && commitEditor("") }
     function focusDocument() { canvas.forceActiveFocus() }
@@ -337,6 +337,12 @@ FocusScope {
         onAccepted: { if (!window.commitEditor("")) return; canvas.exportPng(window.localPath(selectedFile)) }
     }
 
+    ShareDialog {
+        id: shareDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+
     ColumnLayout {
         anchors.fill: parent; spacing: 0
         Rectangle {
@@ -552,6 +558,12 @@ FocusScope {
                                 controller: window.controller
                             }
                         }
+                        ToolbarButton {
+                            id: shareButton; objectName: "shareButton"
+                            iconName: "share"; text: "Share map"
+                            checked: shareDialog.visible
+                            onClicked: { if (window.commitEditor("")) shareDialog.open() }
+                        }
                     }
                     RowLayout {
                         id: editingActions; objectName: "editingActions"
@@ -712,6 +724,14 @@ FocusScope {
                 }
                 MindCanvas {
                     id: canvas; objectName: "mindCanvas"; anchors.fill: parent; anchors.topMargin: documentStrip.height; engine: window.controller; focus: true
+                    PresenceStrip {
+                        objectName: "presenceStrip"
+                        participants: share.presence
+                        visible: participants && participants.length > 0
+                        anchors.top: parent.top; anchors.right: parent.right
+                        anchors.margins: 12
+                        z: 11
+                    }
                     NodeImageTools { id: nodeImageTools; anchors.fill: parent; z: 9; canvas: parent; controller: window.controller; hostWindow: window.hostWindow }
                     onImageMenuRequested: function(id,x,y) { nodeImageTools.showMenu(id,x,y) }
                     onImagePreviewRequested: function(id) { nodeImageTools.preview(id) }

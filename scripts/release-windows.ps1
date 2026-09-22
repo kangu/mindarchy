@@ -54,7 +54,8 @@ Run cmake @('-S', $source, '-B', $BuildDir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=R
 Run cmake @('--build', $BuildDir, '--parallel', '4')
 if (!$SkipTests) {
     Run cmake @('--build', $BuildDir, '--target', 'mindarchy-tests', '--parallel', '4')
-    Run ctest @('--test-dir', $BuildDir, '--output-on-failure') }
+    Run ctest @('--test-dir', $BuildDir, '--output-on-failure', '--no-tests=error', '-LE', '^native$')
+    Run ctest @('--test-dir', $BuildDir, '--output-on-failure', '--no-tests=error', '-L', '^native$') }
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force $stage,$output | Out-Null
 Run cmake @('--install', $BuildDir, '--prefix', $stage)

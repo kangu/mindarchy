@@ -144,4 +144,5 @@ ApplicationWindow {
     function commitEditor(next) { if (activeWorkspace) return activeWorkspace.commitEditor(next) }
     function applyTheme(id) { if (activeWorkspace) return activeWorkspace.applyTheme(id) }
     function focusDocument() { if (activeWorkspace) return activeWorkspace.focusDocument() }
+
 }

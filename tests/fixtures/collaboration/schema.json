@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindarchy.xyz/protocol/collaboration-v1.json",
+  "title": "Mindarchy collaboration projection",
+  "type": "object",
+  "required": ["root", "nodes", "relationships", "settings"],
+  "additionalProperties": false,
+  "properties": {
+    "root": { "type": "string", "format": "uuid" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "parent", "deleted", "kind", "title", "notes"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "parent": { "type": ["string", "null"], "format": "uuid" },
+          "deleted": { "type": "boolean" },
+          "kind": { "type": "string", "enum": ["root", "task", "date", "meeting", "calendar", "text"] },
+          "title": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "relationships": { "type": "array" },
+    "settings": { "type": "object" }
+  }
+}

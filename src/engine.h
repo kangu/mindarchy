@@ -3,6 +3,7 @@
 #pragma once
 #include "tabshortcuts.h"
 #include <QHash>
+#include <QUuid>
 #include <QObject>
 #include <QRectF>
 #include <QSet>
@@ -13,6 +14,7 @@
 #include "nodeimage.h"
 
 struct MapNode {
+    QString syncId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     int id = 0, parent = -1;
     QVector<int> children;
     QString text, notes;
@@ -192,6 +194,9 @@ class Engine : public QObject {
     QString documentName() const;
     bool edited() const;
     Q_INVOKABLE QString documentPath() const { return m_documentPath; }
+    QByteArray documentBytes(QString destination = {}) const;
+    bool loadDocumentBytes(const QByteArray &bytes, const QString &path);
+    bool applyRemoteDocumentBytes(const QByteArray &bytes, const std::function<QByteArray(const QByteArray &)> &rebaseHistory);
     void setRecentDirectory(QString directory) { m_recentDirectory=std::move(directory); }
     Q_INVOKABLE QVariantList recentDocuments() const;
     Q_INVOKABLE QVariantList recentMaps() const;
@@ -232,8 +237,6 @@ class Engine : public QObject {
         int selected, nextId;
         QSet<int> selection;
     };
-    bool loadDocumentBytes(const QByteArray &bytes, const QString &path);
-    QByteArray documentBytes(QString destination = {}) const;
     QByteArray m_savedBytes;
     quint64 m_documentRevision = 0;
     mutable quint64 m_checkedRevision = ~quint64(0);

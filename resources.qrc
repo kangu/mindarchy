@@ -1,11 +1,15 @@
 <RCC><qresource prefix="/"><file>qml/Main.qml</file>
     <file>qml/WelcomeScreen.qml</file>
     <file>qml/DocumentWorkspace.qml</file>
+    <file>qml/ShareDialog.qml</file>
+    <file>qml/SharedMaps.qml</file>
+    <file>qml/PresenceStrip.qml</file>
     <file>qml/DocumentTabStrip.qml</file>
     <file>qml/DesktopMenus.qml</file>
     <file>qml/icons/menu.svg</file>
     <file>qml/icons/files.svg</file>
     <file>qml/icons/plus.svg</file>
+    <file>qml/icons/share.svg</file>
     <file>qml/KeyboardShortcuts.qml</file>
     <file>qml/icons/inspector-map.svg</file>
     <file>qml/icons/inspector-node.svg</file>
